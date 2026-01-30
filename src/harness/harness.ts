@@ -974,10 +974,19 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 * Get current resource ID.
 	 */
 	getResourceId(): string {
-		return this.resourceId
-	}
-	/**
-	 * Create a new thread.
+        return this.resourceId
+    }
+
+    /**
+     * Set the current resource ID (for switching between projects/resources).
+     */
+    setResourceId(resourceId: string): void {
+        this.resourceId = resourceId
+        this.currentThreadId = null
+    }
+
+    /**
+     * Create a new thread.
 	 * Uses the global "last model" if available, otherwise uses initial state.
 	 */
 	async createThread(title?: string): Promise<HarnessThread> {
@@ -1062,14 +1071,20 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	}
 
 	/**
-	 * List all threads for the current resource.
+	 * List threads. By default lists only current resource's threads.
+	 * Pass `allResources: true` to list threads across all resources.
 	 */
-	async listThreads(): Promise<HarnessThread[]> {
+	async listThreads(options?: {
+		allResources?: boolean
+	}): Promise<HarnessThread[]> {
 		const memoryStorage = await this.getMemoryStorage()
 		const result = await memoryStorage.listThreads({
-			filter: {
-				resourceId: this.resourceId,
-			},
+			perPage: options?.allResources ? false : undefined,
+			filter: options?.allResources
+				? undefined
+				: {
+						resourceId: this.resourceId,
+					},
 		})
 
 		return result.threads.map((thread: StorageThreadType) => ({

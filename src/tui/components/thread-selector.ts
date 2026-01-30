@@ -25,6 +25,8 @@ export interface ThreadSelectorOptions {
 	tui: TUI
 	threads: HarnessThread[]
 	currentThreadId: string | null
+	/** Current resource ID — threads from this resource sort to the top */
+	currentResourceId?: string
 	onSelect: (thread: HarnessThread) => void
 	onCancel: () => void
 	/** Function to fetch message preview for a thread */
@@ -42,6 +44,7 @@ export class ThreadSelectorComponent extends Box implements Focusable {
 	private filteredThreads: HarnessThread[]
 	private selectedIndex = 0
 	private currentThreadId: string | null
+	private currentResourceId: string | undefined
 	private onSelectCallback: (thread: HarnessThread) => void
 	private onCancelCallback: () => void
 	private tui: TUI
@@ -64,6 +67,7 @@ export class ThreadSelectorComponent extends Box implements Focusable {
 		super(2, 1, (text) => bg("overlayBg", text))
 
 		this.tui = options.tui
+		this.currentResourceId = options.currentResourceId
 		this.allThreads = this.sortThreads(options.threads, options.currentThreadId)
 		this.currentThreadId = options.currentThreadId
 		this.onSelectCallback = options.onSelect
@@ -126,10 +130,18 @@ export class ThreadSelectorComponent extends Box implements Focusable {
 		currentThreadId: string | null,
 	): HarnessThread[] {
 		const sorted = [...threads]
+		const resId = this.currentResourceId
 		sorted.sort((a, b) => {
 			// Current thread first
 			if (a.id === currentThreadId) return -1
 			if (b.id === currentThreadId) return 1
+			// Current resource threads before other resources
+			if (resId) {
+				const aLocal = a.resourceId === resId
+				const bLocal = b.resourceId === resId
+				if (aLocal && !bLocal) return -1
+				if (!aLocal && bLocal) return 1
+			}
 			// Then by most recently updated
 			return b.updatedAt.getTime() - a.updatedAt.getTime()
 		})
@@ -138,7 +150,11 @@ export class ThreadSelectorComponent extends Box implements Focusable {
 
 	private filterThreads(query: string): void {
 		this.filteredThreads = query
-			? fuzzyFilter(this.allThreads, query, (t) => `${t.title ?? ""} ${t.id}`)
+			? fuzzyFilter(
+					this.allThreads,
+					query,
+					(t) => `${t.title ?? ""} ${t.resourceId} ${t.id}`,
+				)
 			: this.allThreads
 
 		this.selectedIndex = Math.min(
