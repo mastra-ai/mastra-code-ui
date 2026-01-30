@@ -1021,15 +1021,25 @@ export class MastraTUI {
       // Add user message to chat
       this.addUserMessage(message)
     } else if (message.role === "assistant") {
-      // Create streaming component for assistant message
-      this.streamingComponent = new AssistantMessageComponent(
-        undefined,
-        this.hideThinkingBlock,
-        getMarkdownTheme()
-      )
+      // Only create a new streaming component if we don't already have one.
+      // Mid-stream text-start events (e.g., post-tool text) reuse the
+      // existing component created by handleMessageUpdate after tool calls.
+      if (!this.streamingComponent) {
+        this.streamingComponent = new AssistantMessageComponent(
+          undefined,
+          this.hideThinkingBlock,
+          getMarkdownTheme()
+        )
+        this.chatContainer.addChild(this.streamingComponent)
+      }
       this.streamingMessage = message
-      this.chatContainer.addChild(this.streamingComponent)
-      this.streamingComponent.updateContent(message)
+      // Always use trailing parts so we don't render pre-tool text in a
+      // post-tool component
+      const trailingParts = this.getTrailingContentParts(message)
+      this.streamingComponent.updateContent({
+        ...message,
+        content: trailingParts,
+      })
     }
     this.ui.requestRender()
   }
