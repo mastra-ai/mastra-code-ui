@@ -3,21 +3,6 @@
  * Wires the Harness to pi-tui components for a full interactive experience.
  */
 
-import * as fs from "node:fs"
-import * as path from "node:path"
-
-const DEBUG_LOG = path.join(process.cwd(), "tui-debug.log")
-function debugLog(...args: unknown[]) {
-	const line = args
-		.map((a) => (typeof a === "string" ? a : JSON.stringify(a, null, 2)))
-		.join(" ")
-	fs.appendFileSync(
-		DEBUG_LOG,
-		`[${new Date().toISOString()}] ${line}
-`,
-	)
-}
-
 import {
 	CombinedAutocompleteProvider,
 	Container,
@@ -1138,17 +1123,6 @@ ${instructions}`,
 	}
 
 	private handleMessageStart(message: HarnessMessage): void {
-		const contentSummary = message.content.map((c) =>
-			c.type === "text"
-				? `text(${(c as any).text?.length || 0}ch)`
-				: c.type === "thinking"
-					? `thinking(${(c as any).thinking?.length || 0}ch)`
-					: `${c.type}(${(c as any).id || "?"})`,
-		)
-		debugLog(
-			`MSG_START role=${message.role} hasStreamComp=${!!this.streamingComponent} compId=${(this.streamingComponent as any)?._id || "none"} content=[${contentSummary}]`,
-		)
-
 		if (message.role === "user") {
 			this.addUserMessage(message)
 		} else if (message.role === "assistant") {
@@ -1158,33 +1132,16 @@ ${instructions}`,
 					this.hideThinkingBlock,
 					getMarkdownTheme(),
 				)
-				debugLog(
-					`MSG_START created new comp#${(this.streamingComponent as any)._id}`,
-				)
 				this.chatContainer.addChild(this.streamingComponent)
-			} else {
-				debugLog(
-					`MSG_START reusing comp#${(this.streamingComponent as any)._id}`,
-				)
+				this.streamingMessage = message
+				const trailingParts = this.getTrailingContentParts(message)
+				this.streamingComponent.updateContent({
+					...message,
+					content: trailingParts,
+				})
 			}
-			this.streamingMessage = message
-			const trailingParts = this.getTrailingContentParts(message)
-			const trailingSummary = trailingParts
-				.map((c) =>
-					c.type === "text"
-						? `text(${(c as any).text?.length || 0}ch)`
-						: c.type,
-				)
-				.join(", ")
-			debugLog(
-				`MSG_START trailing=[${trailingSummary}] -> comp#${(this.streamingComponent as any)._id}`,
-			)
-			this.streamingComponent.updateContent({
-				...message,
-				content: trailingParts,
-			})
+			this.ui.requestRender()
 		}
-		this.ui.requestRender()
 	}
 
 	private handleMessageUpdate(message: HarnessMessage): void {
@@ -1192,24 +1149,10 @@ ${instructions}`,
 
 		this.streamingMessage = message
 
-		const contentSummary = message.content
-			.map((c) =>
-				c.type === "text"
-					? `text(${(c as any).text?.length || 0}ch)`
-					: c.type === "thinking"
-						? `thinking(${(c as any).thinking?.length || 0}ch)`
-						: `${c.type}(${(c as any).id || "?"})`,
-			)
-			.join(", ")
-		debugLog(`MSG_UPDATE content=[${contentSummary}]`)
-
 		// Check for new tool calls
 		for (const content of message.content) {
 			if (content.type === "tool_call") {
 				if (!this.seenToolCallIds.has(content.id)) {
-					debugLog(
-						`MSG_UPDATE new tool_call id=${content.id} name=${content.name}`,
-					)
 					this.seenToolCallIds.add(content.id)
 					this.chatContainer.addChild(new Text("", 0, 0))
 					const component = new ToolExecutionComponent(
@@ -1223,9 +1166,6 @@ ${instructions}`,
 					this.pendingTools.set(content.id, component)
 					this.allToolComponents.push(component)
 
-					debugLog(
-						`MSG_UPDATE creating new post-tool AssistantMessageComponent`,
-					)
 					this.streamingComponent = new AssistantMessageComponent(
 						undefined,
 						this.hideThinkingBlock,
@@ -1242,12 +1182,6 @@ ${instructions}`,
 		}
 
 		const trailingParts = this.getTrailingContentParts(message)
-		const trailingSummary = trailingParts
-			.map((c) =>
-				c.type === "text" ? `text(${(c as any).text?.length || 0}ch)` : c.type,
-			)
-			.join(", ")
-		debugLog(`MSG_UPDATE trailing=[${trailingSummary}]`)
 		this.streamingComponent.updateContent({
 			...message,
 			content: trailingParts,
@@ -1280,32 +1214,11 @@ ${instructions}`,
 	}
 
 	private handleMessageEnd(message: HarnessMessage): void {
-		const contentSummary = message.content
-			.map((c) =>
-				c.type === "text"
-					? `text(${(c as any).text?.length || 0}ch)`
-					: c.type === "thinking"
-						? `thinking(${(c as any).thinking?.length || 0}ch)`
-						: `${c.type}(${(c as any).id || "?"})`,
-			)
-			.join(", ")
-		debugLog(
-			`MSG_END role=${message.role} hasStreamComp=${!!this.streamingComponent} content=[${contentSummary}]`,
-		)
-
 		if (message.role === "user") return
 
 		if (this.streamingComponent && message.role === "assistant") {
 			this.streamingMessage = message
 			const trailingParts = this.getTrailingContentParts(message)
-			const trailingSummary = trailingParts
-				.map((c) =>
-					c.type === "text"
-						? `text(${(c as any).text?.length || 0}ch)`
-						: c.type,
-				)
-				.join(", ")
-			debugLog(`MSG_END trailing=[${trailingSummary}]`)
 			this.streamingComponent.updateContent({
 				...message,
 				content: trailingParts,
@@ -1325,7 +1238,6 @@ ${instructions}`,
 			this.streamingComponent = undefined
 			this.streamingMessage = undefined
 			this.seenToolCallIds.clear()
-			debugLog(`MSG_END cleared streamingComponent`)
 		}
 		this.ui.requestRender()
 	}
@@ -1335,9 +1247,6 @@ ${instructions}`,
 		toolName: string,
 		args: unknown,
 	): void {
-		debugLog(
-			`TOOL_START id=${toolCallId} name=${toolName} alreadySeen=${this.seenToolCallIds.has(toolCallId)}`,
-		)
 		if (!this.seenToolCallIds.has(toolCallId)) {
 			this.seenToolCallIds.add(toolCallId)
 			this.chatContainer.addChild(new Text("", 0, 0))
@@ -1353,14 +1262,12 @@ ${instructions}`,
 			this.allToolComponents.push(component)
 
 			// Create a new post-tool AssistantMessageComponent so pre-tool text is preserved
-			debugLog(`TOOL_START creating new post-tool AssistantMessageComponent`)
 			this.streamingComponent = new AssistantMessageComponent(
 				undefined,
 				this.hideThinkingBlock,
 				getMarkdownTheme(),
 			)
 			this.chatContainer.addChild(this.streamingComponent)
-			debugLog(`TOOL_START new comp#${(this.streamingComponent as any)._id}`)
 
 			this.ui.requestRender()
 		}
@@ -1430,9 +1337,6 @@ ${instructions}`,
 		result: unknown,
 		isError: boolean,
 	): void {
-		debugLog(
-			`TOOL_END id=${toolCallId} isError=${isError} hasPending=${this.pendingTools.has(toolCallId)}`,
-		)
 		const component = this.pendingTools.get(toolCallId)
 		if (component) {
 			const toolResult: ToolResult = {
