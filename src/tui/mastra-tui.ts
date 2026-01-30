@@ -406,15 +406,26 @@ export class MastraTUI {
 		)
 		const mostRecent = sortedThreads[0]
 
+		// Get first user message for preview
+		const messages = await this.harness.getMessagesForThread(mostRecent.id)
+		const firstUserMessage = messages.find((m) => m.role === "user")
+		const previewText = firstUserMessage
+			? this.truncatePreview(this.extractTextContent(firstUserMessage))
+			: null
+
 		// Format the time ago
 		const timeAgo = this.formatTimeAgo(mostRecent.updatedAt)
-		const threadTitle = mostRecent.title || "Untitled"
+		const shortId = mostRecent.id.slice(-6)
+		const displayName = `${mostRecent.resourceId}/${shortId}`
 
 		// Show prompt in terminal (before TUI takes over)
 		console.log(fg("dim", "─".repeat(60)))
 		console.log()
 		console.log(fg("accent", "  Found existing conversation:"))
-		console.log(`  ${bold(threadTitle)} ${fg("dim", `(${timeAgo})`)}`)
+		console.log(`  ${displayName} ${fg("dim", `(${timeAgo})`)}`)
+		if (previewText) {
+			console.log(`  ${fg("muted", `"${previewText}"`)}`)
+		}
 		console.log()
 
 		// Simple y/n prompt
@@ -508,6 +519,25 @@ export class MastraTUI {
 		if (diffDays < 7) return `${diffDays} days ago`
 
 		return date.toLocaleDateString()
+	}
+
+	/**
+	 * Extract text content from a harness message.
+	 */
+	private extractTextContent(message: HarnessMessage): string {
+		return message.content
+			.filter((c): c is { type: "text"; text: string } => c.type === "text")
+			.map((c) => c.text)
+			.join(" ")
+			.trim()
+	}
+
+	/**
+	 * Truncate text for preview display.
+	 */
+	private truncatePreview(text: string, maxLength = 50): string {
+		if (text.length <= maxLength) return text
+		return text.slice(0, maxLength - 3) + "..."
 	}
 
 	private buildLayout(): void {
@@ -1403,6 +1433,15 @@ ${instructions}`,
 				tui: this.ui,
 				threads,
 				currentThreadId: currentId,
+				getMessagePreview: async (threadId: string) => {
+					const messages = await this.harness.getMessagesForThread(threadId)
+					const firstUserMessage = messages.find((m) => m.role === "user")
+					if (firstUserMessage) {
+						const text = this.extractTextContent(firstUserMessage)
+						return this.truncatePreview(text)
+					}
+					return null
+				},
 				onSelect: async (thread) => {
 					this.ui.hideOverlay()
 
