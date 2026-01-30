@@ -239,10 +239,7 @@ export class FileEditor {
 		})
 		const oldLines = oldLinesOriginal.map(removeWhitespace)
 		const split = (str: string): string[] => {
-			return str
-				.replaceAll("\\n", "\n")
-				.split("\n")
-				.map((l: string) => l.replaceAll(`\n`, `\\n`))
+			return str.split("\n").map((l: string) => l.replaceAll(`\n`, `\\n`))
 		}
 		const fileLines = split(fileContent)
 		const normFileLines = fileLines.map(removeWhitespace)
