@@ -118,9 +118,8 @@ export async function scanCommandDirectory(dirPath: string): Promise<SlashComman
         }
       }
     }
-  } catch (error) {
-    // Directory doesn't exist or can't be read
-    console.debug(`Could not scan command directory ${dirPath}:`, error);
+  } catch {
+    // Directory doesn't exist or can't be read - silently skip
   }
   
   return commands;

@@ -175,7 +175,11 @@ export function getAppDataDir(): string {
 
 /**
  * Get the database path for mastra-code
+ * Can be overridden with the MASTRA_DB_PATH environment variable for debugging.
  */
 export function getDatabasePath(): string {
+  if (process.env.MASTRA_DB_PATH) {
+    return process.env.MASTRA_DB_PATH
+  }
   return path.join(getAppDataDir(), 'mastra.db')
 }

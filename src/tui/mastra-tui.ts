@@ -694,9 +694,6 @@ ${instructions}`,
 		}
 
         // Add custom slash commands to the list
-        console.log(
-            `Adding ${this.customSlashCommands.length} custom commands to autocomplete`
-        )
         for (const customCmd of this.customSlashCommands) {
             // Prefix with extra / to distinguish from built-in commands (//command-name)
             slashCommands.push({
@@ -704,11 +701,6 @@ ${instructions}`,
                 description: customCmd.description || `Custom: ${customCmd.name}`,
             })
         }
-
-        console.log(
-            "Total slash commands for autocomplete:",
-            slashCommands.map((c) => c.name)
-        )
 
         this.autocompleteProvider = new CombinedAutocompleteProvider(
             slashCommands,
@@ -724,8 +716,6 @@ ${instructions}`,
      */
     private async loadCustomSlashCommands(): Promise<void> {
         try {
-            console.log("Loading custom slash commands...")
-            
             // Load from all sources (global and local)
             const globalCommands = await loadCustomCommands()
             const localCommands = await loadCustomCommands(process.cwd())
@@ -744,13 +734,7 @@ ${instructions}`,
             }
             
             this.customSlashCommands = Array.from(commandMap.values())
-            
-            console.log(
-                `Loaded ${this.customSlashCommands.length} custom slash command(s):`,
-                this.customSlashCommands.map((cmd) => cmd.name)
-            )
-        } catch (error) {
-            console.error("Error loading custom slash commands:", error)
+        } catch {
             this.customSlashCommands = []
         }
     }
