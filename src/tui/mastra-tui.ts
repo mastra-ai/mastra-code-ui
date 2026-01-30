@@ -955,6 +955,23 @@ ${instructions}`,
 	// Observational Memory Event Handlers
 	// ===========================================================================
 
+	/**
+	 * Add an OM marker to the chat container, inserting it *before* the
+	 * current streaming component so it doesn't get pushed down as text
+	 * streams in.  Falls back to a normal append when nothing is streaming.
+	 */
+	private addOMMarkerToChat(marker: OMMarkerComponent): void {
+		if (this.streamingComponent) {
+			const idx = this.chatContainer.children.indexOf(this.streamingComponent)
+			if (idx >= 0) {
+				this.chatContainer.children.splice(idx, 0, marker)
+				this.chatContainer.invalidate()
+				return
+			}
+		}
+		this.chatContainer.addChild(marker)
+	}
+
 	private handleOMProgress(event: {
 		pendingTokens: number
 		threshold: number
@@ -1026,7 +1043,7 @@ ${instructions}`,
 		this.omProgress.pendingTokens = 0
 		this.omProgress.thresholdPercent = 0
 		// Show success marker in chat history
-		this.chatContainer.addChild(
+		this.addOMMarkerToChat(
 			new OMMarkerComponent({
 				type: "om_observation_end",
 				tokensObserved,
@@ -1074,7 +1091,7 @@ ${instructions}`,
 				? (compressedTokens / this.omProgress.reflectionThreshold) * 100
 				: 0
 		// Show success marker in chat history
-		this.chatContainer.addChild(
+		this.addOMMarkerToChat(
 			new OMMarkerComponent({
 				type: "om_observation_end",
 				tokensObserved: preCompressionTokens,
@@ -1098,7 +1115,7 @@ ${instructions}`,
 		this.omProgress.cycleId = undefined
 		this.omProgress.startTime = undefined
 		// Show failure marker in chat history
-		this.chatContainer.addChild(
+		this.addOMMarkerToChat(
 			new OMMarkerComponent({
 				type: "om_observation_failed",
 				error,
@@ -1536,8 +1553,8 @@ ${instructions}`,
 		})
 	}
 
-    // ===========================================================================
-    // Model Selector
+	// ===========================================================================
+	// Model Selector
 	// ===========================================================================
 
 	private async showModelSelector(): Promise<void> {
