@@ -1,0 +1,482 @@
+import { z } from "zod/v3"
+import { execa, ExecaError } from "execa"
+import stripAnsi from "strip-ansi"
+import { truncateStringForTokenEstimate } from "../utils/token-estimator"
+import treeKill from "tree-kill"
+import type { TerminalManager } from "../acp/terminal-manager.js"
+import { ipcReporter } from "../ipc/ipc-reporter.js"
+import { createTool } from "@mastra/core/tools"
+
+// Global registry for terminal managers (used in ACP mode)
+let globalTerminalManager: TerminalManager | null = null
+
+export function setGlobalTerminalManager(manager: TerminalManager | null) {
+	globalTerminalManager = manager
+}
+
+export function getGlobalTerminalManager(): TerminalManager | null {
+	return globalTerminalManager
+}
+
+// Global registry for pending terminal IDs (keyed by confirmationId)
+const pendingTerminalIds = new Map<string, string>()
+
+export function setPendingTerminalId(
+	confirmationId: string,
+	terminalId: string,
+) {
+	pendingTerminalIds.set(confirmationId, terminalId)
+}
+
+export function getPendingTerminalId(
+	confirmationId: string,
+): string | undefined {
+	return pendingTerminalIds.get(confirmationId)
+}
+
+export function clearPendingTerminalId(confirmationId: string) {
+	pendingTerminalIds.delete(confirmationId)
+}
+
+// Track active subprocesses to clean up on exit
+const activeSubprocesses = new Set<number>()
+let cleanupHandlersRegistered = false
+
+// Register global cleanup handlers to kill all active subprocesses on exit
+function registerCleanupHandlers() {
+	if (cleanupHandlersRegistered) return
+	cleanupHandlersRegistered = true
+
+	const killAllSubprocesses = () => {
+		for (const pid of activeSubprocesses) {
+			try {
+				// Kill the entire process group
+				process.kill(-pid, "SIGKILL")
+			} catch {
+				// Process may already be dead
+			}
+
+			// Also use tree-kill for nested children
+			treeKill(pid, "SIGKILL", () => {
+				// Ignore errors
+			})
+		}
+		activeSubprocesses.clear()
+	}
+
+	// Handle normal exit
+	process.on("exit", () => {
+		killAllSubprocesses()
+	})
+
+	// Handle SIGINT (Ctrl+C)
+	process.on("SIGINT", () => {
+		killAllSubprocesses()
+		process.exit(0)
+	})
+
+	// Handle SIGTERM
+	process.on("SIGTERM", () => {
+		killAllSubprocesses()
+		process.exit(0)
+	})
+}
+
+// Helper to apply tail to output
+function applyTail(output: string, tailLines?: number): string {
+	if (!tailLines || tailLines <= 0) return output
+	const lines = output.split("\n")
+	if (lines.length <= tailLines) return output
+	return lines.slice(-tailLines).join("\n")
+}
+
+// Schema for command execution - matching MCP reference exactly
+const ExecuteCommandSchema = z.object({
+	command: z.string().describe("Full shell command to execute"),
+	cwd: z
+		.string()
+		.optional()
+		.describe("Working directory for command execution"),
+	timeout: z
+		.number()
+		.optional()
+		.describe(
+			"The number of seconds until the shell command should be killed if it hasn't exited yet. Defaults to 30 seconds",
+		),
+	tail: z
+		.number()
+		.optional()
+		.describe(
+			"Number of lines to return from the end of the output. Use this instead of piping to tail.",
+		),
+})
+
+// Function to create the execute command tool with optional project root
+export function createExecuteCommandTool(projectRoot?: string) {
+	return createTool({
+		id: "execute_command",
+		description: "Execute a command in the local system",
+		inputSchema: ExecuteCommandSchema,
+		// requireApproval: true, // TODO: re-enable when Mastra workflow suspension is stable
+		execute: async (context) => {
+			const { command } = context
+			// Use provided cwd, fall back to project root, then process.cwd()
+			const cwd = context.cwd || projectRoot || process.cwd()
+
+			// Reject commands that pipe to tail - use the tail parameter instead
+			if (/\|\s*tail\s*(-\d+|-n\s*\d+)?\s*$/.test(command)) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: "Error: Do not pipe to `tail` - use the `tail` parameter instead. Piping loses the exit code and can hide errors.",
+						},
+					],
+					isError: true,
+				}
+			}
+
+			if (!command.includes(cwd) && cwd !== process.cwd()) {
+				ipcReporter.send(`shell-output`, {
+					output: `\n# ${cwd}`,
+					type: `stdout`,
+					style: { fg: "grey" },
+				})
+			}
+			ipcReporter.send(`shell-output`, {
+				output: `\n\n$ ${command}\n\n`,
+				type: `stdout`,
+				style: { fg: "green" },
+			})
+
+			// Check if we're in ACP mode - stream output via tool_call_update notifications
+			const isACPMode = process.argv.includes("--acp-internal")
+			if (isACPMode) {
+				const { acpEventBus } = await import("../acp/event-bus.js")
+				const { getGlobalConfirmationId } = await import(
+					"./wrap-with-confirmation.js"
+				)
+
+				const confirmationId = getGlobalConfirmationId()
+
+				try {
+					// Use execa to run the command with streaming
+					const { execa } = await import("execa")
+
+					let stdout = ""
+					let stderr = ""
+					let combined = ""
+
+					const timeout = context.timeout ? context.timeout * 1000 : 30000
+					const subprocess = execa(command, [], {
+						shell: true,
+						cwd,
+						all: true,
+						buffer: true,
+						reject: false,
+						timeout,
+					})
+
+					// Stream stdout chunks
+					if (subprocess.stdout) {
+						subprocess.stdout.on("data", (chunk: Buffer) => {
+							const text = chunk.toString()
+							ipcReporter.send(`shell-output`, { output: text, type: `stdout` })
+							stdout += text
+							combined += text
+
+							// Emit output event for streaming
+							acpEventBus.emit("command-output", {
+								confirmationId,
+								output: text,
+								stream: "stdout",
+							})
+						})
+					}
+
+					// Stream stderr chunks
+					if (subprocess.stderr) {
+						subprocess.stderr.on("data", (chunk: Buffer) => {
+							const text = chunk.toString()
+							ipcReporter.send(`shell-output`, { output: text, type: `stderr` })
+
+							stderr += text
+							combined += text
+
+							// Emit output event for streaming
+							acpEventBus.emit("command-output", {
+								confirmationId,
+								output: text,
+								stream: "stderr",
+							})
+						})
+					}
+
+					// Wait for completion
+					const result = await subprocess
+
+					if (result.timedOut || (result?.exitCode && result.exitCode > 0)) {
+						ipcReporter.send(`shell-output`, {
+							output: `\nExited with code ${result.exitCode}${result.timedOut ? `\nTimed out after ${timeout}ms` : ``}\n\n`,
+							type: "stdout",
+							style: { fg: "grey" },
+						})
+					}
+
+					return {
+						stdout: context.tail ? applyTail(stdout, context.tail) : stdout,
+						stderr: context.tail ? applyTail(stderr, context.tail) : stderr,
+						combined: context.tail
+							? applyTail(combined, context.tail)
+							: combined,
+						exitCode: result.exitCode || 0,
+						signal: result.signal,
+						timedOut: result.timedOut || false,
+						command,
+						cwd,
+						duration: 0, // execa doesn't provide duration
+					}
+				} catch (error) {
+					throw new Error(
+						`Command execution failed: ${error instanceof Error ? error.message : String(error)}`,
+					)
+				}
+			}
+
+			// console.log(`\n🔧 Executing: ${command}`)
+			// console.log(`📁 Working directory: ${cwd}`)
+			// if (projectRoot && !context.cwd) {
+			//   console.log(`   (using project root from frontmatter)`)
+			// }
+			// console.log('----------------------------------------')
+
+			if (context.timeout && context.timeout >= 1000)
+				context.timeout = context.timeout / 1000 // agent thought it was ms, not s
+			const timeoutMS = context.timeout ? context.timeout * 1000 : 30_000
+			// console.log({ timeoutMS })
+
+			let timeoutHandle: NodeJS.Timeout | undefined
+			let manuallyKilled = false
+			let subprocess: ReturnType<typeof execa> | undefined
+
+			try {
+				// Create the subprocess with environment variables to force color output
+				// and use inherit for stdio to preserve TTY context
+				subprocess = execa(command, {
+					cwd,
+					shell: true,
+                    stdio: ["pipe", "pipe", "pipe"], // all piped — TUI owns the terminal
+					buffer: true, // Buffer output for return value
+					all: true, // Combine stdout and stderr
+					env: {
+						// PATH: process.env.PATH,
+						...process.env,
+						FORCE_COLOR: "1", // Force color output for most Node.js tools
+						CLICOLOR_FORCE: "1", // Force color for BSD tools
+						TERM: process.env.TERM || "xterm-256color", // Ensure TERM is set
+						CI: "true", // Prevent interactive prompts
+						NONINTERACTIVE: "1", // Alternative for some tools
+						DEBIAN_FRONTEND: "noninteractive", // For apt-get and similar
+					},
+					// Tell execa to handle the output as if it's a TTY
+					stripFinalNewline: false,
+					timeout: timeoutMS,
+					forceKillAfterDelay: 100,
+					killSignal: "SIGKILL",
+					cleanup: true,
+					detached: true, // Create a new process group so we can kill all children
+				})
+
+				// console.log(`shell pid ${subprocess.pid}`)
+
+				// Register cleanup handlers and track this subprocess
+				registerCleanupHandlers()
+				if (subprocess.pid) {
+					activeSubprocesses.add(subprocess.pid)
+				}
+
+				// Set up a timeout handler to kill the process tree
+				if (timeoutMS && subprocess.pid) {
+					timeoutHandle = setTimeout(() => {
+						if (subprocess?.pid) {
+							// console.error(`\n⏱️  Timeout reached, killing process group ${subprocess.pid}...`)
+							manuallyKilled = true
+							try {
+								// Kill the entire process group by using negative PID
+								// This works because we set detached: true
+								process.kill(-subprocess.pid, "SIGKILL")
+							} catch (err) {
+								// console.error(`Failed to kill process group: ${err}`)
+								// Fallback to tree-kill
+								treeKill(subprocess.pid, "SIGKILL")
+							}
+						}
+					}, timeoutMS - 100) // Kill 100ms before execa's timeout
+				}
+                // Capture stdout/stderr (no direct piping — TUI renders via tool results)
+                if (subprocess.stdout) {
+                    subprocess.stdout.on(`data`, (chunk: Buffer) => {
+                        const text = chunk.toString()
+                        ipcReporter.send(`shell-output`, { output: text, type: `stdout` })
+                    })
+                }
+
+                if (subprocess.stderr) {
+                    subprocess.stderr.on(`data`, (chunk: Buffer) => {
+                        const text = chunk.toString()
+                        ipcReporter.send(`shell-output`, { output: text, type: `stderr` })
+                    })
+                }
+
+				// Wait for completion
+				const result = await subprocess
+
+				ipcReporter.send(`shell-output`, {
+					output: `\nExited with code ${result.exitCode}${result.timedOut ? `\nTimed out after ${timeoutMS}ms` : ``}\n`,
+					style: { fg: "grey" },
+					type: "stdout",
+				})
+
+				// Clear the timeout if command completed successfully
+				if (timeoutHandle) {
+					clearTimeout(timeoutHandle)
+				}
+
+				// console.log('\n✅ Command completed successfully')
+				// console.log('----------------------------------------\n')
+
+				// Strip ANSI codes from the output for the LLM
+				// Since we have all: true, result.all contains the interleaved output
+				const rawOutput =
+					result.all ||
+					result.stdout ||
+					result.stderr ||
+					"Command executed successfully with no output"
+				let cleanOutput = stripAnsi(
+					typeof rawOutput === "string" ? rawOutput : rawOutput.toString(),
+				)
+
+				// Apply tail if specified
+				if (context.tail) {
+					cleanOutput = applyTail(cleanOutput, context.tail)
+				}
+
+				return {
+					content: [
+						{
+							type: "text",
+							// only allow xk tokens of output
+							text: truncateStringForTokenEstimate(cleanOutput, 2_000),
+						},
+					],
+					isError: false,
+				}
+			} catch (error: any) {
+				// console.error('\n❌ Command failed')
+				// console.error('----------------------------------------\n')
+				// Clear the timeout handle on error to prevent dangling timers
+				if (timeoutHandle) {
+					clearTimeout(timeoutHandle)
+				}
+
+				// Strip ANSI codes from error message for the LLM
+				let cleanError = ""
+
+				if (error instanceof ExecaError) {
+					const causeMessage = (error.cause as Error)?.message || ""
+					const stderr = error.stderr ? stripAnsi(error.stderr) : ""
+					const stdout = error.stdout ? stripAnsi(error.stdout) : ""
+					const all = error.all ? stripAnsi(error.all) : ""
+					const isTimeout = error.timedOut || error.isCanceled || manuallyKilled
+
+					// Combine all error information with clear labels
+					const parts = []
+					if (isTimeout) {
+						parts.push(`Error: command timed out after ${timeoutMS}ms`)
+					} else if (causeMessage) {
+						parts.push(`Error: ${stripAnsi(causeMessage)}`)
+					}
+
+					if (all) {
+						parts.push(`Output: ${all}`)
+					} else {
+						if (stderr) parts.push(`STDERR: ${stderr}`)
+						if (stdout) parts.push(`STDOUT: ${stdout}`)
+					}
+
+					cleanError = parts.join("\n\n")
+				} else {
+					// Safely check if error has a message property
+					try {
+						if (
+							error &&
+							typeof error === "object" &&
+							"message" in error &&
+							typeof error.message === "string"
+						) {
+							cleanError = error.message
+						} else {
+							cleanError = String(error)
+						}
+					} catch {
+						cleanError = String(error)
+					}
+				}
+
+				return {
+					content: [
+						{
+							type: "text",
+							// only allow xk tokens of output
+							text: truncateStringForTokenEstimate(cleanError, 2_000),
+						},
+					],
+					isError: true,
+				}
+			} finally {
+				// console.log(`shell command finally executed`)
+
+				// Remove subprocess from tracking
+				if (subprocess && subprocess.pid) {
+					activeSubprocesses.delete(subprocess.pid)
+				}
+
+				// Always kill any remaining child processes to prevent dangling processes
+				// This is especially important for commands with pipes (e.g., npm test | head)
+				// where the pipe may terminate early but leave child processes running
+				if (subprocess && subprocess.pid) {
+					try {
+						// First try to kill the process group
+						process.kill(-subprocess.pid, "SIGKILL")
+					} catch {
+						// Process group may already be dead, that's fine
+					}
+
+					// Also use tree-kill to ensure all nested children are killed
+					// This handles cases where child processes spawn their own children
+					// (e.g., npm spawning vitest workers)
+					const pid = subprocess?.pid
+					if (pid) {
+						try {
+							await new Promise<void>((resolve) => {
+								treeKill(pid, "SIGKILL", (err) => {
+									if (err && err.message !== "No such process") {
+										// tree-kill error (non-fatal)
+									}
+									resolve()
+								})
+							})
+						} catch {
+							// Ignore errors from tree-kill
+						}
+					}
+				}
+			}
+		},
+	})
+}
+
+// Default export for backward compatibility
+export const executeCommandTool = createExecuteCommandTool()
+
+export default executeCommandTool
