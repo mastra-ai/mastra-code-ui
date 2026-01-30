@@ -167,13 +167,7 @@ export class ToolExecutionComponent extends Container {
     const header = `${theme.bold(theme.fg("toolTitle", "view"))} ${theme.fg("accent", path)}${range}${status}`
     this.contentBox.addChild(new Text(header, 0, 0))
 
-    if (this.result) {
-      const output = this.getFormattedOutput()
-      if (output) {
-        this.contentBox.addChild(new Text("", 0, 0))
-        this.contentBox.addChild(new Text(this.truncateOutput(output), 0, 0))
-      }
-    }
+    this.renderOutput()
   }
 
   private renderBashTool(): void {
@@ -188,13 +182,7 @@ export class ToolExecutionComponent extends Container {
     const header = `${theme.fg("toolTitle", theme.bold(`$ ${command}`))}${cwdSuffix}${timeoutSuffix}${status}`
     this.contentBox.addChild(new Text(header, 0, 0))
 
-    if (this.result) {
-      const output = this.getFormattedOutput()
-      if (output.trim()) {
-        this.contentBox.addChild(new Text("", 0, 0))
-        this.contentBox.addChild(new Text(this.truncateOutput(output), 0, 0))
-      }
-    }
+    this.renderOutput()
   }
 
   private renderEditTool(): void {
@@ -215,9 +203,10 @@ export class ToolExecutionComponent extends Container {
       this.contentBox.addChild(new Text(theme.fg("success", "+ " + String(argsObj.new_str).split("\n").join("\n+ ")), 0, 0))
     }
 
-    if (this.result) {
+    // Always show errors for edits, even when collapsed
+    if (this.result?.isError) {
       const output = this.getFormattedOutput()
-      if (output && this.result.isError) {
+      if (output) {
         this.contentBox.addChild(new Text("", 0, 0))
         this.contentBox.addChild(new Text(theme.fg("error", output), 0, 0))
       }
@@ -243,12 +232,26 @@ export class ToolExecutionComponent extends Container {
     const header = `${theme.bold(theme.fg("toolTitle", this.toolName))}${theme.fg("muted", argsSummary)}${status}`
     this.contentBox.addChild(new Text(header, 0, 0))
 
-    if (this.result) {
-      const output = this.getFormattedOutput()
-      if (output) {
-        this.contentBox.addChild(new Text("", 0, 0))
-        this.contentBox.addChild(new Text(this.truncateOutput(output), 0, 0))
-      }
+    this.renderOutput()
+  }
+
+  /**
+   * Render tool output. Only shows when expanded (Ctrl+E), except errors which always show.
+   */
+  private renderOutput(): void {
+    if (!this.result) return
+
+    const output = this.getFormattedOutput()
+    if (!output.trim()) return
+
+    if (this.result.isError) {
+      // Always show errors
+      this.contentBox.addChild(new Text("", 0, 0))
+      this.contentBox.addChild(new Text(theme.fg("error", this.truncateOutput(output)), 0, 0))
+    } else if (this.expanded) {
+      // Only show success output when expanded
+      this.contentBox.addChild(new Text("", 0, 0))
+      this.contentBox.addChild(new Text(this.truncateOutput(output), 0, 0))
     }
   }
 

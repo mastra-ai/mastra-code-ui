@@ -43,7 +43,11 @@ export class AssistantMessageComponent extends Container {
   }
 
   updateContent(message: HarnessMessage): void {
-    this.lastMessage = message
+    // Deep copy the message to prevent mutation from the harness's shared content array
+    this.lastMessage = {
+      ...message,
+      content: message.content.map((c) => ({ ...c })),
+    }
 
     // Clear content container
     this.contentContainer.clear()
