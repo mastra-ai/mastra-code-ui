@@ -26,6 +26,12 @@ import type {
 } from "../harness/types.js"
 import { detectProject, type ProjectInfo } from "../utils/project.js"
 import { parseError } from "../utils/errors.js"
+import {
+    loadCustomCommands,
+    type SlashCommandMetadata,
+} from "../utils/slash-command-loader.js"
+import { processSlashCommand } from "../utils/slash-command-processor.js"
+import { extractSlashCommand } from "../utils/slash-command-extractor.js"
 import { AssistantMessageComponent } from "./components/assistant-message.js"
 import { CustomEditor } from "./components/custom-editor.js"
 import { LoginDialogComponent } from "./components/login-dialog.js"
@@ -133,12 +139,15 @@ export class MastraTUI {
 	}
 	private omProgressComponent?: OMProgressComponent
 
-	// Autocomplete
-	private autocompleteProvider?: CombinedAutocompleteProvider
+    // Autocomplete
+    private autocompleteProvider?: CombinedAutocompleteProvider
 
-	// Ctrl+C double-tap tracking
-	private lastCtrlCTime = 0
-	private static readonly DOUBLE_CTRL_C_MS = 500
+    // Custom slash commands
+    private customSlashCommands: SlashCommandMetadata[] = []
+
+    // Ctrl+C double-tap tracking
+    private lastCtrlCTime = 0
+    private static readonly DOUBLE_CTRL_C_MS = 500
 
 	// Event handling
 	private unsubscribe?: () => void
@@ -351,11 +360,14 @@ export class MastraTUI {
 		// Check for existing threads and prompt for resume
 		await this.promptForThreadSelection()
 
-		// Load initial token usage from harness (persisted from previous session)
-		this.tokenUsage = this.harness.getTokenUsage()
+        // Load initial token usage from harness (persisted from previous session)
+        this.tokenUsage = this.harness.getTokenUsage()
 
-		// Setup autocomplete
-		this.setupAutocomplete()
+        // Load custom slash commands
+        await this.loadCustomSlashCommands()
+
+        // Setup autocomplete
+        this.setupAutocomplete()
 
 		// Build UI layout
 		this.buildLayout()
@@ -681,14 +693,69 @@ ${instructions}`,
 			slashCommands.push({ name: "mode", description: "Switch agent mode" })
 		}
 
-		this.autocompleteProvider = new CombinedAutocompleteProvider(
-			slashCommands,
-			process.cwd(),
-		)
-		this.editor.setAutocompleteProvider(this.autocompleteProvider)
-	}
+        // Add custom slash commands to the list
+        console.log(
+            `Adding ${this.customSlashCommands.length} custom commands to autocomplete`
+        )
+        for (const customCmd of this.customSlashCommands) {
+            // Prefix with extra / to distinguish from built-in commands (//command-name)
+            slashCommands.push({
+                name: `/${customCmd.name}`,
+                description: customCmd.description || `Custom: ${customCmd.name}`,
+            })
+        }
 
-	private setupKeyHandlers(): void {
+        console.log(
+            "Total slash commands for autocomplete:",
+            slashCommands.map((c) => c.name)
+        )
+
+        this.autocompleteProvider = new CombinedAutocompleteProvider(
+            slashCommands,
+            process.cwd(),
+        )
+        this.editor.setAutocompleteProvider(this.autocompleteProvider)
+    }
+
+    /**
+     * Load custom slash commands from all sources:
+     * - Global: ~/.opencode/command and ~/.mastra/commands
+     * - Local: .opencode/command and .mastra/commands
+     */
+    private async loadCustomSlashCommands(): Promise<void> {
+        try {
+            console.log("Loading custom slash commands...")
+            
+            // Load from all sources (global and local)
+            const globalCommands = await loadCustomCommands()
+            const localCommands = await loadCustomCommands(process.cwd())
+            
+            // Merge commands, with local taking precedence over global for same names
+            const commandMap = new Map<string, SlashCommandMetadata>()
+            
+            // Add global commands first
+            for (const cmd of globalCommands) {
+                commandMap.set(cmd.name, cmd)
+            }
+            
+            // Add local commands (will override global if same name)
+            for (const cmd of localCommands) {
+                commandMap.set(cmd.name, cmd)
+            }
+            
+            this.customSlashCommands = Array.from(commandMap.values())
+            
+            console.log(
+                `Loaded ${this.customSlashCommands.length} custom slash command(s):`,
+                this.customSlashCommands.map((cmd) => cmd.name)
+            )
+        } catch (error) {
+            console.error("Error loading custom slash commands:", error)
+            this.customSlashCommands = []
+        }
+    }
+
+    private setupKeyHandlers(): void {
 		// Handle Ctrl+C via process signal (backup for when editor doesn't capture it)
 		process.on("SIGINT", () => {
 			const now = Date.now()
@@ -1748,8 +1815,26 @@ ${instructions}`,
 	// Slash Commands
 	// ===========================================================================
 
-	private async handleSlashCommand(input: string): Promise<boolean> {
-		const [command, ...args] = input.slice(1).split(" ")
+    private async handleSlashCommand(input: string): Promise<boolean> {
+        const trimmedInput = input.trim()
+        
+        // Check for custom command prefix (//)
+        // When user types //command, pi-tui strips the first / and passes /command
+        if (trimmedInput.startsWith("/")) {
+            const commandName = trimmedInput.slice(1).split(" ")[0]
+            const args = trimmedInput.slice(1 + commandName.length).trim().split(" ").filter(Boolean)
+            
+            const customCommand = this.customSlashCommands.find(
+                (cmd) => cmd.name === commandName
+            )
+            if (customCommand) {
+                await this.handleCustomSlashCommand(customCommand, args)
+                return true
+            }
+            // If not found as custom command, fall through to built-in commands
+        }
+
+        const [command, ...args] = trimmedInput.slice(1).split(" ")
 
 		switch (command) {
 			case "new": {
@@ -1832,11 +1917,25 @@ ${modeList}`)
 				this.stop()
 				process.exit(0)
 
-			case "help": {
-				const modes = this.harness.getModes()
-				const modeHelp =
-					modes.length > 1 ? "\n/mode     - Switch or list modes" : ""
-				this.showInfo(`Available commands:
+            case "help": {
+                const modes = this.harness.getModes()
+                const modeHelp =
+                    modes.length > 1 ? "\n/mode     - Switch or list modes" : ""
+
+                // Build custom commands help
+                let customCommandsHelp = ""
+                if (this.customSlashCommands.length > 0) {
+                    customCommandsHelp =
+                        "\n\nCustom commands (use // prefix):\n" +
+                        this.customSlashCommands
+                            .map(
+                                (cmd) =>
+                                    `  //${cmd.name.padEnd(8)} - ${cmd.description || "No description"}`
+                            )
+                            .join("\n")
+                }
+
+                this.showInfo(`Available commands:
   /new      - Start a new thread
   /threads  - Switch between threads
   /models   - Switch model
@@ -1846,7 +1945,7 @@ ${modeList}`)
   /login    - Login with OAuth provider
   /logout   - Logout from OAuth provider${modeHelp}
   /exit     - Exit the TUI
-  /help     - Show this help
+  /help     - Show this help${customCommandsHelp}
 
 Keyboard shortcuts:
   Ctrl+C    - Interrupt agent / clear input
@@ -1857,14 +1956,47 @@ Keyboard shortcuts:
   Shift+Tab - Cycle agent modes
   Ctrl+T    - Toggle thinking blocks
   Ctrl+E    - Expand/collapse tool outputs`)
-				return true
-			}
+                return true
+            }
 
-			default:
-				this.showError(`Unknown command: ${command}`)
-				return true
-		}
-	}
+            default:
+                this.showError(`Unknown command: ${command}`)
+                return true
+        }
+    }
+
+    /**
+     * Handle a custom slash command by processing its template and adding to context
+     */
+    private async handleCustomSlashCommand(
+        command: SlashCommandMetadata,
+        args: string[]
+    ): Promise<void> {
+        try {
+            // Process the command template
+            const processedContent = await processSlashCommand(
+                command,
+                args,
+                process.cwd()
+            )
+
+            // Add the processed content as a system message / context
+            if (processedContent.trim()) {
+                // Show what was processed
+                this.showInfo(`Executed //${command.name}`)
+
+                // Add the content to the conversation as a user message
+                // This allows the agent to see and act on the command output
+                await this.harness.sendMessage(processedContent)
+            } else {
+                this.showInfo(`Executed //${command.name} (no output)`)
+            }
+        } catch (error) {
+            this.showError(
+                `Error executing //${command.name}: ${error instanceof Error ? error.message : String(error)}`
+            )
+        }
+    }
 
 	// ===========================================================================
 	// Message Rendering
