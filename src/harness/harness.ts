@@ -902,7 +902,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			if (pendingTokens === 0 && this.currentThreadId) {
 				try {
 					const result = await memoryStorage.listMessages({
-						threadId: this.currentThreadId,
+						threadId: this.currentThreadId, perPage: false,
 					})
 					if (result.messages.length > 0) {
 						const lastObservedAt = (record as { lastObservedAt?: string })
@@ -1200,7 +1200,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 		const memoryStorage = await this.getMemoryStorage()
 		const result = await memoryStorage.listMessages({
-			threadId: this.currentThreadId,
+			threadId: this.currentThreadId, perPage: false,
 		})
 
 		// Convert MastraDBMessage to HarnessMessage

@@ -2,15 +2,24 @@
  * Component that renders an assistant message with streaming support.
  */
 
+import fs from "node:fs"
+import path from "node:path"
 import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@mariozechner/pi-tui"
 import type { HarnessMessage } from "../../harness/types.js"
 import { getMarkdownTheme, theme } from "../theme.js"
+
+let _compId = 0
+function asmDebugLog(...args: unknown[]) {
+  const line = `[ASM ${new Date().toISOString()}] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")}\n`
+  try { fs.appendFileSync(path.join(process.cwd(), "tui-debug.log"), line) } catch {}
+}
 
 export class AssistantMessageComponent extends Container {
   private contentContainer: Container
   private hideThinkingBlock: boolean
   private markdownTheme: MarkdownTheme
   private lastMessage?: HarnessMessage
+  private _id: number
 
   constructor(
     message?: HarnessMessage,
@@ -18,6 +27,7 @@ export class AssistantMessageComponent extends Container {
     markdownTheme: MarkdownTheme = getMarkdownTheme()
   ) {
     super()
+    this._id = ++_compId
 
     this.hideThinkingBlock = hideThinkingBlock
     this.markdownTheme = markdownTheme
@@ -25,6 +35,8 @@ export class AssistantMessageComponent extends Container {
     // Container for text/thinking content
     this.contentContainer = new Container()
     this.addChild(this.contentContainer)
+
+    asmDebugLog(`COMP#${this._id} CREATED`)
 
     if (message) {
       this.updateContent(message)
@@ -34,6 +46,8 @@ export class AssistantMessageComponent extends Container {
   override invalidate(): void {
     super.invalidate()
     if (this.lastMessage) {
+      const summary = this.lastMessage.content.map(c => c.type === "text" ? `text(${c.text.length}ch)` : c.type).join(", ")
+      asmDebugLog(`COMP#${this._id} INVALIDATE lastMessage=[${summary}]`)
       this.updateContent(this.lastMessage)
     }
   }
