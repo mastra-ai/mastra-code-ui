@@ -27,6 +27,7 @@ import {
 	createExecuteCommandTool,
 	stringReplaceLspTool,
 } from "./tools/index.js"
+import { createAnthropic } from "@ai-sdk/anthropic"
 
 // =============================================================================
 // Start Gateway Sync (keeps model registry up to date)
@@ -177,8 +178,18 @@ function getDynamicModel({
 	// Check provider prefix
 	const isAnthropicModel = modelId.startsWith("anthropic/")
 	const isOpenAIModel = modelId.startsWith("openai/")
+	const isMoonshotModel = modelId.startsWith("moonshotai/")
 
-	if (isAnthropicModel) {
+	if (isMoonshotModel) {
+		if (!process.env.MOONSHOT_AI_API_KEY) {
+			throw new Error(`Need MOONSHOT_AI_API_KEY`)
+		}
+		return createAnthropic({
+			apiKey: process.env.MOONSHOT_AI_API_KEY!,
+			baseURL: "https://api.moonshot.ai/anthropic/v1",
+			name: "moonshotai.anthropicv1",
+		})(modelId.substring("moonshotai/".length))
+	} else if (isAnthropicModel) {
 		// Use Claude Max OAuth provider for Anthropic models
 		return opencodeClaudeMaxProvider(modelId.substring(`anthropic/`.length))
 	} else if (isOpenAIModel && authStorage.isLoggedIn("openai-codex")) {
