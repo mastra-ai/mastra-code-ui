@@ -26,6 +26,8 @@ import {
 	createViewTool,
 	createExecuteCommandTool,
 	stringReplaceLspTool,
+	createWebSearchTool,
+	createWebExtractTool,
 } from "./tools/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
 
@@ -151,6 +153,8 @@ const memory = new Memory({
 // Create tools with project root
 const viewTool = createViewTool(project.rootPath)
 const executeCommandTool = createExecuteCommandTool(project.rootPath)
+const webSearchTool = createWebSearchTool()
+const webExtractTool = createWebExtractTool()
 /**
  * Dynamic model function that reads the current model from harness state.
  * This allows runtime model switching via the /models picker.
@@ -226,6 +230,8 @@ You are interacting with the user via a terminal UI, remember that and keep your
 		view: viewTool,
 		execute_command: executeCommandTool,
 		string_replace_lsp: stringReplaceLspTool,
+		...(webSearchTool ? { web_search: webSearchTool } : {}),
+		...(webExtractTool ? { web_extract: webExtractTool } : {}),
 	},
 })
 
