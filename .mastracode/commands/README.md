@@ -2,6 +2,19 @@
 
 Create custom slash commands by adding `.md` files to this directory.
 
+## Skills Commands
+
+This directory also includes skills-related commands:
+
+- `//skills:install <url>` - Install skills from a GitHub URL
+- `//skills:list` - List all installed skills
+
+Skills are automatically discovered from these locations (priority order):
+1. `.mastracode/skills/` (project-local)
+2. `.claude/skills/` (project-local, Claude Code compatible)
+3. `~/.mastracode/skills/` (user-wide)
+4. `~/.claude/skills/` (user-wide, Claude Code compatible)
+
 ## File Format
 
 Each command file uses YAML frontmatter for metadata and markdown content for the template:
@@ -78,16 +91,16 @@ Please analyze the changes.
 ## Namespacing
 
 Use subdirectories for namespaced commands:
-- `.mastra/commands/git/commit.md` → `/git:commit`
-- `.mastra/commands/docs/readme.md` → `/docs:readme`
+- `.mastracode/commands/git/commit.md` → `/git:commit`
+- `.mastracode/commands/docs/readme.md` → `/docs:readme`
 
 ## Command Locations (Priority Order)
 
 Commands are loaded from multiple locations, with later locations taking precedence:
 
 1. `~/.opencode/command/` - User-wide opencode commands
-2. `~/.mastra/commands/` - User-wide mastra commands
+2. `~/.mastracode/commands/` - User-wide mastra commands
 3. `.opencode/command/` - Project-specific opencode commands
-4. `.mastra/commands/` - Project-specific mastra commands (highest priority)
+4. `.mastracode/commands/` - Project-specific mastra commands (highest priority)
 
 This means mastra commands override opencode commands, and project-specific commands override user-wide commands.

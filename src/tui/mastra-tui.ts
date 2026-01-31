@@ -24,6 +24,7 @@ import type {
 	HarnessEventListener,
 	TokenUsage,
 } from "../harness/types.js"
+import type { Workspace } from "@mastra/core/workspace"
 import { detectProject, type ProjectInfo } from "../utils/project.js"
 import { parseError } from "../utils/errors.js"
 import {
@@ -72,6 +73,9 @@ import {
 export interface MastraTUIOptions {
 	/** The harness instance to control */
 	harness: Harness<any>
+
+	/** Optional Workspace for skill listing */
+	workspace?: Workspace
 
 	/** Initial message to send on startup */
 	initialMessage?: string
@@ -145,6 +149,9 @@ export class MastraTUI {
 	// Custom slash commands
 	private customSlashCommands: SlashCommandMetadata[] = []
 
+	// Workspace (for skills)
+	private workspace?: Workspace
+
 	// Ctrl+C double-tap tracking
 	private lastCtrlCTime = 0
 	private static readonly DOUBLE_CTRL_C_MS = 500
@@ -157,6 +164,7 @@ export class MastraTUI {
 	constructor(options: MastraTUIOptions) {
 		this.harness = options.harness
 		this.options = options
+		this.workspace = options.workspace
 
 		// Detect project info for status line
 		this.projectInfo = detectProject(process.cwd())
@@ -682,6 +690,7 @@ ${instructions}`,
 			{ name: "om", description: "Configure Observational Memory models" },
 			{ name: "think", description: "Set thinking level (Anthropic)" },
 			{ name: "login", description: "Login with OAuth provider" },
+			{ name: "skills", description: "List available skills" },
 			{ name: "logout", description: "Logout from OAuth provider" },
 			{ name: "exit", description: "Exit the TUI" },
 			{ name: "help", description: "Show available commands" },
@@ -1554,6 +1563,55 @@ ${instructions}`,
 	}
 
 	// ===========================================================================
+	// Skills List
+	// ===========================================================================
+
+	private async showSkillsList(): Promise<void> {
+		if (!this.workspace?.skills) {
+			this.showInfo(
+				"No skills configured.\n\n" +
+					"Add skills to any of these locations:\n" +
+					"  .mastracode/skills/   (project-local)\n" +
+					"  .claude/skills/       (project-local)\n" +
+					"  ~/.mastracode/skills/ (global)\n" +
+					"  ~/.claude/skills/     (global)\n\n" +
+					"Each skill is a folder with a SKILL.md file.\n" +
+					"Install skills: npx add-skill <github-url>",
+			)
+			return
+		}
+
+		try {
+			const skills = await this.workspace.skills.list()
+
+			if (skills.length === 0) {
+				this.showInfo(
+					"No skills found in configured directories.\n\n" +
+						"Each skill needs a SKILL.md file with YAML frontmatter.\n" +
+						"Install skills: npx add-skill <github-url>",
+				)
+				return
+			}
+
+			const skillLines = skills.map((skill) => {
+				const desc = skill.description
+					? ` - ${skill.description.length > 60 ? skill.description.slice(0, 57) + "..." : skill.description}`
+					: ""
+				return `  ${skill.name}${desc}`
+			})
+
+			this.showInfo(
+				`Skills (${skills.length}):\n${skillLines.join("\n")}\n\n` +
+					"Skills are automatically activated by the agent when relevant.",
+			)
+		} catch (error) {
+			this.showError(
+				`Failed to list skills: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+	}
+
+	// ===========================================================================
 	// Model Selector
 	// ===========================================================================
 
@@ -1866,6 +1924,11 @@ ${instructions}`,
 				return true
 			}
 
+			case "skills": {
+				await this.showSkillsList()
+				return true
+			}
+
 			case "mode": {
 				const modes = this.harness.getModes()
 				if (modes.length <= 1) {
@@ -1950,6 +2013,7 @@ ${modeList}`)
 				this.showInfo(`Available commands:
   /new       - Start a new thread
   /threads   - Switch between threads
+  /skills    - List available skills
   /models    - Switch model
   /om       - Configure Observational Memory
   /think    - Set thinking level (Anthropic)

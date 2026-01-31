@@ -5,9 +5,13 @@
 import { Agent } from "@mastra/core/agent"
 import type { RequestContext } from "@mastra/core/request-context"
 import { ModelRouterLanguageModel } from "@mastra/core/llm"
+import { Workspace } from "@mastra/core/workspace"
 import { LibSQLStore } from "@mastra/libsql"
 import { Memory } from "@mastra/memory"
 import { z } from "zod"
+import * as path from "path"
+import * as os from "os"
+import * as fs from "fs"
 import { Harness } from "./harness/harness.js"
 import type { HarnessRuntimeContext } from "./harness/types.js"
 import { MastraTUI } from "./tui/index.js"
@@ -206,6 +210,95 @@ function getDynamicModel({
 	}
 }
 
+// =============================================================================
+// Create Workspace with Skills
+// =============================================================================
+
+// We support multiple skill locations for compatibility:
+// 1. Project-local: .mastracode/skills (project-specific mastra-code skills)
+// 2. Project-local: .claude/skills (Claude Code compatible skills)
+// 3. Global: ~/.mastracode/skills (user-wide mastra-code skills)
+// 4. Global: ~/.claude/skills (user-wide Claude Code skills)
+
+const mastraCodeLocalSkillsPath = path.join(
+	process.cwd(),
+	".mastracode",
+	"skills",
+)
+const claudeLocalSkillsPath = path.join(process.cwd(), ".claude", "skills")
+const mastraCodeGlobalSkillsPath = path.join(
+	os.homedir(),
+	".mastracode",
+	"skills",
+)
+const claudeGlobalSkillsPath = path.join(os.homedir(), ".claude", "skills")
+
+// Mastra's LocalSkillSource.readdir uses Node's Dirent.isDirectory() which
+// returns false for symlinks. Tools like `npx skills add` install skills as
+// symlinks, so we need to resolve them. For each symlinked skill directory,
+// we add the real (resolved) parent path as an additional skill scan path.
+function collectSkillPaths(skillsDirs: string[]): string[] {
+	const paths: string[] = []
+	const seen = new Set<string>()
+
+	for (const skillsDir of skillsDirs) {
+		if (!fs.existsSync(skillsDir)) continue
+
+		// Always add the directory itself
+		const resolved = fs.realpathSync(skillsDir)
+		if (!seen.has(resolved)) {
+			seen.add(resolved)
+			paths.push(skillsDir)
+		}
+
+		// Check for symlinked skill subdirectories and add their real parents
+		try {
+			const entries = fs.readdirSync(skillsDir, { withFileTypes: true })
+			for (const entry of entries) {
+				if (entry.isSymbolicLink()) {
+					const linkPath = path.join(skillsDir, entry.name)
+					const realPath = fs.realpathSync(linkPath)
+					const stat = fs.statSync(realPath)
+					if (stat.isDirectory()) {
+						// Add the real parent directory as a skill path
+						// so Mastra discovers it as a regular directory
+						const realParent = path.dirname(realPath)
+						if (!seen.has(realParent)) {
+							seen.add(realParent)
+							paths.push(realParent)
+						}
+					}
+				}
+			}
+		} catch {
+			// Ignore errors during symlink resolution
+		}
+	}
+
+	return paths
+}
+
+const skillPaths = collectSkillPaths([
+	mastraCodeLocalSkillsPath,
+	claudeLocalSkillsPath,
+	mastraCodeGlobalSkillsPath,
+	claudeGlobalSkillsPath,
+])
+
+// Create a single workspace with all discovered skill paths
+let workspace: Workspace | undefined
+if (skillPaths.length > 0) {
+	workspace = new Workspace({
+		id: "mastra-code-workspace",
+		name: "Mastra Code Workspace",
+		skills: skillPaths,
+	})
+	console.log(`Skills loaded from:`)
+	for (const p of skillPaths) {
+		console.log(`  - ${p}`)
+	}
+}
+
 // Create agent with dynamic model (uses opencode auth)
 const codeAgent = new Agent({
 	id: "code-agent",
@@ -226,6 +319,7 @@ Be concise but thorough. Always use tools rather than just explaining what you w
 You are interacting with the user via a terminal UI, remember that and keep your responses short enough that they don't need to scroll their terminal every time you respond.`,
 	model: getDynamicModel,
 	memory,
+	workspace,
 	tools: ({ requestContext }) => {
 		const harnessContext = requestContext.get("harness") as
 			| HarnessRuntimeContext<typeof stateSchema>
@@ -311,6 +405,7 @@ const harness = new Harness({
 // =============================================================================
 const tui = new MastraTUI({
 	harness,
+	workspace,
 	appName: "Mastra Code",
 	version: "0.1.0",
 })
