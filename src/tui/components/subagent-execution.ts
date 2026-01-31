@@ -4,10 +4,14 @@
  *  - Agent type and task description
  *  - Live tool calls with names and abbreviated args
  *  - Final result or error with duration
+ *
+ * Always collapsible. Starts expanded while running so tool calls
+ * are visible in real time. Auto-collapses to a summary when finished.
  */
 
-import { Box, Container, Spacer, Text, type TUI } from "@mariozechner/pi-tui"
+import { Box, Container, Spacer, type TUI } from "@mariozechner/pi-tui"
 import { theme } from "../theme.js"
+import { CollapsibleComponent } from "./collapsible.js"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -27,6 +31,7 @@ export interface SubagentToolCall {
 
 export class SubagentExecutionComponent extends Container {
     private contentBox: Box
+    private collapsible: CollapsibleComponent
     private ui: TUI
 
     // State
@@ -50,18 +55,30 @@ export class SubagentExecutionComponent extends Container {
         )
         this.addChild(this.contentBox)
 
-        this.updateDisplay()
+        // Create collapsible — starts expanded so live events are visible
+        this.collapsible = new CollapsibleComponent(
+            {
+                header: this.buildHeader(),
+                expanded: true,
+                collapsedLines: 0,
+                expandedLines: 200,
+                showLineCount: false,
+            },
+            this.ui,
+        )
+        this.contentBox.addChild(this.collapsible)
+
+        this.rebuildContent()
     }
 
     // ── Mutation API ──────────────────────────────────────────────────────
 
     addToolStart(name: string, args: unknown): void {
         this.toolCalls.push({ name, args, done: false })
-        this.updateDisplay()
+        this.refresh()
     }
 
     addToolEnd(name: string, result: unknown, isError: boolean): void {
-        // Find the most recent matching tool call that isn't done yet
         for (let i = this.toolCalls.length - 1; i >= 0; i--) {
             if (this.toolCalls[i].name === name && !this.toolCalls[i].done) {
                 this.toolCalls[i].done = true
@@ -72,19 +89,34 @@ export class SubagentExecutionComponent extends Container {
                 break
             }
         }
-        this.updateDisplay()
+        this.refresh()
     }
 
     finish(isError: boolean, durationMs: number): void {
         this.done = true
         this.isError = isError
         this.durationMs = durationMs
-        this.updateDisplay()
+
+        // Auto-collapse on success, stay expanded on error
+        if (!isError) {
+            this.collapsible.setExpanded(false)
+        }
+        this.refresh()
     }
 
-    // ── Rendering ─────────────────────────────────────────────────────────
+    setExpanded(expanded: boolean): void {
+        this.collapsible.setExpanded(expanded)
+        this.invalidate()
+    }
 
-    private updateDisplay(): void {
+    toggleExpanded(): void {
+        this.collapsible.toggle()
+        this.invalidate()
+    }
+
+    // ── Internal ──────────────────────────────────────────────────────────
+
+    private refresh(): void {
         const bgColor = this.done
             ? this.isError
                 ? "toolErrorBg"
@@ -92,11 +124,31 @@ export class SubagentExecutionComponent extends Container {
             : "toolPendingBg"
 
         this.contentBox.setBgFn((text: string) => theme.bg(bgColor, text))
-        this.contentBox.clear()
 
-        // Header line: 🤖 explore  "Find all usages of X…"
+        // Recreate the collapsible with updated header + content
+        // (preserving its current expanded/collapsed state)
+        const wasExpanded = this.collapsible
+            ? this.collapsible.isExpanded()
+            : true
+
+        this.contentBox.clear()
+        this.collapsible = new CollapsibleComponent(
+            {
+                header: this.buildHeader(),
+                summary: this.buildSummary(),
+                expanded: wasExpanded,
+                collapsedLines: 0,
+                expandedLines: 200,
+                showLineCount: false,
+            },
+            this.ui,
+        )
+        this.rebuildContent()
+        this.contentBox.addChild(this.collapsible)
+    }
+
+    private buildHeader(): string {
         const typeLabel = theme.bold(theme.fg("accent", this.agentType))
-        const taskPreview = truncate(this.task, 80)
         const statusIcon = this.done
             ? this.isError
                 ? theme.fg("error", " ✗")
@@ -106,28 +158,34 @@ export class SubagentExecutionComponent extends Container {
             ? theme.fg("muted", ` ${formatDuration(this.durationMs)}`)
             : ""
 
-        const header = `${theme.bold(theme.fg("toolTitle", "🤖 subagent"))} ${typeLabel}${statusIcon}${durationStr}`
-        this.contentBox.addChild(new Text(header, 0, 0))
+        return `${theme.bold(theme.fg("toolTitle", "🤖 subagent"))} ${typeLabel}${statusIcon}${durationStr}`
+    }
 
-        // Task description (dimmed)
-        this.contentBox.addChild(
-            new Text(theme.fg("muted", `   ${taskPreview}`), 0, 0),
-        )
-
-        // Tool calls list
-        for (const tc of this.toolCalls) {
-            const icon = tc.done
-                ? tc.isError
-                    ? theme.fg("error", "✗")
-                    : theme.fg("success", "✓")
-                : theme.fg("muted", "⋯")
-            const name = theme.fg("toolTitle", tc.name)
-            const argsSummary = summarizeArgs(tc.args)
-
-            this.contentBox.addChild(
-                new Text(`   ${icon} ${name} ${argsSummary}`, 0, 0),
-            )
+    private buildSummary(): string {
+        const taskPreview = truncate(this.task, 60)
+        if (this.toolCalls.length === 0) {
+            return theme.fg("muted", `   ${taskPreview}`)
         }
+        const errorCount = this.toolCalls.filter(tc => tc.isError).length
+        const countStr = errorCount > 0
+            ? `${this.toolCalls.length} tool calls (${errorCount} failed)`
+            : `${this.toolCalls.length} tool calls`
+        return theme.fg("muted", `   ${taskPreview} — ${countStr}`)
+    }
+
+    private rebuildContent(): void {
+        const lines: string[] = []
+
+        // Task description
+        const taskPreview = truncate(this.task, 80)
+        lines.push(theme.fg("muted", `   ${taskPreview}`))
+
+        // Tool calls
+        for (const tc of this.toolCalls) {
+            lines.push(formatToolCallLine(tc))
+        }
+
+        this.collapsible.setContent(lines)
     }
 }
 
@@ -135,8 +193,18 @@ export class SubagentExecutionComponent extends Container {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+function formatToolCallLine(tc: SubagentToolCall): string {
+    const icon = tc.done
+        ? tc.isError
+            ? theme.fg("error", "✗")
+            : theme.fg("success", "✓")
+        : theme.fg("muted", "⋯")
+    const name = theme.fg("toolTitle", tc.name)
+    const argsSummary = summarizeArgs(tc.args)
+    return `   ${icon} ${name} ${argsSummary}`
+}
+
 function truncate(text: string, maxLen: number): string {
-    // Collapse to single line
     const oneLine = text.replace(/\n/g, " ").replace(/\s+/g, " ").trim()
     if (oneLine.length <= maxLen) return oneLine
     return `${oneLine.slice(0, maxLen - 1)}…`
@@ -153,12 +221,10 @@ function summarizeArgs(args: unknown): string {
     const obj = args as Record<string, unknown>
     const parts: string[] = []
 
-    // Show the most relevant arg for common tools
     if (obj.path) parts.push(String(obj.path))
     else if (obj.pattern) parts.push(String(obj.pattern))
     else if (obj.command) parts.push(String(obj.command))
     else {
-        // Generic: show first key's value
         const firstKey = Object.keys(obj)[0]
         if (firstKey) {
             const val = String(obj[firstKey])
