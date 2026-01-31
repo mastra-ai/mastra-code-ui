@@ -55,6 +55,10 @@ export class CollapsibleComponent extends Container {
     this.updateDisplay()
   }
 
+  isExpanded(): boolean {
+    return this.expanded
+  }
+
   setExpanded(expanded: boolean): void {
     this.expanded = expanded
     this.updateDisplay()

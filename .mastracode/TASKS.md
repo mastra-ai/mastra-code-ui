@@ -55,26 +55,26 @@ The current agent instructions are ~15 lines. Claude Code's are 3000+. Highest-l
 Dedicated search tools instead of shelling out. Second highest-leverage change.
 
 ### 2.1 Create Grep tool
-- [ ] New file: `src/tools/grep.ts`
-- [ ] Wrap `ripgrep` (rg), fall back to grep
-- [ ] Input: pattern, path, glob filter, contextLines, maxResults
-- [ ] Token-aware truncation (like view tool's MAX_VIEW_TOKENS)
+- [x] New file: `src/tools/grep.ts`
+- [x] Wrap `ripgrep` (rg), fall back to grep
+- [x] Input: pattern, path, glob filter, contextLines, maxResults
+- [x] Token-aware truncation (like view tool's MAX_VIEW_TOKENS)
 
 ### 2.2 Create Glob tool
-- [ ] New file: `src/tools/glob.ts`
-- [ ] Use `fast-glob`, respect `.gitignore`
-- [ ] Input: pattern, path
-- [ ] Output: matching file paths sorted by modification time
+- [x] New file: `src/tools/glob.ts`
+- [x] Use `git ls-files` + glob filter, respect `.gitignore`
+- [x] Input: pattern, path
+- [x] Output: matching file paths sorted by modification time
 
 ### 2.3 Create Write tool
-- [ ] New file: `src/tools/write.ts`
-- [ ] Create new files or overwrite entire files
-- [ ] Guards: warn on overwrite (require prior read), refuse paths outside project root
+- [x] New file: `src/tools/write.ts`
+- [x] Create new files or overwrite entire files
+- [x] Guards: refuse paths outside project root, auto-create parent dirs
 
 ### 2.4 Improve existing tool descriptions
-- [ ] `src/tools/file-view.ts` — when to use, when NOT to use, line number note
-- [ ] `src/tools/shell.ts` — use for git/npm/docker, NOT for file read/search
-- [ ] `src/tools/string-replace-lsp.ts` — must read first, exact match, use write for new files
+- [x] `src/tools/file-view.ts` — usage notes with when to use, when NOT to use
+- [x] `src/tools/shell.ts` — usage notes: git/npm/docker, NOT for file read/search
+- [x] `src/tools/string-replace-lsp.ts` — must read first, exact match, LSP diagnostics
 
 ---
 

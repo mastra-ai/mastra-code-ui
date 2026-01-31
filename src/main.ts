@@ -35,6 +35,7 @@ import {
 	createGrepTool,
 	createGlobTool,
 	createWriteFileTool,
+	createSubagentTool,
 } from "./tools/index.js"
 import { buildFullPrompt, type PromptContext } from "./prompts/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
@@ -212,6 +213,21 @@ function getDynamicModel({
 }
 
 // =============================================================================
+// Create Subagent Tool (subagent delegation)
+// =============================================================================
+
+// The subagent tool needs the read-only tools and resolveModel to spawn subagents.
+// We pass a snapshot of the tools the subagents are allowed to use.
+const subagentTool = createSubagentTool({
+	tools: {
+		view: viewTool,
+		search_content: grepTool,
+		find_files: globTool,
+	},
+	resolveModel,
+})
+
+// =============================================================================
 // Create Workspace with Skills
 // =============================================================================
 
@@ -354,6 +370,8 @@ const codeAgent = new Agent({
 			view: viewTool,
 			search_content: grepTool,
 			find_files: globTool,
+            // Subagent delegation — always available
+            subagent: subagentTool,
 		}
 
 		// Write tools — NOT available in plan mode

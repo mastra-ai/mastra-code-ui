@@ -271,7 +271,43 @@ export type HarnessEvent =
 			workspaceId: string
 			workspaceName: string
 	  }
-	| { type: "workspace_error"; error: Error }
+    | { type: "workspace_error"; error: Error }
+    // Subagent / Task delegation events
+    | {
+            type: "subagent_start"
+            toolCallId: string
+            agentType: string
+            task: string
+      }
+    | {
+            type: "subagent_tool_start"
+            toolCallId: string
+            agentType: string
+            subToolName: string
+            subToolArgs: unknown
+      }
+    | {
+            type: "subagent_tool_end"
+            toolCallId: string
+            agentType: string
+            subToolName: string
+            subToolResult: unknown
+            isError: boolean
+      }
+    | {
+            type: "subagent_text_delta"
+            toolCallId: string
+            agentType: string
+            textDelta: string
+      }
+    | {
+            type: "subagent_end"
+            toolCallId: string
+            agentType: string
+            result: string
+            isError: boolean
+            durationMs: number
+      }
 
 /**
  * Listener function for harness events.
@@ -391,9 +427,12 @@ export interface HarnessRuntimeContext<
 	/** Current mode ID */
 	modeId: string
 
-	/** Abort signal for the current operation */
-	abortSignal?: AbortSignal
+    /** Abort signal for the current operation */
+    abortSignal?: AbortSignal
 
-	/** Workspace instance (if configured on the Harness) */
-	workspace?: Workspace
+    /** Workspace instance (if configured on the Harness) */
+    workspace?: Workspace
+
+    /** Emit a harness event (used by tools like task to forward subagent events) */
+    emitEvent?: (event: HarnessEvent) => void
 }

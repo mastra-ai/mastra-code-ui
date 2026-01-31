@@ -57,6 +57,7 @@ import {
 } from "./components/tool-execution.js"
 import { ToolExecutionComponentEnhanced } from "./components/tool-execution-enhanced.js"
 import type { IToolExecutionComponent } from "./components/tool-execution-interface.js"
+import { SubagentExecutionComponent } from "./components/subagent-execution.js"
 import { UserMessageComponent } from "./components/user-message.js"
 import {
 	getEditorTheme,
@@ -117,8 +118,9 @@ export class MastraTUI {
 	private streamingComponent?: AssistantMessageComponent
 	private streamingMessage?: HarnessMessage
     private pendingTools = new Map<string, IToolExecutionComponent>()
-	private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
-	private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
+    private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
+    private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
+    private pendingSubagents = new Map<string, SubagentExecutionComponent>() // Track active subagent tasks
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
@@ -926,13 +928,52 @@ ${instructions}`,
 				this.showError(`Workspace: ${event.error.message}`)
 				break
 
-			case "workspace_status_changed":
-				if (event.status === "error" && event.error) {
-					this.showError(`Workspace: ${event.error.message}`)
-				}
-				break
-		}
-	}
+            case "workspace_status_changed":
+                if (event.status === "error" && event.error) {
+                    this.showError(`Workspace: ${event.error.message}`)
+                }
+                break
+
+            // Subagent / Task delegation events
+            case "subagent_start":
+                this.handleSubagentStart(
+                    event.toolCallId,
+                    event.agentType,
+                    event.task,
+                )
+                break
+
+            case "subagent_tool_start":
+                this.handleSubagentToolStart(
+                    event.toolCallId,
+                    event.subToolName,
+                    event.subToolArgs,
+                )
+                break
+
+            case "subagent_tool_end":
+                this.handleSubagentToolEnd(
+                    event.toolCallId,
+                    event.subToolName,
+                    event.subToolResult,
+                    event.isError,
+                )
+                break
+
+            case "subagent_text_delta":
+                // Text deltas are streamed but we don't render them incrementally
+                // (the final result is shown via tool_end for the parent tool call)
+                break
+
+            case "subagent_end":
+                this.handleSubagentEnd(
+                    event.toolCallId,
+                    event.isError,
+                    event.durationMs,
+                )
+                break
+        }
+    }
 
 	private handleUsageUpdate(usage: TokenUsage): void {
 		// Accumulate token usage
@@ -1497,11 +1538,78 @@ ${instructions}`,
 		return String(result)
 	}
 
-	// ===========================================================================
-	// User Input
-	// ===========================================================================
+    // ===========================================================================
+    // Subagent Events
+    // ===========================================================================
 
-	private getUserInput(): Promise<string> {
+    private handleSubagentStart(
+        toolCallId: string,
+        agentType: string,
+        task: string,
+    ): void {
+        // Create a dedicated rendering component for this subagent run
+        const component = new SubagentExecutionComponent(
+            agentType,
+            task,
+            this.ui,
+        )
+        this.pendingSubagents.set(toolCallId, component)
+        this.chatContainer.addChild(component)
+
+        // Create a new post-subagent AssistantMessageComponent so pre-tool text is preserved
+        this.streamingComponent = new AssistantMessageComponent(
+            undefined,
+            this.hideThinkingBlock,
+            getMarkdownTheme(),
+        )
+        this.chatContainer.addChild(this.streamingComponent)
+
+        this.ui.requestRender()
+    }
+
+    private handleSubagentToolStart(
+        toolCallId: string,
+        subToolName: string,
+        subToolArgs: unknown,
+    ): void {
+        const component = this.pendingSubagents.get(toolCallId)
+        if (component) {
+            component.addToolStart(subToolName, subToolArgs)
+            this.ui.requestRender()
+        }
+    }
+
+    private handleSubagentToolEnd(
+        toolCallId: string,
+        subToolName: string,
+        subToolResult: unknown,
+        isError: boolean,
+    ): void {
+        const component = this.pendingSubagents.get(toolCallId)
+        if (component) {
+            component.addToolEnd(subToolName, subToolResult, isError)
+            this.ui.requestRender()
+        }
+    }
+
+    private handleSubagentEnd(
+        toolCallId: string,
+        isError: boolean,
+        durationMs: number,
+    ): void {
+        const component = this.pendingSubagents.get(toolCallId)
+        if (component) {
+            component.finish(isError, durationMs)
+            this.pendingSubagents.delete(toolCallId)
+            this.ui.requestRender()
+        }
+    }
+
+    // ===========================================================================
+    // User Input
+    // ===========================================================================
+
+    private getUserInput(): Promise<string> {
 		return new Promise((resolve) => {
 			this.editor.onSubmit = (text: string) => {
 				this.editor.setText("")

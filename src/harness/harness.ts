@@ -1910,19 +1910,20 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 * Build request context for agent execution.
 	 * Tools can access harness state via requestContext.get('harness').
 	 */
-	private buildRequestContext(): RequestContext {
-		const harnessContext: HarnessRuntimeContext<TState> = {
-			harnessId: this.id,
-			state: this.getState(),
-			setState: (updates) => this.setState(updates),
-			threadId: this.currentThreadId,
-			resourceId: this.resourceId,
-			modeId: this.currentModeId,
-			abortSignal: this.abortController?.signal,
-			workspace: this.workspace,
-		}
-		return new RequestContext([["harness", harnessContext]])
-	}
+    private buildRequestContext(): RequestContext {
+        const harnessContext: HarnessRuntimeContext<TState> = {
+            harnessId: this.id,
+            state: this.getState(),
+            setState: (updates) => this.setState(updates),
+            threadId: this.currentThreadId,
+            resourceId: this.resourceId,
+            modeId: this.currentModeId,
+            abortSignal: this.abortController?.signal,
+            workspace: this.workspace,
+            emitEvent: (event) => this.emit(event),
+        }
+        return new RequestContext([["harness", harnessContext]])
+    }
 
 	// ===========================================================================
 	// Session Info
