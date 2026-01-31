@@ -12,31 +12,33 @@ import type { AuthStorage } from "../auth/storage.js"
  * Configuration for a single agent mode within the harness.
  * Each mode represents a different "personality" or capability set.
  */
-export interface HarnessMode<TState extends HarnessStateSchema = HarnessStateSchema> {
-  /** Unique identifier for this mode (e.g., "plan", "build", "review") */
-  id: string
+export interface HarnessMode<
+	TState extends HarnessStateSchema = HarnessStateSchema,
+> {
+	/** Unique identifier for this mode (e.g., "plan", "build", "review") */
+	id: string
 
-  /** Human-readable name for display in TUI */
-  name?: string
+	/** Human-readable name for display in TUI */
+	name?: string
 
-  /** Whether this is the default mode when harness starts */
-  default?: boolean
+	/** Whether this is the default mode when harness starts */
+	default?: boolean
 
-  /**
-   * Default model ID for this mode (e.g., "anthropic/claude-sonnet-4-20250514").
-   * Used when no per-mode model has been explicitly selected.
-   * If not set, falls back to the global last model.
-   */
-  defaultModelId?: string
+	/**
+	 * Default model ID for this mode (e.g., "anthropic/claude-sonnet-4-20250514").
+	 * Used when no per-mode model has been explicitly selected.
+	 * If not set, falls back to the global last model.
+	 */
+	defaultModelId?: string
 
-  /** Hex color for the mode badge in the status line (e.g., "#7c3aed") */
-  color?: string
+	/** Hex color for the mode badge in the status line (e.g., "#7c3aed") */
+	color?: string
 
-  /**
-   * The agent for this mode.
-   * Can be a static Agent or a function that receives harness state.
-   */
-  agent: Agent | ((state: z.infer<TState>) => Agent)
+	/**
+	 * The agent for this mode.
+	 * Can be a static Agent or a function that receives harness state.
+	 */
+	agent: Agent | ((state: z.infer<TState>) => Agent)
 }
 
 /**
@@ -47,43 +49,57 @@ export type HarnessStateSchema = z.ZodObject<z.ZodRawShape>
 /**
  * Configuration for creating a Harness instance.
  */
-export interface HarnessConfig<TState extends HarnessStateSchema = HarnessStateSchema> {
-  /** Unique identifier for this harness instance */
-  id: string
+export interface HarnessConfig<
+	TState extends HarnessStateSchema = HarnessStateSchema,
+> {
+	/** Unique identifier for this harness instance */
+	id: string
 
-  /** 
-   * Resource ID for grouping threads (e.g., project identifier).
-   * Threads are scoped to this resource ID.
-   * Typically derived from git URL or project path.
-   */
-  resourceId: string
+	/**
+	 * Resource ID for grouping threads (e.g., project identifier).
+	 * Threads are scoped to this resource ID.
+	 * Typically derived from git URL or project path.
+	 */
+	resourceId: string
 
-  /** Storage backend for persistence (threads, messages, state) */
-  storage: MastraStorage
+	/** Storage backend for persistence (threads, messages, state) */
+	storage: MastraStorage
 
-  /** Zod schema defining the shape of harness state */
-  stateSchema: TState
+	/** Zod schema defining the shape of harness state */
+	stateSchema: TState
 
-  /** Initial state values (must conform to schema) */
-  initialState?: Partial<z.infer<TState>>
+	/** Initial state values (must conform to schema) */
+	initialState?: Partial<z.infer<TState>>
 
-  /** Memory configuration (shared across all modes) */
-  memory?: MastraMemory
+	/** Memory configuration (shared across all modes) */
+	memory?: MastraMemory
 
-  /** Available agent modes */
-  modes: HarnessMode<TState>[]
+	/** Available agent modes */
+	modes: HarnessMode<TState>[]
 
-  /**
-   * Callback when observational memory emits debug events.
-   * Used by TUI to show progress indicators.
-   */
-  onObservationalMemoryEvent?: (event: ObservationalMemoryDebugEvent) => void
+	/**
+	 * Callback when observational memory emits debug events.
+	 * Used by TUI to show progress indicators.
+	 */
+	onObservationalMemoryEvent?: (event: ObservationalMemoryDebugEvent) => void
 
-  /**
-   * Auth storage for OAuth credentials.
-   * If not provided, a default instance will be created.
-   */
-  authStorage?: AuthStorage
+	/**
+	 * Auth storage for OAuth credentials.
+	 * If not provided, a default instance will be created.
+	 */
+	authStorage?: AuthStorage
+
+	/**
+	 * Optional callback to provide additional toolsets at stream time.
+	 * Receives the current model ID and should return a toolsets object
+	 * (or undefined) to pass to agent.stream().
+	 *
+	 * Use this to conditionally add provider-specific tools
+	 * (e.g., Anthropic web search when using Claude models).
+	 */
+	getToolsets?: (
+		modelId: string,
+	) => Record<string, Record<string, unknown>> | undefined
 }
 
 // =============================================================================
@@ -94,22 +110,22 @@ export interface HarnessConfig<TState extends HarnessStateSchema = HarnessStateS
  * Thread metadata stored in the harness.
  */
 export interface HarnessThread {
-  id: string
-  resourceId: string
-  title?: string
-  createdAt: Date
-  updatedAt: Date
-  /** Token usage for this thread (persisted for status line) */
-  tokenUsage?: TokenUsage
+	id: string
+	resourceId: string
+	title?: string
+	createdAt: Date
+	updatedAt: Date
+	/** Token usage for this thread (persisted for status line) */
+	tokenUsage?: TokenUsage
 }
 
 /**
  * Session info for the current harness instance.
  */
 export interface HarnessSession {
-  currentThreadId: string | null
-  currentModeId: string
-  threads: HarnessThread[]
+	currentThreadId: string | null
+	currentModeId: string
+	threads: HarnessThread[]
 }
 
 // =============================================================================
@@ -120,41 +136,98 @@ export interface HarnessSession {
  * Token usage statistics from the model.
  */
 export interface TokenUsage {
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
+	promptTokens: number
+	completionTokens: number
+	totalTokens: number
 }
 
 /**
  * Events emitted by the harness that the TUI can subscribe to.
  */
 export type HarnessEvent =
-  | { type: "mode_changed"; modeId: string; previousModeId: string }
-  | { type: "model_changed"; modelId: string }
-  | { type: "thread_changed"; threadId: string; previousThreadId: string | null }
-  | { type: "thread_created"; thread: HarnessThread }
-  | { type: "state_changed"; state: Record<string, unknown>; changedKeys: string[] }
-  | { type: "agent_start" }
-  | { type: "agent_end"; reason?: "complete" | "aborted" | "error" }
-  | { type: "message_start"; message: HarnessMessage }
-  | { type: "message_update"; message: HarnessMessage }
-  | { type: "message_end"; message: HarnessMessage }
-  | { type: "tool_start"; toolCallId: string; toolName: string; args: unknown }
-  | { type: "tool_approval_required"; toolCallId: string; toolName: string; args: unknown }
-  | { type: "tool_update"; toolCallId: string; partialResult: unknown }
-  | { type: "tool_end"; toolCallId: string; result: unknown; isError: boolean }
-  | { type: "usage_update"; usage: TokenUsage }
-  | { type: "error"; error: Error; errorType?: string; retryable?: boolean; retryDelay?: number }
-  // Observational Memory events
-  | { type: "om_progress"; pendingTokens: number; threshold: number; thresholdPercent: number; observationTokens: number; reflectionThreshold: number; reflectionThresholdPercent: number }
-  | { type: "om_observation_start"; cycleId: string; operationType: "observation" | "reflection"; tokensToObserve: number }
-  | { type: "om_observation_end"; cycleId: string; durationMs: number; tokensObserved: number; observationTokens: number }
-  | { type: "om_observation_failed"; cycleId: string; error: string; durationMs: number }
-  | { type: "om_reflection_start"; cycleId: string; tokensToReflect: number }
-  | { type: "om_reflection_end"; cycleId: string; durationMs: number; compressedTokens: number }
-  | { type: "om_reflection_failed"; cycleId: string; error: string; durationMs: number }
-  | { type: "om_model_changed"; role: "observer" | "reflector"; modelId: string }
-  | { type: "follow_up_queued"; count: number }
+	| { type: "mode_changed"; modeId: string; previousModeId: string }
+	| { type: "model_changed"; modelId: string }
+	| {
+			type: "thread_changed"
+			threadId: string
+			previousThreadId: string | null
+	  }
+	| { type: "thread_created"; thread: HarnessThread }
+	| {
+			type: "state_changed"
+			state: Record<string, unknown>
+			changedKeys: string[]
+	  }
+	| { type: "agent_start" }
+	| { type: "agent_end"; reason?: "complete" | "aborted" | "error" }
+	| { type: "message_start"; message: HarnessMessage }
+	| { type: "message_update"; message: HarnessMessage }
+	| { type: "message_end"; message: HarnessMessage }
+	| { type: "tool_start"; toolCallId: string; toolName: string; args: unknown }
+	| {
+			type: "tool_approval_required"
+			toolCallId: string
+			toolName: string
+			args: unknown
+	  }
+	| { type: "tool_update"; toolCallId: string; partialResult: unknown }
+	| { type: "tool_end"; toolCallId: string; result: unknown; isError: boolean }
+	| { type: "usage_update"; usage: TokenUsage }
+	| {
+			type: "error"
+			error: Error
+			errorType?: string
+			retryable?: boolean
+			retryDelay?: number
+	  }
+	// Observational Memory events
+	| {
+			type: "om_progress"
+			pendingTokens: number
+			threshold: number
+			thresholdPercent: number
+			observationTokens: number
+			reflectionThreshold: number
+			reflectionThresholdPercent: number
+	  }
+	| {
+			type: "om_observation_start"
+			cycleId: string
+			operationType: "observation" | "reflection"
+			tokensToObserve: number
+	  }
+	| {
+			type: "om_observation_end"
+			cycleId: string
+			durationMs: number
+			tokensObserved: number
+			observationTokens: number
+	  }
+	| {
+			type: "om_observation_failed"
+			cycleId: string
+			error: string
+			durationMs: number
+	  }
+	| { type: "om_reflection_start"; cycleId: string; tokensToReflect: number }
+	| {
+			type: "om_reflection_end"
+			cycleId: string
+			durationMs: number
+			compressedTokens: number
+	  }
+	| {
+			type: "om_reflection_failed"
+			cycleId: string
+			error: string
+			durationMs: number
+	  }
+	| {
+			type: "om_model_changed"
+			role: "observer" | "reflector"
+			modelId: string
+	  }
+	| { type: "follow_up_queued"; count: number }
 
 /**
  * Listener function for harness events.
@@ -170,24 +243,45 @@ export type HarnessEventListener = (event: HarnessEvent) => void | Promise<void>
  * Maps from Mastra's internal message format.
  */
 export interface HarnessMessage {
-  id: string
-  role: "user" | "assistant" | "system"
-  content: HarnessMessageContent[]
-  createdAt: Date
-  /** For assistant messages */
-  stopReason?: "complete" | "tool_use" | "aborted" | "error"
-  errorMessage?: string
+	id: string
+	role: "user" | "assistant" | "system"
+	content: HarnessMessageContent[]
+	createdAt: Date
+	/** For assistant messages */
+	stopReason?: "complete" | "tool_use" | "aborted" | "error"
+	errorMessage?: string
 }
 
 export type HarnessMessageContent =
-  | { type: "text"; text: string }
-  | { type: "thinking"; thinking: string }
-  | { type: "tool_call"; id: string; name: string; args: unknown }
-  | { type: "tool_result"; id: string; name: string; result: unknown; isError: boolean }
-  | { type: "image"; data: string; mimeType: string }
-  | { type: "om_observation_start"; tokensToObserve: number; operationType?: "observation" | "reflection" }
-  | { type: "om_observation_end"; tokensObserved: number; observationTokens: number; durationMs: number; operationType?: "observation" | "reflection" }
-  | { type: "om_observation_failed"; error: string; tokensAttempted?: number; operationType?: "observation" | "reflection" }
+	| { type: "text"; text: string }
+	| { type: "thinking"; thinking: string }
+	| { type: "tool_call"; id: string; name: string; args: unknown }
+	| {
+			type: "tool_result"
+			id: string
+			name: string
+			result: unknown
+			isError: boolean
+	  }
+	| { type: "image"; data: string; mimeType: string }
+	| {
+			type: "om_observation_start"
+			tokensToObserve: number
+			operationType?: "observation" | "reflection"
+	  }
+	| {
+			type: "om_observation_end"
+			tokensObserved: number
+			observationTokens: number
+			durationMs: number
+			operationType?: "observation" | "reflection"
+	  }
+	| {
+			type: "om_observation_failed"
+			error: string
+			tokensAttempted?: number
+			operationType?: "observation" | "reflection"
+	  }
 
 // =============================================================================
 // Observational Memory
@@ -198,31 +292,31 @@ export type HarnessMessageContent =
  * Used by TUI to show progress indicators.
  */
 export type ObservationalMemoryDebugEvent =
-  | {
-      type: "observation_triggered"
-      pendingTokens: number
-      threshold: number
-    }
-  | {
-      type: "observation_complete"
-      observationTokens: number
-      duration: number
-    }
-  | {
-      type: "reflection_triggered"
-      observationTokens: number
-      threshold: number
-    }
-  | {
-      type: "reflection_complete"
-      compressedTokens: number
-      duration: number
-    }
-  | {
-      type: "tokens_accumulated"
-      pendingTokens: number
-      threshold: number
-    }
+	| {
+			type: "observation_triggered"
+			pendingTokens: number
+			threshold: number
+	  }
+	| {
+			type: "observation_complete"
+			observationTokens: number
+			duration: number
+	  }
+	| {
+			type: "reflection_triggered"
+			observationTokens: number
+			threshold: number
+	  }
+	| {
+			type: "reflection_complete"
+			compressedTokens: number
+			duration: number
+	  }
+	| {
+			type: "tokens_accumulated"
+			pendingTokens: number
+			threshold: number
+	  }
 
 // =============================================================================
 // Runtime Context
@@ -232,25 +326,27 @@ export type ObservationalMemoryDebugEvent =
  * Context available to tools via Mastra's runtimeContext.
  * Tools can access harness state and methods through this.
  */
-export interface HarnessRuntimeContext<TState extends HarnessStateSchema = HarnessStateSchema> {
-  /** The harness instance ID */
-  harnessId: string
+export interface HarnessRuntimeContext<
+	TState extends HarnessStateSchema = HarnessStateSchema,
+> {
+	/** The harness instance ID */
+	harnessId: string
 
-  /** Current harness state (read-only snapshot) */
-  state: z.infer<TState>
+	/** Current harness state (read-only snapshot) */
+	state: z.infer<TState>
 
-  /** Update harness state */
-  setState: (updates: Partial<z.infer<TState>>) => Promise<void>
+	/** Update harness state */
+	setState: (updates: Partial<z.infer<TState>>) => Promise<void>
 
-  /** Current thread ID */
-  threadId: string | null
+	/** Current thread ID */
+	threadId: string | null
 
-  /** Current resource ID */
-  resourceId: string
+	/** Current resource ID */
+	resourceId: string
 
-  /** Current mode ID */
-  modeId: string
+	/** Current mode ID */
+	modeId: string
 
-  /** Abort signal for the current operation */
-  abortSignal?: AbortSignal
+	/** Abort signal for the current operation */
+	abortSignal?: AbortSignal
 }

@@ -226,14 +226,44 @@ Be concise but thorough. Always use tools rather than just explaining what you w
 You are interacting with the user via a terminal UI, remember that and keep your responses short enough that they don't need to scroll their terminal every time you respond.`,
 	model: getDynamicModel,
 	memory,
-	tools: {
-		view: viewTool,
-		execute_command: executeCommandTool,
-		string_replace_lsp: stringReplaceLspTool,
-		...(webSearchTool ? { web_search: webSearchTool } : {}),
-		...(webExtractTool ? { web_extract: webExtractTool } : {}),
+	tools: ({ requestContext }) => {
+		const harnessContext = requestContext.get("harness") as
+			| HarnessRuntimeContext<typeof stateSchema>
+			| undefined
+		const modelId = harnessContext?.state?.currentModelId ?? ""
+		const isAnthropicModel = modelId.startsWith("anthropic/")
+
+		return {
+			view: viewTool,
+			execute_command: executeCommandTool,
+			string_replace_lsp: stringReplaceLspTool,
+			// Tavily search only for non-Anthropic models (Anthropic uses native web search)
+			...(!isAnthropicModel && webSearchTool
+				? { web_search: webSearchTool }
+				: {}),
+			// Tavily extract available for all models (no native Anthropic equivalent yet)
+			...(webExtractTool ? { web_extract: webExtractTool } : {}),
+		}
 	},
 })
+
+// =============================================================================
+// Anthropic Provider Tools (web search & fetch - zero implementation needed)
+// =============================================================================
+const anthropic = createAnthropic({})
+
+function getToolsets(
+	modelId: string,
+): Record<string, Record<string, unknown>> | undefined {
+	const isAnthropicModel = modelId.startsWith("anthropic/")
+	if (!isAnthropicModel) return undefined
+
+	return {
+		anthropic: {
+			web_search: anthropic.tools.webSearch_20250305(),
+		},
+	}
+}
 
 // =============================================================================
 // Create Harness
@@ -248,6 +278,7 @@ const harness = new Harness({
 		projectName: project.name,
 		gitBranch: project.gitBranch,
 	},
+	getToolsets,
 	modes: [
 		{
 			id: "build",

@@ -974,19 +974,19 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 * Get current resource ID.
 	 */
 	getResourceId(): string {
-        return this.resourceId
-    }
+		return this.resourceId
+	}
 
-    /**
-     * Set the current resource ID (for switching between projects/resources).
-     */
-    setResourceId(resourceId: string): void {
-        this.resourceId = resourceId
-        this.currentThreadId = null
-    }
+	/**
+	 * Set the current resource ID (for switching between projects/resources).
+	 */
+	setResourceId(resourceId: string): void {
+		this.resourceId = resourceId
+		this.currentThreadId = null
+	}
 
-    /**
-     * Create a new thread.
+	/**
+	 * Create a new thread.
 	 * Uses the global "last model" if available, otherwise uses initial state.
 	 */
 	async createThread(title?: string): Promise<HarnessThread> {
@@ -1150,6 +1150,16 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			if (providerOptions) {
 				streamOptions.providerOptions = providerOptions
 			}
+
+			// Add provider-specific toolsets (e.g., Anthropic web search)
+			if (this.config.getToolsets) {
+				const modelId = this.getCurrentModelId()
+				const toolsets = this.config.getToolsets(modelId)
+				if (toolsets) {
+					streamOptions.toolsets = toolsets
+				}
+			}
+
 			const response = await agent.stream(content, streamOptions as any)
 			// Process the stream
 			await this.processStream(response)
