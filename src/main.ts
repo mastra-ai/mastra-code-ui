@@ -27,15 +27,15 @@ import { AuthStorage } from "./auth/storage.js"
 import { detectProject, getDatabasePath } from "./utils/project.js"
 import { startGatewaySync } from "./utils/gateway-sync.js"
 import {
-    createViewTool,
-    createExecuteCommandTool,
-    stringReplaceLspTool,
-    createWebSearchTool,
-    createWebExtractTool,
-    createGrepTool,
-    createGlobTool,
-    createWriteFileTool,
-    createTaskTool,
+	createViewTool,
+	createExecuteCommandTool,
+	stringReplaceLspTool,
+	createWebSearchTool,
+	createWebExtractTool,
+	createGrepTool,
+	createGlobTool,
+	createWriteFileTool,
+	createSubagentTool,
 } from "./tools/index.js"
 import { buildFullPrompt, type PromptContext } from "./prompts/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
@@ -209,22 +209,22 @@ function getDynamicModel({
 		throw new Error("No model selected. Use /models to select a model first.")
 	}
 
-    return resolveModel(modelId)
+	return resolveModel(modelId)
 }
 
 // =============================================================================
-// Create Task Tool (subagent delegation)
+// Create Subagent Tool (subagent delegation)
 // =============================================================================
 
-// The task tool needs the read-only tools and resolveModel to spawn subagents.
+// The subagent tool needs the read-only tools and resolveModel to spawn subagents.
 // We pass a snapshot of the tools the subagents are allowed to use.
-const taskTool = createTaskTool({
-    tools: {
-        view: viewTool,
-        search_content: grepTool,
-        find_files: globTool,
-    },
-    resolveModel,
+const subagentTool = createSubagentTool({
+	tools: {
+		view: viewTool,
+		search_content: grepTool,
+		find_files: globTool,
+	},
+	resolveModel,
 })
 
 // =============================================================================
@@ -365,31 +365,31 @@ const codeAgent = new Agent({
 		// NOTE: Tool names "grep" and "glob" are reserved by Anthropic's OAuth
 		// validation (they match Claude Code's internal tools). We use
 		// "search_content" and "find_files" to avoid the collision.
-        const tools: Record<string, any> = {
-            // Read-only tools — always available
-            view: viewTool,
-            search_content: grepTool,
-            find_files: globTool,
+		const tools: Record<string, any> = {
+			// Read-only tools — always available
+			view: viewTool,
+			search_content: grepTool,
+			find_files: globTool,
             // Subagent delegation — always available
-            task: taskTool,
-        }
+            subagent: subagentTool,
+		}
 
-        // Write tools — NOT available in plan mode
-        if (modeId !== "plan") {
-            tools.string_replace_lsp = stringReplaceLspTool
-            tools.write_file = writeFileTool
-            tools.execute_command = executeCommandTool
-        }
+		// Write tools — NOT available in plan mode
+		if (modeId !== "plan") {
+			tools.string_replace_lsp = stringReplaceLspTool
+			tools.write_file = writeFileTool
+			tools.execute_command = executeCommandTool
+		}
 
-        // Web tools — conditional on model/API keys
-        if (!isAnthropicModel && webSearchTool) {
-            tools.web_search = webSearchTool
-        }
-        if (webExtractTool) {
-            tools.web_extract = webExtractTool
-        }
+		// Web tools — conditional on model/API keys
+		if (!isAnthropicModel && webSearchTool) {
+			tools.web_search = webSearchTool
+		}
+		if (webExtractTool) {
+			tools.web_extract = webExtractTool
+		}
 
-        return tools
+		return tools
 	},
 })
 
