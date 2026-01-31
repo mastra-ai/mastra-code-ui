@@ -78,10 +78,12 @@ function extractContent(text: string): { content: string; isError: boolean } {
   return { content: text, isError: false }
 }
 
+import type { IToolExecutionComponent } from "./tool-execution-interface.js"
+
 /**
  * Component that renders a tool call with its result (updateable).
  */
-export class ToolExecutionComponent extends Container {
+export class ToolExecutionComponent extends Container implements IToolExecutionComponent {
   private contentBox: Box
   private toolName: string
   private args: unknown
@@ -292,7 +294,7 @@ export class ToolExecutionComponent extends Container {
     const remaining = lines.length - maxLines
     return (
       theme.fg("toolOutput", truncated) +
-      `\n${theme.fg("muted", `... ${remaining} more lines (Ctrl+E to expand)`)}`
+      `\n${theme.fg("muted", `... ${remaining} more lines (Ctrl+E to expand all)`)}`
     )
   }
 }

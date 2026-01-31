@@ -1,6 +1,8 @@
 import type { Agent } from "@mastra/core/agent"
 import type { StorageThreadType } from "@mastra/core/memory"
 import { RequestContext } from "@mastra/core/request-context"
+import { Workspace } from "@mastra/core/workspace"
+import type { WorkspaceConfig } from "@mastra/core/workspace"
 import type { z } from "zod"
 import type {
 	HarnessConfig,
@@ -93,6 +95,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private currentOperationId: number = 0
 	private followUpQueue: string[] = []
 	private pendingApprovalToolCallId: string | null = null
+	private workspace: Workspace | undefined = undefined
+	private workspaceInitialized = false
 	private tokenUsage: {
 		promptTokens: number
 		completionTokens: number
@@ -118,6 +122,11 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			throw new Error("Harness requires at least one agent mode")
 		}
 		this.currentModeId = defaultMode.id
+
+		// Store pre-built workspace (config-based workspace is constructed in init())
+		if (config.workspace instanceof Workspace) {
+			this.workspace = config.workspace
+		}
 
 		// Seed model from mode default or global last model if not set
 		const currentModel = (this.state as any).currentModelId
@@ -146,6 +155,52 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		// Load persisted state from storage (if we have a state storage mechanism)
 		// For now, we use the initial state from config
 		// TODO: Add state persistence via storage.getStore('agents') or custom domain
+
+		// Initialize workspace if configured
+		if (this.config.workspace && !this.workspaceInitialized) {
+			try {
+				// Construct workspace from config if not already a Workspace instance
+				if (!this.workspace) {
+					this.workspace = new Workspace(
+						this.config.workspace as WorkspaceConfig,
+					)
+				}
+
+				this.emit({
+					type: "workspace_status_changed",
+					status: "initializing",
+				})
+
+				await this.workspace.init()
+				this.workspaceInitialized = true
+
+				this.emit({
+					type: "workspace_status_changed",
+					status: "ready",
+				})
+				this.emit({
+					type: "workspace_ready",
+					workspaceId: this.workspace.id,
+					workspaceName: this.workspace.name,
+				})
+			} catch (error) {
+				const err =
+					error instanceof Error ? error : new Error(String(error))
+				console.warn("Workspace initialization failed:", err.message)
+				this.workspace = undefined
+				this.workspaceInitialized = false
+
+				this.emit({
+					type: "workspace_status_changed",
+					status: "error",
+					error: err,
+				})
+				this.emit({
+					type: "workspace_error",
+					error: err,
+				})
+			}
+		}
 	}
 
 	/**
@@ -1864,6 +1919,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			resourceId: this.resourceId,
 			modeId: this.currentModeId,
 			abortSignal: this.abortController?.signal,
+			workspace: this.workspace,
 		}
 		return new RequestContext([["harness", harnessContext]])
 	}
@@ -1949,6 +2005,56 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	async getApiKey(providerId: string): Promise<string | undefined> {
 		return this.getAuthStorage().getApiKey(providerId)
+	}
+
+	// ===========================================================================
+	// Workspace
+	// ===========================================================================
+
+	/**
+	 * Get the workspace instance (if configured and initialized).
+	 * Returns undefined if no workspace was configured or if init failed.
+	 */
+	getWorkspace(): Workspace | undefined {
+		return this.workspace
+	}
+
+	/**
+	 * Check if a workspace is configured (regardless of init status).
+	 */
+	hasWorkspace(): boolean {
+		return this.config.workspace !== undefined
+	}
+
+	/**
+	 * Check if the workspace is initialized and ready.
+	 */
+	isWorkspaceReady(): boolean {
+		return this.workspaceInitialized && this.workspace !== undefined
+	}
+
+	/**
+	 * Destroy the workspace and clean up resources.
+	 * Can be called during harness shutdown for proper cleanup.
+	 */
+	async destroyWorkspace(): Promise<void> {
+		if (this.workspace && this.workspaceInitialized) {
+			try {
+				this.emit({
+					type: "workspace_status_changed",
+					status: "destroying",
+				})
+				await this.workspace.destroy()
+				this.emit({
+					type: "workspace_status_changed",
+					status: "destroyed",
+				})
+			} catch (error) {
+				console.warn("Workspace destroy failed:", error)
+			} finally {
+				this.workspaceInitialized = false
+			}
+		}
 	}
 
 	// ===========================================================================

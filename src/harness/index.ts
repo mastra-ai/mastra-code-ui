@@ -14,3 +14,6 @@ export type {
   ObservationalMemoryDebugEvent,
   TokenUsage,
 } from "./types"
+
+// Re-export workspace types for convenience
+export type { WorkspaceStatus } from "@mastra/core/workspace"

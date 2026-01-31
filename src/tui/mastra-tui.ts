@@ -53,9 +53,10 @@ import {
 } from "./components/om-progress.js"
 import { ToolApprovalDialogComponent } from "./components/tool-approval-dialog.js"
 import {
-	ToolExecutionComponent,
-	type ToolResult,
+    type ToolResult,
 } from "./components/tool-execution.js"
+import { ToolExecutionComponentEnhanced } from "./components/tool-execution-enhanced.js"
+import type { IToolExecutionComponent } from "./components/tool-execution-interface.js"
 import { UserMessageComponent } from "./components/user-message.js"
 import {
 	getEditorTheme,
@@ -74,7 +75,11 @@ export interface MastraTUIOptions {
 	/** The harness instance to control */
 	harness: Harness<any>
 
-	/** Optional Workspace for skill listing */
+	/**
+	 * @deprecated Workspace is now obtained from the Harness.
+	 * Configure workspace via HarnessConfig.workspace instead.
+	 * Kept as fallback for backward compatibility.
+	 */
 	workspace?: Workspace
 
 	/** Initial message to send on startup */
@@ -111,9 +116,9 @@ export class MastraTUI {
 	private loadingAnimation?: Loader
 	private streamingComponent?: AssistantMessageComponent
 	private streamingMessage?: HarnessMessage
-	private pendingTools = new Map<string, ToolExecutionComponent>()
+    private pendingTools = new Map<string, IToolExecutionComponent>()
 	private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
-	private allToolComponents: ToolExecutionComponent[] = [] // Track all tools for expand/collapse
+	private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
@@ -218,14 +223,15 @@ export class MastraTUI {
 			this.ui.requestRender()
 		})
 
-		// Ctrl+E - expand/collapse tool outputs
-		this.editor.onAction("expandTools", () => {
-			this.toolOutputExpanded = !this.toolOutputExpanded
-			for (const tool of this.allToolComponents) {
-				tool.setExpanded(this.toolOutputExpanded)
-			}
-			this.ui.requestRender()
-		})
+        // Ctrl+E - expand/collapse tool outputs
+        this.editor.onAction("expandTools", () => {
+            this.toolOutputExpanded = !this.toolOutputExpanded
+            console.error(`[DEBUG] Ctrl+E toggled. Expanded: ${this.toolOutputExpanded}, Tool count: ${this.allToolComponents.length}`)
+            for (const tool of this.allToolComponents) {
+                tool.setExpanded(this.toolOutputExpanded)
+            }
+            this.ui.requestRender()
+        })
 
 		// Shift+Tab - cycle harness modes
 		this.editor.onAction("cycleMode", async () => {
@@ -911,6 +917,20 @@ ${instructions}`,
 			case "follow_up_queued":
 				this.showInfo(`Follow-up queued (${event.count} pending)`)
 				break
+
+			case "workspace_ready":
+				// Workspace initialized successfully - silent unless verbose
+				break
+
+			case "workspace_error":
+				this.showError(`Workspace: ${event.error.message}`)
+				break
+
+			case "workspace_status_changed":
+				if (event.status === "error" && event.error) {
+					this.showError(`Workspace: ${event.error.message}`)
+				}
+				break
 		}
 	}
 
@@ -1183,8 +1203,8 @@ ${instructions}`,
 			this.streamingMessage = undefined
 		}
 
-		this.pendingTools.clear()
-		this.allToolComponents = []
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after agent completes
 	}
 
 	private handleAgentAborted(): void {
@@ -1205,8 +1225,8 @@ ${instructions}`,
 			this.streamingMessage = undefined
 		}
 
-		this.pendingTools.clear()
-		this.allToolComponents = []
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after interruption
 	}
 
 	private handleAgentError(): void {
@@ -1225,8 +1245,8 @@ ${instructions}`,
 			this.streamingMessage = undefined
 		}
 
-		this.pendingTools.clear()
-		this.allToolComponents = []
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after errors
 	}
 
 	private handleMessageStart(message: HarnessMessage): void {
@@ -1262,12 +1282,12 @@ ${instructions}`,
 				if (!this.seenToolCallIds.has(content.id)) {
 					this.seenToolCallIds.add(content.id)
 					this.chatContainer.addChild(new Text("", 0, 0))
-					const component = new ToolExecutionComponent(
-						content.name,
-						content.args,
-						{ showImages: false },
-						this.ui,
-					)
+				const component = new ToolExecutionComponentEnhanced(
+					content.name,
+					content.args,
+					{ showImages: false, collapsedByDefault: !this.toolOutputExpanded },
+					this.ui,
+				)
 					component.setExpanded(this.toolOutputExpanded)
 					this.chatContainer.addChild(component)
 					this.pendingTools.set(content.id, component)
@@ -1357,12 +1377,12 @@ ${instructions}`,
 		if (!this.seenToolCallIds.has(toolCallId)) {
 			this.seenToolCallIds.add(toolCallId)
 			this.chatContainer.addChild(new Text("", 0, 0))
-			const component = new ToolExecutionComponent(
-				toolName,
-				args,
-				{ showImages: false },
-				this.ui,
-			)
+            const component = new ToolExecutionComponentEnhanced(
+                toolName,
+                args,
+                { showImages: false, collapsedByDefault: !this.toolOutputExpanded },
+                this.ui,
+            )
 			component.setExpanded(this.toolOutputExpanded)
 			this.chatContainer.addChild(component)
 			this.pendingTools.set(toolCallId, component)
@@ -1566,8 +1586,16 @@ ${instructions}`,
 	// Skills List
 	// ===========================================================================
 
+	/**
+	 * Get the workspace, preferring harness-owned workspace over the direct option.
+	 */
+	private getResolvedWorkspace(): Workspace | undefined {
+		return this.harness.getWorkspace() ?? this.workspace
+	}
+
 	private async showSkillsList(): Promise<void> {
-		if (!this.workspace?.skills) {
+		const workspace = this.getResolvedWorkspace()
+		if (!workspace?.skills) {
 			this.showInfo(
 				"No skills configured.\n\n" +
 					"Add skills to any of these locations:\n" +
@@ -1582,7 +1610,7 @@ ${instructions}`,
 		}
 
 		try {
-			const skills = await this.workspace.skills.list()
+			const skills = await workspace.skills!.list()
 
 			if (skills.length === 0) {
 				this.showInfo(
@@ -1711,6 +1739,7 @@ ${instructions}`,
 					},
 				},
 				modelOptions,
+				this.ui,
 			)
 
 			this.ui.showOverlay(settings, {
@@ -2123,13 +2152,13 @@ Keyboard shortcuts:
 							accumulatedContent = []
 						}
 
-						// Render the tool call
-						const toolComponent = new ToolExecutionComponent(
-							content.name,
-							content.args,
-							{ showImages: false },
-							this.ui,
-						)
+					// Render the tool call
+					const toolComponent = new ToolExecutionComponentEnhanced(
+						content.name,
+						content.args,
+						{ showImages: false, collapsedByDefault: !this.toolOutputExpanded },
+						this.ui,
+					)
 
 						// Find matching tool result
 						const toolResult = message.content.find(

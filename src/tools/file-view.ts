@@ -113,8 +113,15 @@ async function validatePath(command: string, filePath: string): Promise<void> {
 export function createViewTool(projectRoot?: string) {
   return createTool({
     id: 'view',
-    description:
-      'View file contents or directory listing. Paths are relative to the project root directory.',
+    description: `Read file contents with line numbers, or list directory contents. Paths are relative to the project root.
+
+Usage notes:
+- Use this to read files BEFORE editing them. Never modify code you haven't read.
+- Use view_range for large files to read specific line ranges (e.g., [1, 50] for first 50 lines).
+- For directories, shows files up to 2 levels deep (excluding hidden files).
+- Output includes line numbers (like cat -n) for easy reference.
+- When NOT to use this tool: for searching file contents (use grep), for finding files by name (use glob).
+- Output is truncated if the file is very large. Use view_range to see specific sections.`,
     inputSchema: z.object({
       path: z.string().describe('Path to the file or directory (relative to project root)'),
       view_range: z
@@ -202,10 +209,14 @@ export function createViewTool(projectRoot?: string) {
           }
         }
 
+        const fileLines = fileContent.split('\n')
         const output = makeOutput(fileContent, String(filePath))
+        const truncated = truncateStringForTokenEstimate(output, MAX_VIEW_TOKENS, false)
+        const wasTruncated = truncated !== output
         return {
-          // Truncate from end (keep the beginning of the file)
-          content: truncateStringForTokenEstimate(output, MAX_VIEW_TOKENS, false),
+          content: wasTruncated
+            ? truncated + `\n\n... ${fileLines.length} total lines in file. Use view_range to see specific sections.`
+            : truncated,
           isError: false,
         }
       } catch (error) {

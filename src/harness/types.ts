@@ -1,6 +1,11 @@
 import type { Agent } from "@mastra/core/agent"
 import type { MastraMemory } from "@mastra/core/memory"
 import type { MastraStorage } from "@mastra/core/storage"
+import type {
+	Workspace,
+	WorkspaceConfig,
+	WorkspaceStatus,
+} from "@mastra/core/workspace"
 import type { z } from "zod"
 import type { AuthStorage } from "../auth/storage.js"
 
@@ -100,6 +105,33 @@ export interface HarnessConfig<
 	getToolsets?: (
 		modelId: string,
 	) => Record<string, Record<string, unknown>> | undefined
+
+	/**
+	 * Workspace configuration.
+	 * Accepts either a pre-constructed Workspace instance or a WorkspaceConfig
+	 * to have the Harness construct one internally.
+	 *
+	 * When provided, the Harness manages the workspace lifecycle (init/destroy)
+	 * and exposes it to agents via HarnessRuntimeContext.
+	 *
+	 * @example Pre-built workspace
+	 * ```typescript
+	 * const workspace = new Workspace({ skills: ['/skills'] });
+	 * const harness = new Harness({ workspace, ... });
+	 * ```
+	 *
+	 * @example Workspace config (Harness constructs it)
+	 * ```typescript
+	 * const harness = new Harness({
+	 *   workspace: {
+	 *     filesystem: new LocalFilesystem({ basePath: './data' }),
+	 *     skills: ['/skills'],
+	 *   },
+	 *   ...
+	 * });
+	 * ```
+	 */
+	workspace?: Workspace | WorkspaceConfig
 }
 
 // =============================================================================
@@ -228,6 +260,18 @@ export type HarnessEvent =
 			modelId: string
 	  }
 	| { type: "follow_up_queued"; count: number }
+	// Workspace events
+	| {
+			type: "workspace_status_changed"
+			status: WorkspaceStatus
+			error?: Error
+	  }
+	| {
+			type: "workspace_ready"
+			workspaceId: string
+			workspaceName: string
+	  }
+	| { type: "workspace_error"; error: Error }
 
 /**
  * Listener function for harness events.
@@ -349,4 +393,7 @@ export interface HarnessRuntimeContext<
 
 	/** Abort signal for the current operation */
 	abortSignal?: AbortSignal
+
+	/** Workspace instance (if configured on the Harness) */
+	workspace?: Workspace
 }
