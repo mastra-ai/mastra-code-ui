@@ -97,6 +97,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private pendingApprovalToolCallId: string | null = null
 	private workspace: Workspace | undefined = undefined
 	private workspaceInitialized = false
+	private hookManager: import("../hooks/index.js").HookManager | undefined
+	private pendingDeclineToolCallId: string | null = null
 	private tokenUsage: {
 		promptTokens: number
 		completionTokens: number
@@ -127,6 +129,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		if (config.workspace instanceof Workspace) {
 			this.workspace = config.workspace
 		}
+
+		// Store hook manager
+		this.hookManager = config.hookManager
 
 		// Seed model from mode default or global last model if not set
 		const currentModel = (this.state as any).currentModelId
@@ -271,7 +276,10 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 		this.state = result.data as z.infer<TState>
 
-		// TODO: Persist state to storage
+		// Persist specific state keys to thread metadata
+		if ("todos" in updates) {
+			this.persistThreadSetting("todos", updates.todos).catch(() => {})
+		}
 
 		this.emit({
 			type: "state_changed",
@@ -309,6 +317,13 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	getModes(): HarnessMode<TState>[] {
 		return this.config.modes
+	}
+
+	/**
+	 * Get the hook manager (if configured).
+	 */
+	getHookManager(): import("../hooks/index.js").HookManager | undefined {
+		return this.hookManager
 	}
 
 	/**
@@ -875,6 +890,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			if (meta?.reflectionThreshold)
 				updates.reflectionThreshold = meta.reflectionThreshold
 			if (meta?.thinkingLevel) updates.thinkingLevel = meta.thinkingLevel
+			if (meta?.todos) updates.todos = meta.todos
 
 			// Restore mode (must happen before model loading since model is per-mode)
 			if (meta?.currentModeId) {
@@ -1168,6 +1184,24 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			images?: Array<{ data: string; mimeType: string }>
 		},
 	): Promise<void> {
+		// Run UserPromptSubmit hooks (blocking)
+		if (this.hookManager) {
+			const hookResult =
+				await this.hookManager.runUserPromptSubmit(content)
+			for (const warning of hookResult.warnings) {
+				this.emit({ type: "error", error: new Error(`[hook] ${warning}`) })
+			}
+			if (!hookResult.allowed) {
+				this.emit({
+					type: "error",
+					error: new Error(
+						`Message blocked by hook: ${hookResult.blockReason || "Policy violation"}`,
+					),
+				})
+				return
+			}
+		}
+
 		// Ensure we have a thread
 		if (!this.currentThreadId) {
 			const thread = await this.createThread()
@@ -1215,27 +1249,85 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				}
 			}
 
-			const response = await agent.stream(content, streamOptions as any)
-			// Process the stream
-			await this.processStream(response)
+            const response = await agent.stream(content, streamOptions as any)
+            // Process the stream
+            const lastMessage = await this.processStream(response)
 
-			// Handle YOLO auto-approval (queued during processStream to avoid race condition)
-			if (
-				this.pendingApprovalToolCallId &&
-				this.currentOperationId === operationId
-			) {
-				const toolCallId = this.pendingApprovalToolCallId
-				this.pendingApprovalToolCallId = null
-				await this.approveToolCall(toolCallId)
-				// After approval completes, the resumed stream has been fully processed
-				// Don't emit agent_end here — approveToolCall's processStream will handle it
-				return
-			}
+            // Check if agent has usage data after stream completes
+            if ((agent as any).totalUsage || (agent as any).usage) {
+                const usage = (agent as any).totalUsage || (agent as any).usage
+                if (usage) {
+                    // Update cumulative token usage
+                    const promptTokens = usage.promptTokens ?? 0
+                    const completionTokens = usage.completionTokens ?? 0
+                    const totalTokens = promptTokens + completionTokens
 
-			// Only emit completion if not superseded by steer
-			if (this.currentOperationId === operationId) {
-				this.emit({ type: "agent_end", reason: "complete" })
-			}
+                    this.tokenUsage.promptTokens += promptTokens
+                    this.tokenUsage.completionTokens += completionTokens
+                    this.tokenUsage.totalTokens += totalTokens
+
+                    // Persist to thread metadata (fire and forget)
+                    this.persistTokenUsage().catch(() => {})
+
+                    this.emit({
+                        type: "usage_update",
+                        usage: {
+                            promptTokens,
+                            completionTokens,
+                            totalTokens,
+                        },
+                    })
+                }
+            }
+
+            // Handle hook-blocked tool decline (queued during processStream)
+            if (
+                this.pendingDeclineToolCallId &&
+                this.currentOperationId === operationId
+            ) {
+                const toolCallId = this.pendingDeclineToolCallId
+                this.pendingDeclineToolCallId = null
+                await this.declineToolCall(toolCallId)
+                return
+            }
+
+            // Handle YOLO auto-approval (queued during processStream to avoid race condition)
+            if (
+                this.pendingApprovalToolCallId &&
+                this.currentOperationId === operationId
+            ) {
+                const toolCallId = this.pendingApprovalToolCallId
+                this.pendingApprovalToolCallId = null
+                await this.approveToolCall(toolCallId)
+                // After approval completes, the resumed stream has been fully processed
+                // Don't emit agent_end here — approveToolCall's processStream will handle it
+                return
+            }
+
+            // Run Stop hooks (blocking: exit 2 = agent keeps working)
+            if (this.hookManager && this.currentOperationId === operationId) {
+                const assistantText = lastMessage?.content
+                    ?.filter((c): c is { type: "text"; text: string } => c.type === "text")
+                    .map((c) => c.text)
+                    .join("") || undefined
+
+                const stopResult = await this.hookManager.runStop(assistantText, "complete")
+                for (const warning of stopResult.warnings) {
+                    this.emit({ type: "error", error: new Error(`[hook] ${warning}`) })
+                }
+                if (!stopResult.allowed) {
+                    // Hook says agent should keep working
+                    this.followUpQueue.unshift(
+                        stopResult.blockReason || "A hook has requested that you continue working.",
+                    )
+                    return
+                }
+            }
+
+            // Only emit completion if not superseded by steer
+            if (this.currentOperationId === operationId) {
+                this.emit({ type: "agent_end", reason: "complete" })
+            }
 		} catch (error) {
 			// If superseded by steer, silently exit
 			if (this.currentOperationId !== operationId) return
@@ -1534,15 +1626,69 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				requestContext: this.buildRequestContext(),
 			})
 
-			// Process the resumed stream
-			await this.processStream(response)
+            // Process the resumed stream
+            await this.processStream(response)
 
-			// Handle chained YOLO approvals (if another tool-call-approval was queued)
-			if (this.pendingApprovalToolCallId) {
-				const nextToolCallId = this.pendingApprovalToolCallId
-				this.pendingApprovalToolCallId = null
-				await this.approveToolCall(nextToolCallId)
-			}
+            // Check if agent has usage data after stream completes
+            if ((agent as any).totalUsage || (agent as any).usage) {
+                const usage = (agent as any).totalUsage || (agent as any).usage
+                if (usage) {
+                    // Update cumulative token usage
+                    const promptTokens = usage.promptTokens ?? 0
+                    const completionTokens = usage.completionTokens ?? 0
+                    const totalTokens = promptTokens + completionTokens
+
+                    this.tokenUsage.promptTokens += promptTokens
+                    this.tokenUsage.completionTokens += completionTokens
+                    this.tokenUsage.totalTokens += totalTokens
+
+                    // Persist to thread metadata (fire and forget)
+                    this.persistTokenUsage().catch(() => {})
+
+                    this.emit({
+                        type: "usage_update",
+                        usage: {
+                            promptTokens,
+                            completionTokens,
+                            totalTokens,
+                        },
+                    })
+                }
+            }
+
+            // Check if agent has usage data after stream completes
+            if ((agent as any).totalUsage || (agent as any).usage) {
+                const usage = (agent as any).totalUsage || (agent as any).usage
+                if (usage) {
+                    // Update cumulative token usage
+                    const promptTokens = usage.promptTokens ?? 0
+                    const completionTokens = usage.completionTokens ?? 0
+                    const totalTokens = promptTokens + completionTokens
+
+                    this.tokenUsage.promptTokens += promptTokens
+                    this.tokenUsage.completionTokens += completionTokens
+                    this.tokenUsage.totalTokens += totalTokens
+
+                    // Persist to thread metadata (fire and forget)
+                    this.persistTokenUsage().catch(() => {})
+
+                    this.emit({
+                        type: "usage_update",
+                        usage: {
+                            promptTokens,
+                            completionTokens,
+                            totalTokens,
+                        },
+                    })
+                }
+            }
+
+            // Handle chained YOLO approvals (if another tool-call-approval was queued)
+            if (this.pendingApprovalToolCallId) {
+                const nextToolCallId = this.pendingApprovalToolCallId
+                this.pendingApprovalToolCallId = null
+                await this.approveToolCall(nextToolCallId)
+            }
 		} finally {
 			this.abortController = null
 		}
@@ -1586,7 +1732,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	private async processStream(response: {
 		fullStream: AsyncIterable<any>
-	}): Promise<void> {
+	}): Promise<HarnessMessage> {
 		let currentMessage: HarnessMessage = {
 			id: this.generateId(),
 			role: "assistant",
@@ -1689,6 +1835,23 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 						isError: toolResult.isError ?? false,
 					})
 					this.emit({ type: "message_update", message: { ...currentMessage } })
+
+					// PostToolUse hooks (fire and forget)
+					if (this.hookManager) {
+						const toolCall = currentMessage.content.find(
+							(c) => c.type === "tool_call" && c.id === toolResult.toolCallId,
+						)
+						if (toolCall && toolCall.type === "tool_call") {
+							this.hookManager
+								.runPostToolUse(
+									toolCall.name,
+									toolCall.args,
+									toolResult.result,
+									toolResult.isError ?? false,
+								)
+								.catch(() => {})
+						}
+					}
 					break
 				}
 
@@ -1703,20 +1866,49 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					break
 				}
 				case "tool-call-approval": {
-					// Check YOLO mode — auto-approve if enabled
-					const isYolo = (this.state as any)?.yolo === true
-					if (isYolo) {
-						// Queue for approval after stream finishes (don't call from inside processStream
-						// — the workflow snapshot may not be saved yet, causing "No snapshot found" errors)
-						this.pendingApprovalToolCallId = chunk.payload.toolCallId
-					} else {
-						// Tool requires user approval before execution
-						this.emit({
-							type: "tool_approval_required",
-							toolCallId: chunk.payload.toolCallId,
-							toolName: chunk.payload.toolName,
-							args: chunk.payload.args,
-						})
+					const toolCallId = chunk.payload.toolCallId
+					const toolName = chunk.payload.toolName
+					const toolArgs = chunk.payload.args
+
+					// Run PreToolUse hooks BEFORE YOLO decision
+					let hookBlocked = false
+					if (this.hookManager) {
+						const hookResult = await this.hookManager.runPreToolUse(toolName, toolArgs)
+						for (const warning of hookResult.warnings) {
+							this.emit({
+								type: "error",
+								error: new Error(`[hook] ${warning}`),
+							})
+						}
+						if (!hookResult.allowed) {
+							hookBlocked = true
+							this.emit({
+								type: "tool_end",
+								toolCallId,
+								result: `Blocked by hook: ${hookResult.blockReason || "Policy violation"}`,
+								isError: true,
+							})
+							// Queue decline for after stream finishes (same pattern as pendingApproval)
+							this.pendingDeclineToolCallId = toolCallId
+						}
+					}
+
+					if (!hookBlocked) {
+						// Check YOLO mode — auto-approve if enabled
+						const isYolo = (this.state as any)?.yolo === true
+						if (isYolo) {
+							// Queue for approval after stream finishes (don't call from inside processStream
+							// — the workflow snapshot may not be saved yet, causing "No snapshot found" errors)
+							this.pendingApprovalToolCallId = toolCallId
+						} else {
+							// Tool requires user approval before execution
+							this.emit({
+								type: "tool_approval_required",
+								toolCallId,
+								toolName,
+								args: toolArgs,
+							})
+						}
 					}
 					break
 				}
@@ -1867,6 +2059,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		}
 
 		this.emit({ type: "message_end", message: currentMessage })
+		return currentMessage
 	}
 
 	// ===========================================================================
@@ -1914,6 +2107,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
         const harnessContext: HarnessRuntimeContext<TState> = {
             harnessId: this.id,
             state: this.getState(),
+            getState: () => this.getState(),
             setState: (updates) => this.setState(updates),
             threadId: this.currentThreadId,
             resourceId: this.resourceId,

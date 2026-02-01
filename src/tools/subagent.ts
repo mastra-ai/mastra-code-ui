@@ -47,13 +47,15 @@ export function createSubagentTool(deps: SubagentToolDeps) {
 Available agent types:
 - **explore**: Read-only codebase exploration. Has access to view, search_content, and find_files. Use for questions like "find all usages of X", "how does module Y work", "what files are related to Z".
 - **plan**: Read-only analysis and planning. Same tools as explore. Use for "create an implementation plan for X", "analyze the architecture of Y".
+- **execute**: Task execution with write capabilities. Has access to all tools including string_replace_lsp, write_file, and execute_command. Use for "implement feature X", "fix bug Y", "refactor module Z".
 
 The subagent runs in its own context — it does NOT see the parent conversation history. Write a clear, self-contained task description.
 
 Use this tool when:
 - You need to explore a large area of the codebase before making changes
 - You want to run multiple investigations in parallel
-- The task is self-contained and doesn't require writing code`,
+- The task is self-contained and can be delegated
+- You want to perform a focused implementation task (execute type)`,
         inputSchema: z.object({
             agentType: z
                 .enum(validAgentTypes as [string, ...string[]])

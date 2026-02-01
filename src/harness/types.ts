@@ -8,6 +8,7 @@ import type {
 } from "@mastra/core/workspace"
 import type { z } from "zod"
 import type { AuthStorage } from "../auth/storage.js"
+import type { HookManager } from "../hooks/index.js"
 
 // =============================================================================
 // Harness Configuration
@@ -132,6 +133,12 @@ export interface HarnessConfig<
 	 * ```
 	 */
 	workspace?: Workspace | WorkspaceConfig
+
+	/**
+	 * Hook manager for lifecycle event interception.
+	 * If provided, hooks fire at tool use, message send, stop, and session events.
+	 */
+	hookManager?: HookManager
 }
 
 // =============================================================================
@@ -308,6 +315,15 @@ export type HarnessEvent =
             isError: boolean
             durationMs: number
       }
+    // Todo list events
+    | {
+            type: "todo_updated"
+            todos: Array<{
+                content: string
+                status: "pending" | "in_progress" | "completed"
+                activeForm: string
+            }>
+      }
 
 /**
  * Listener function for harness events.
@@ -407,25 +423,28 @@ export type ObservationalMemoryDebugEvent =
  * Tools can access harness state and methods through this.
  */
 export interface HarnessRuntimeContext<
-	TState extends HarnessStateSchema = HarnessStateSchema,
+    TState extends HarnessStateSchema = HarnessStateSchema,
 > {
-	/** The harness instance ID */
-	harnessId: string
+    /** The harness instance ID */
+    harnessId: string
 
-	/** Current harness state (read-only snapshot) */
-	state: z.infer<TState>
+    /** Current harness state (read-only snapshot) */
+    state: z.infer<TState>
 
-	/** Update harness state */
-	setState: (updates: Partial<z.infer<TState>>) => Promise<void>
+    /** Get the current harness state (live, not snapshot) */
+    getState: () => z.infer<TState>
 
-	/** Current thread ID */
-	threadId: string | null
+    /** Update harness state */
+    setState: (updates: Partial<z.infer<TState>>) => Promise<void>
 
-	/** Current resource ID */
-	resourceId: string
+    /** Current thread ID */
+    threadId: string | null
 
-	/** Current mode ID */
-	modeId: string
+    /** Current resource ID */
+    resourceId: string
+
+    /** Current mode ID */
+    modeId: string
 
     /** Abort signal for the current operation */
     abortSignal?: AbortSignal

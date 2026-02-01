@@ -24,18 +24,21 @@ import {
 	setAuthStorage as setOpenAIAuthStorage,
 } from "./providers/openai-codex.js"
 import { AuthStorage } from "./auth/storage.js"
+import { HookManager } from "./hooks/index.js"
 import { detectProject, getDatabasePath } from "./utils/project.js"
 import { startGatewaySync } from "./utils/gateway-sync.js"
 import {
-	createViewTool,
-	createExecuteCommandTool,
-	stringReplaceLspTool,
-	createWebSearchTool,
-	createWebExtractTool,
-	createGrepTool,
-	createGlobTool,
-	createWriteFileTool,
-	createSubagentTool,
+    createViewTool,
+    createExecuteCommandTool,
+    stringReplaceLspTool,
+    createWebSearchTool,
+    createWebExtractTool,
+    createGrepTool,
+    createGlobTool,
+    createWriteFileTool,
+    createSubagentTool,
+    todoWriteTool,
+    todoCheckTool,
 } from "./tools/index.js"
 import { buildFullPrompt, type PromptContext } from "./prompts/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
@@ -88,6 +91,16 @@ const stateSchema = z.object({
 	thinkingLevel: z.string().default("off"),
 	// YOLO mode — auto-approve all tool calls
 	yolo: z.boolean().default(true),
+	// Todo list (persisted per-thread)
+	todos: z
+		.array(
+			z.object({
+				content: z.string(),
+				status: z.enum(["pending", "in_progress", "completed"]),
+				activeForm: z.string(),
+			}),
+		)
+		.default([]),
 })
 
 // =============================================================================
@@ -216,15 +229,23 @@ function getDynamicModel({
 // Create Subagent Tool (subagent delegation)
 // =============================================================================
 
-// The subagent tool needs the read-only tools and resolveModel to spawn subagents.
-// We pass a snapshot of the tools the subagents are allowed to use.
+// The subagent tool needs tools and resolveModel to spawn subagents.
+// We pass all tools that subagents might need based on their type.
 const subagentTool = createSubagentTool({
-	tools: {
-		view: viewTool,
-		search_content: grepTool,
-		find_files: globTool,
-	},
-	resolveModel,
+    tools: {
+        // Read-only tools (for explore, plan)
+        view: viewTool,
+        search_content: grepTool,
+        find_files: globTool,
+        // Write tools (for execute)
+        string_replace_lsp: stringReplaceLspTool,
+        write_file: writeFileTool,
+        execute_command: executeCommandTool,
+        // Task tracking (for execute)
+        todo_write: todoWriteTool,
+        todo_check: todoCheckTool,
+    },
+    resolveModel,
 })
 
 // =============================================================================
@@ -365,14 +386,17 @@ const codeAgent = new Agent({
 		// NOTE: Tool names "grep" and "glob" are reserved by Anthropic's OAuth
 		// validation (they match Claude Code's internal tools). We use
 		// "search_content" and "find_files" to avoid the collision.
-		const tools: Record<string, any> = {
-			// Read-only tools — always available
-			view: viewTool,
-			search_content: grepTool,
-			find_files: globTool,
+        const tools: Record<string, any> = {
+            // Read-only tools — always available
+            view: viewTool,
+            search_content: grepTool,
+            find_files: globTool,
             // Subagent delegation — always available
             subagent: subagentTool,
-		}
+            // Todo tracking — always available (planning tool, not a write tool)
+            todo_write: todoWriteTool,
+            todo_check: todoCheckTool,
+        }
 
 		// Write tools — NOT available in plan mode
 		if (modeId !== "plan") {
@@ -413,6 +437,20 @@ function getToolsets(
 }
 
 // =============================================================================
+// Create Hook Manager
+// =============================================================================
+const hookManager = new HookManager(project.rootPath, "session-init")
+
+if (hookManager.hasHooks()) {
+	const hookConfig = hookManager.getConfig()
+	const hookCount = Object.values(hookConfig).reduce(
+		(sum, hooks) => sum + (hooks?.length ?? 0),
+		0,
+	)
+	console.log(`Hooks: ${hookCount} hook(s) configured`)
+}
+
+// =============================================================================
 // Create Harness
 // =============================================================================
 const harness = new Harness({
@@ -427,6 +465,7 @@ const harness = new Harness({
 	},
 	getToolsets,
 	workspace,
+	hookManager,
 	modes: [
 		{
 			id: "build",
@@ -466,6 +505,10 @@ harness.subscribe((event) => {
 		// Thread switch restores OM model IDs from metadata — re-read from harness state
 		omModelState.observerModelId = harness.getObserverModelId()
 		omModelState.reflectorModelId = harness.getReflectorModelId()
+		// Keep hook manager session ID in sync
+		hookManager.setSessionId((event as any).threadId)
+	} else if (event.type === "thread_created") {
+		hookManager.setSessionId((event as any).thread.id)
 	}
 })
 

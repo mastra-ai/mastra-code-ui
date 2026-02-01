@@ -1,8 +1,11 @@
 /**
- * Common interface for tool execution components
+ * Common interface and shared types for tool execution components
  */
 
-import type { ToolResult } from "./tool-execution.js"
+export interface ToolResult {
+  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>
+  isError: boolean
+}
 
 export interface IToolExecutionComponent {
     updateArgs(args: unknown): void

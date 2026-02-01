@@ -34,4 +34,22 @@ When a test fails or a build breaks after your changes:
 - Run only the relevant test file/suite, not the entire test suite, unless the user asks.
 - If a test file exists for the file you changed, run it. If not, don't create one unless asked.
 - For TypeScript projects, run \`tsc --noEmit\` to check types if you made significant changes.
+
+# Task Completion
+
+For multi-step tasks (3+ distinct actions):
+- Use todo_write to track your progress
+- Mark tasks as in_progress BEFORE starting them
+- Mark tasks as completed IMMEDIATELY after finishing them
+- ALWAYS run todo_check before considering your work done
+- If todo_check shows incomplete tasks, continue working on them
+
+# Git Operations (Build Mode)
+
+In build mode you have full git access via \`execute_command\`. Follow the Git Safety Protocol from the base rules strictly, plus:
+
+- After making code changes, do NOT commit unless the user asks. Just report what you changed.
+- When committing, always verify your changes compile/pass lint first — don't commit broken code.
+- If a pre-commit hook modifies files (e.g., prettier, eslint --fix), include those changes by staging and creating a new commit. Do NOT amend unless the conditions in the amend rules are all met.
+- When creating branches, use descriptive names: \`feat/description\`, \`fix/description\`, \`refactor/description\`.
 `

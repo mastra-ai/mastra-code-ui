@@ -52,12 +52,10 @@ import {
 	formatReflectionStatus,
 } from "./components/om-progress.js"
 import { ToolApprovalDialogComponent } from "./components/tool-approval-dialog.js"
-import {
-    type ToolResult,
-} from "./components/tool-execution.js"
-import { ToolExecutionComponentEnhanced } from "./components/tool-execution-enhanced.js"
+import { ToolExecutionComponentEnhanced, type ToolResult } from "./components/tool-execution-enhanced.js"
 import type { IToolExecutionComponent } from "./components/tool-execution-interface.js"
 import { SubagentExecutionComponent } from "./components/subagent-execution.js"
+import { TodoProgressComponent, type TodoItem } from "./components/todo-progress.js"
 import { UserMessageComponent } from "./components/user-message.js"
 import {
 	getEditorTheme,
@@ -149,6 +147,7 @@ export class MastraTUI {
 		reflectionThresholdPercent: 0,
 	}
 	private omProgressComponent?: OMProgressComponent
+	private todoProgress?: TodoProgressComponent
 
 	// Autocomplete
 	private autocompleteProvider?: CombinedAutocompleteProvider
@@ -284,6 +283,12 @@ export class MastraTUI {
 	async run(): Promise<void> {
 		await this.init()
 
+		// Run SessionStart hooks (fire and forget)
+		const hookMgr = this.harness.getHookManager?.()
+		if (hookMgr) {
+			hookMgr.runSessionStart().catch(() => {})
+		}
+
 		// Process initial message if provided
 		if (this.options.initialMessage) {
 			this.fireMessage(this.options.initialMessage)
@@ -357,6 +362,12 @@ export class MastraTUI {
 	 * Stop the TUI and clean up.
 	 */
 	stop(): void {
+		// Run SessionEnd hooks (best-effort, don't await)
+		const hookMgr = this.harness.getHookManager?.()
+		if (hookMgr) {
+			hookMgr.runSessionEnd().catch(() => {})
+		}
+
 		if (this.unsubscribe) {
 			this.unsubscribe()
 		}
@@ -411,15 +422,39 @@ export class MastraTUI {
 		// Set terminal title
 		this.updateTerminalTitle()
 
-		// Render existing messages
-		await this.renderExistingMessages()
-	}
+        // Render existing messages
+        await this.renderExistingMessages()
+        
+        // Render existing todos if any
+        await this.renderExistingTodos()
+    }
 
-	/**
-	 * Prompt user to continue existing thread or start new one.
-	 * This runs before the TUI is fully initialized.
-	 */
-	private async promptForThreadSelection(): Promise<void> {
+    /**
+     * Render existing todos from the harness state on startup
+     */
+    private async renderExistingTodos(): Promise<void> {
+        try {
+            // Access the harness state using the public method
+            const state = this.harness.getState() as { todos?: TodoItem[] }
+            const todos = state.todos || []
+            
+            if (todos.length > 0) {
+                // Create and display the todo progress component
+                this.todoProgress = new TodoProgressComponent()
+                this.todoProgress.updateTodos(todos)
+                this.chatContainer.addChild(this.todoProgress)
+                this.ui.requestRender()
+            }
+        } catch (error) {
+            console.error('[TUI] Failed to render existing todos:', error)
+        }
+    }
+
+    /**
+     * Prompt user to continue existing thread or start new one.
+     * This runs before the TUI is fully initialized.
+     */
+    private async promptForThreadSelection(): Promise<void> {
 		const threads = await this.harness.listThreads()
 
 		if (threads.length === 0) {
@@ -595,6 +630,9 @@ ${instructions}`,
 		// Add main containers
 		this.ui.addChild(this.chatContainer)
 		this.ui.addChild(this.statusContainer)
+		// Todo progress (between status and editor, visible only when todos exist)
+		this.todoProgress = new TodoProgressComponent()
+		this.ui.addChild(this.todoProgress)
 		this.ui.addChild(this.editorContainer)
 		this.editorContainer.addChild(this.editor)
 
@@ -690,19 +728,21 @@ ${instructions}`,
 		this.updateStatusLine()
 	}
 
-	private setupAutocomplete(): void {
-		const slashCommands: SlashCommand[] = [
-			{ name: "new", description: "Start a new thread" },
-			{ name: "threads", description: "Switch between threads" },
-			{ name: "models", description: "Switch model" },
-			{ name: "om", description: "Configure Observational Memory models" },
-			{ name: "think", description: "Set thinking level (Anthropic)" },
-			{ name: "login", description: "Login with OAuth provider" },
-			{ name: "skills", description: "List available skills" },
-			{ name: "logout", description: "Logout from OAuth provider" },
-			{ name: "exit", description: "Exit the TUI" },
-			{ name: "help", description: "Show available commands" },
-		]
+    private setupAutocomplete(): void {
+        const slashCommands: SlashCommand[] = [
+            { name: "new", description: "Start a new thread" },
+            { name: "threads", description: "Switch between threads" },
+            { name: "models", description: "Switch model" },
+            { name: "om", description: "Configure Observational Memory models" },
+            { name: "think", description: "Set thinking level (Anthropic)" },
+            { name: "login", description: "Login with OAuth provider" },
+            { name: "skills", description: "List available skills" },
+            { name: "cost", description: "Show token usage and estimated costs" },
+            { name: "logout", description: "Logout from OAuth provider" },
+            { name: "hooks", description: "Show/reload configured hooks" },
+            { name: "exit", description: "Exit the TUI" },
+            { name: "help", description: "Show available commands" },
+        ]
 
 		// Only show /mode if there's more than one mode
 		const modes = this.harness.getModes()
@@ -840,9 +880,9 @@ ${instructions}`,
 				this.handleToolUpdate(event.toolCallId, event.partialResult)
 				break
 
-			case "tool_end":
-				this.handleToolEnd(event.toolCallId, event.result, event.isError)
-				break
+            case "tool_end":
+                this.handleToolEnd(event.toolCallId, event.result, event.isError)
+                break
 
 			case "error":
 				this.showFormattedError(event)
@@ -860,7 +900,7 @@ ${instructions}`,
 				await this.refreshModelAuthStatus()
 				break
 
-			case "thread_changed":
+			case "thread_changed": {
 				this.showInfo(`Switched to thread: ${event.threadId}`)
 				this.resetStatusLineState()
 				await this.renderExistingMessages()
@@ -868,7 +908,16 @@ ${instructions}`,
 				this.syncOMThresholdsFromHarness()
 				this.tokenUsage = this.harness.getTokenUsage()
 				this.updateStatusLine()
+				// Restore todos from thread state
+				const threadState = this.harness.getState() as {
+					todos?: TodoItem[]
+				}
+				if (this.todoProgress) {
+					this.todoProgress.updateTodos(threadState.todos ?? [])
+					this.ui.requestRender()
+				}
 				break
+			}
 
 			case "thread_created":
 				this.showInfo(`Created thread: ${event.thread.id}`)
@@ -972,6 +1021,13 @@ ${instructions}`,
                     event.durationMs,
                 )
                 break
+
+			case "todo_updated":
+				if (this.todoProgress) {
+					this.todoProgress.updateTodos(event.todos as TodoItem[])
+					this.ui.requestRender()
+				}
+				break
         }
     }
 
@@ -2014,11 +2070,35 @@ ${instructions}`,
 		})
 	}
 
-	// ===========================================================================
-	// Slash Commands
-	// ===========================================================================
+    // ===========================================================================
+    // Cost Tracking
+    // ===========================================================================
 
-	private async handleSlashCommand(input: string): Promise<boolean> {
+    private async showCostBreakdown(): Promise<void> {
+        // Format the breakdown
+        const formatNumber = (n: number) => n.toLocaleString()
+
+        // Get OM token usage if available
+        let omTokensText = ""
+        if (this.omProgress.observationTokens > 0) {
+            omTokensText = `
+  Memory:     ${formatNumber(this.omProgress.observationTokens)} tokens`
+        }
+
+        this.showInfo(`Token Usage (Current Thread):
+  Input:      ${formatNumber(this.tokenUsage.promptTokens)} tokens
+  Output:     ${formatNumber(this.tokenUsage.completionTokens)} tokens${omTokensText}
+  ─────────────────────────────────────────
+  Total:      ${formatNumber(this.tokenUsage.totalTokens)} tokens
+  
+  Note: For cost estimates, check your provider's pricing page.`)
+    }
+
+    // ===========================================================================
+    // Slash Commands
+    // ===========================================================================
+
+    private async handleSlashCommand(input: string): Promise<boolean> {
 		const trimmedInput = input.trim()
 
 		// Check for custom command prefix (//)
@@ -2120,14 +2200,19 @@ ${modeList}`)
 				return true
 			}
 
-			case "logout": {
-				await this.showLoginSelector("logout")
-				return true
-			}
+            case "logout": {
+                await this.showLoginSelector("logout")
+                return true
+            }
 
-			case "exit":
-				this.stop()
-				process.exit(0)
+            case "cost": {
+                await this.showCostBreakdown()
+                return true
+            }
+
+            case "exit":
+                this.stop()
+                process.exit(0)
 
 			case "help": {
 				const modes = this.harness.getModes()
@@ -2147,7 +2232,7 @@ ${modeList}`)
 							.join("\n")
 				}
 
-				this.showInfo(`Available commands:
+                this.showInfo(`Available commands:
   /new       - Start a new thread
   /threads   - Switch between threads
   /skills    - List available skills
@@ -2155,6 +2240,8 @@ ${modeList}`)
   /om       - Configure Observational Memory
   /think    - Set thinking level (Anthropic)
   /yolo     - Toggle YOLO mode (auto-approve tools)
+  /cost     - Show token usage and estimated costs
+  /hooks    - Show/reload configured hooks
   /login    - Login with OAuth provider
   /logout   - Logout from OAuth provider${modeHelp}
   /exit     - Exit the TUI
@@ -2169,6 +2256,78 @@ Keyboard shortcuts:
   Shift+Tab - Cycle agent modes
   Ctrl+T    - Toggle thinking blocks
   Ctrl+E    - Expand/collapse tool outputs`)
+				return true
+			}
+
+			case "hooks": {
+				const hm = this.harness.getHookManager?.()
+				if (!hm) {
+					this.showInfo("Hooks system not initialized.")
+					return true
+				}
+
+				const subcommand = args[0]
+				if (subcommand === "reload") {
+					hm.reload()
+					this.showInfo("Hooks config reloaded.")
+					return true
+				}
+
+				const paths = hm.getConfigPaths()
+
+				if (!hm.hasHooks()) {
+					this.showInfo(
+						`No hooks configured.\n\n` +
+							`Add hooks to:\n` +
+							`  ${paths.project} (project)\n` +
+							`  ${paths.global} (global)\n\n` +
+							`Example hooks.json:\n` +
+							`  {\n` +
+							`    "PreToolUse": [{\n` +
+							`      "type": "command",\n` +
+							`      "command": "echo 'tool called'",\n` +
+							`      "matcher": { "tool_name": "execute_command" }\n` +
+							`    }]\n` +
+							`  }`,
+					)
+					return true
+				}
+
+				const hookConfig = hm.getConfig()
+				const lines: string[] = [`Hooks Configuration:`]
+				lines.push(`  Project: ${paths.project}`)
+				lines.push(`  Global:  ${paths.global}`)
+				lines.push("")
+
+				const eventNames = [
+					"PreToolUse",
+					"PostToolUse",
+					"Stop",
+					"UserPromptSubmit",
+					"SessionStart",
+					"SessionEnd",
+				] as const
+
+				for (const event of eventNames) {
+					const hooks = hookConfig[event]
+					if (hooks && hooks.length > 0) {
+						lines.push(
+							`  ${event} (${hooks.length} hook${hooks.length > 1 ? "s" : ""}):`,
+						)
+						for (const hook of hooks) {
+							const matcherStr = hook.matcher?.tool_name
+								? ` [tool: ${hook.matcher.tool_name}]`
+								: ""
+							const desc = hook.description ? ` - ${hook.description}` : ""
+							lines.push(`    ${hook.command}${matcherStr}${desc}`)
+						}
+					}
+				}
+
+				lines.push("")
+				lines.push(`  /hooks reload - Reload config from disk`)
+
+				this.showInfo(lines.join("\n"))
 				return true
 			}
 

@@ -12,17 +12,14 @@ import {
   CollapsibleDiffViewer,
   CollapsibleCommandOutput 
 } from "./collapsible.js"
-import type { IToolExecutionComponent } from "./tool-execution-interface.js"
+import type { IToolExecutionComponent, ToolResult } from "./tool-execution-interface.js"
+
+export type { ToolResult }
 
 export interface ToolExecutionOptions {
   showImages?: boolean
   autoCollapse?: boolean
   collapsedByDefault?: boolean
-}
-
-export interface ToolResult {
-  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>
-  isError: boolean
 }
 
 /**
@@ -113,29 +110,30 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     )
     this.addChild(this.contentBox)
 
-    this.updateDisplay()
+    this.rebuild()
   }
 
   updateArgs(args: unknown): void {
     this.args = args
-    this.updateDisplay()
+    this.rebuild()
   }
 
   updateResult(result: ToolResult, isPartial = false): void {
     this.result = result
     this.isPartial = isPartial
-    this.updateDisplay()
+    this.rebuild()
   }
 
   setExpanded(expanded: boolean): void {
     this.expanded = expanded
     if (this.collapsible) {
       this.collapsible.setExpanded(expanded)
-      // Force UI to re-render after state change
-      this.invalidate()
+      this.updateBgColor()
+      super.invalidate()
       return
     }
-    this.updateDisplay()
+    // No collapsible — need a full rebuild (e.g. write tool, header-only tools)
+    this.rebuild()
   }
 
   toggleExpanded(): void {
@@ -144,31 +142,31 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
 
   override invalidate(): void {
     super.invalidate()
-    this.updateDisplay()
+    // invalidate is called by the layout system — only update bg, don't rebuild
+    this.updateBgColor()
   }
 
-  private updateDisplay(): void {
+  private updateBgColor(): void {
     const bgColor = this.isPartial
       ? "toolPendingBg"
       : this.result?.isError
         ? "toolErrorBg"
         : "toolSuccessBg"
-
     this.contentBox.setBgFn((text: string) => theme.bg(bgColor, text))
-    
-    // Clear and recreate when:
-    // 1. We don't have a collapsible yet
-    // 2. Tool is still partial (showing loading state)
-    // 3. We just got a result (transition from partial to complete)
-    const wasPartial = !this.collapsible || (this.collapsible && !this.result)
-    const shouldRecreate = !this.collapsible || this.isPartial || (wasPartial && this.result)
-    
-    if (shouldRecreate) {
-      this.contentBox.clear()
-      this.collapsible = undefined // Reset collapsible when recreating
-    }
+  }
 
-    // Render based on tool type with enhanced collapsible support
+  /**
+   * Full clear-and-rebuild. Called when:
+   * - args change (updateArgs)
+   * - result arrives or changes (updateResult)
+   * - expand/collapse on a tool with no collapsible child
+   * - initial construction
+   */
+  private rebuild(): void {
+    this.updateBgColor()
+    this.contentBox.clear()
+    this.collapsible = undefined
+
     switch (this.toolName) {
       case "view":
       case "mastra_workspace_read_file":
@@ -209,21 +207,16 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
 
     const output = this.getFormattedOutput()
     if (output) {
-      if (!this.collapsible) {
-        this.collapsible = new CollapsibleFileViewer(
-          `${path}${range}`,
-          output,
-          { 
-            expanded: this.expanded,
-            collapsedLines: this.result.isError ? 50 : 20
-          },
-          this.ui
-        )
-        this.contentBox.addChild(this.collapsible)
-      } else {
-        // Update existing collapsible's content if needed
-        // For now, the collapsible maintains its own state
-      }
+      this.collapsible = new CollapsibleFileViewer(
+        `${path}${range}`,
+        output,
+        { 
+          expanded: this.expanded,
+          collapsedLines: this.result.isError ? 50 : 20
+        },
+        this.ui
+      )
+      this.contentBox.addChild(this.collapsible)
     }
   }
 
@@ -246,19 +239,17 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     const output = this.getFormattedOutput()
     const exitCode = this.result.isError ? 1 : 0 // TODO: Get actual exit code
     
-    if (!this.collapsible) {
-      this.collapsible = new CollapsibleCommandOutput(
-        `${command}${cwdSuffix}${timeoutSuffix}`,
-        output,
-        exitCode,
-        { 
-          expanded: this.expanded || this.result.isError,
-          collapsedLines: this.result.isError ? 30 : 10
-        },
-        this.ui
-      )
-      this.contentBox.addChild(this.collapsible)
-    }
+    this.collapsible = new CollapsibleCommandOutput(
+      `${command}${cwdSuffix}${timeoutSuffix}`,
+      output,
+      exitCode,
+      { 
+        expanded: this.expanded || this.result.isError,
+        collapsedLines: this.result.isError ? 30 : 10
+      },
+      this.ui
+    )
+    this.contentBox.addChild(this.collapsible)
   }
 
   private renderEditToolEnhanced(): void {
@@ -278,19 +269,17 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
 
     // For edits, show the diff
     if (argsObj?.old_str && argsObj?.new_str && !this.result.isError) {
-      if (!this.collapsible) {
-        this.collapsible = new CollapsibleDiffViewer(
-          `${path}${line}`,
-          String(argsObj.old_str),
-          String(argsObj.new_str),
-          { 
-            expanded: this.expanded,
-            collapsedLines: 15
-          },
-          this.ui
-        )
-        this.contentBox.addChild(this.collapsible)
-      }
+      this.collapsible = new CollapsibleDiffViewer(
+        `${path}${line}`,
+        String(argsObj.old_str),
+        String(argsObj.new_str),
+        { 
+          expanded: this.expanded,
+          collapsedLines: 15
+        },
+        this.ui
+      )
+      this.contentBox.addChild(this.collapsible)
     } else {
       // Show error or generic output
       this.contentBox.addChild(new Text(header, 0, 0))
@@ -339,19 +328,17 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
       const lines = output.split("\n")
       const fileCount = lines.filter(l => l.trim() && !l.includes("└") && !l.includes("├") && !l.includes("│")).length
       
-      if (!this.collapsible) {
-        this.collapsible = new CollapsibleComponent({
-          header: `${theme.bold(theme.fg("toolTitle", "📁 list"))} ${theme.fg("accent", path)}`,
-          summary: `${fileCount} items`,
-          expanded: this.expanded,
-          collapsedLines: 15,
-          expandedLines: 100,
-          showLineCount: false
-        }, this.ui)
-        
-        this.collapsible.setContent(output)
-        this.contentBox.addChild(this.collapsible)
-      }
+      this.collapsible = new CollapsibleComponent({
+        header: `${theme.bold(theme.fg("toolTitle", "📁 list"))} ${theme.fg("accent", path)}`,
+        summary: `${fileCount} items`,
+        expanded: this.expanded,
+        collapsedLines: 15,
+        expandedLines: 100,
+        showLineCount: false
+      }, this.ui)
+      
+      this.collapsible.setContent(output)
+      this.contentBox.addChild(this.collapsible)
     }
   }
 
@@ -376,18 +363,16 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
 
     const output = this.getFormattedOutput()
     if (output) {
-      if (!this.collapsible) {
-        this.collapsible = new CollapsibleComponent({
-          header,
-          expanded: this.expanded || this.result.isError,
-          collapsedLines: this.result.isError ? 30 : 10,
-          expandedLines: 200,
-          showLineCount: true
-        }, this.ui)
-        
-        this.collapsible.setContent(output)
-        this.contentBox.addChild(this.collapsible)
-      }
+      this.collapsible = new CollapsibleComponent({
+        header,
+        expanded: this.expanded || this.result.isError,
+        collapsedLines: this.result.isError ? 30 : 10,
+        expandedLines: 200,
+        showLineCount: true
+      }, this.ui)
+      
+      this.collapsible.setContent(output)
+      this.contentBox.addChild(this.collapsible)
     }
   }
 
