@@ -324,6 +324,13 @@ export type HarnessEvent =
                 activeForm: string
             }>
       }
+    // Ask question events
+    | {
+            type: "ask_question"
+            questionId: string
+            question: string
+            options?: Array<{ label: string; description?: string }>
+      }
 
 /**
  * Listener function for harness events.
@@ -454,4 +461,7 @@ export interface HarnessRuntimeContext<
 
     /** Emit a harness event (used by tools like task to forward subagent events) */
     emitEvent?: (event: HarnessEvent) => void
+
+    /** Register a pending question resolver (used by ask_user tool) */
+    registerQuestion?: (questionId: string, resolve: (answer: string) => void) => void
 }

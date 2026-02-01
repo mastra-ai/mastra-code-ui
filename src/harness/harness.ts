@@ -99,6 +99,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private workspaceInitialized = false
 	private hookManager: import("../hooks/index.js").HookManager | undefined
 	private pendingDeclineToolCallId: string | null = null
+	private pendingQuestions = new Map<string, (answer: string) => void>()
 	private tokenUsage: {
 		promptTokens: number
 		completionTokens: number
@@ -324,6 +325,27 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	getHookManager(): import("../hooks/index.js").HookManager | undefined {
 		return this.hookManager
+	}
+
+	/**
+	 * Register a pending question resolver.
+	 * Called by the ask_user tool to register a promise resolver
+	 * that will be resolved when the user answers in the TUI.
+	 */
+	registerQuestion(questionId: string, resolve: (answer: string) => void): void {
+		this.pendingQuestions.set(questionId, resolve)
+	}
+
+	/**
+	 * Resolve a pending question with the user's answer.
+	 * Called by the TUI when the user selects an option or submits text.
+	 */
+	respondToQuestion(questionId: string, answer: string): void {
+		const resolve = this.pendingQuestions.get(questionId)
+		if (resolve) {
+			this.pendingQuestions.delete(questionId)
+			resolve(answer)
+		}
 	}
 
 	/**
@@ -2115,6 +2137,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
             abortSignal: this.abortController?.signal,
             workspace: this.workspace,
             emitEvent: (event) => this.emit(event),
+            registerQuestion: (questionId, resolve) => this.registerQuestion(questionId, resolve),
         }
         return new RequestContext([["harness", harnessContext]])
     }

@@ -43,8 +43,7 @@ export const askUserTool = createTool({
 				| HarnessRuntimeContext
 				| undefined
 
-			if (!harnessCtx?.emitEvent) {
-				// No harness context — fall back to text prompt
+			if (!harnessCtx?.emitEvent || !harnessCtx?.registerQuestion) {
 				return {
 					content: `[Question for user]: ${question}${options ? "\nOptions: " + options.map((o) => o.label).join(", ") : ""}`,
 					isError: false,
@@ -53,20 +52,12 @@ export const askUserTool = createTool({
 
 			const questionId = `q_${++questionCounter}_${Date.now()}`
 
-			// Create a promise that resolves when the user answers
+			// Create a promise that resolves when the user answers in the TUI
 			const answer = await new Promise<string>((resolve) => {
-				// Register the resolver on the harness
-				// The harness stores it and resolves when TUI calls respondToQuestion()
-				const harness = (harnessCtx as any).__harness
-				if (harness?.registerQuestion) {
-					harness.registerQuestion(questionId, resolve)
-				} else {
-					// Fallback if registerQuestion not available
-					resolve("(unable to ask — no interactive session)")
-					return
-				}
+				// Register the resolver so respondToQuestion() can resolve it
+				harnessCtx.registerQuestion!(questionId, resolve)
 
-				// Emit event to TUI
+				// Emit event — TUI will show the dialog
 				harnessCtx.emitEvent!({
 					type: "ask_question",
 					questionId,

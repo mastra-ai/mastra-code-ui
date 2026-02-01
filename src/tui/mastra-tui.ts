@@ -51,6 +51,7 @@ import {
 	formatObservationStatus,
 	formatReflectionStatus,
 } from "./components/om-progress.js"
+import { AskQuestionDialogComponent } from "./components/ask-question-dialog.js"
 import { ToolApprovalDialogComponent } from "./components/tool-approval-dialog.js"
 import { ToolExecutionComponentEnhanced, type ToolResult } from "./components/tool-execution-enhanced.js"
 import type { IToolExecutionComponent } from "./components/tool-execution-interface.js"
@@ -1028,6 +1029,14 @@ ${instructions}`,
 					this.ui.requestRender()
 				}
 				break
+
+			case "ask_question":
+				await this.handleAskQuestion(
+					event.questionId,
+					event.question,
+					event.options,
+				)
+				break
         }
     }
 
@@ -1563,22 +1572,32 @@ ${instructions}`,
 		})
 	}
 
-	private handleToolEnd(
-		toolCallId: string,
-		result: unknown,
-		isError: boolean,
-	): void {
-		const component = this.pendingTools.get(toolCallId)
-		if (component) {
-			const toolResult: ToolResult = {
-				content: [{ type: "text", text: this.formatToolResult(result) }],
-				isError,
-			}
-			component.updateResult(toolResult, false)
-			this.pendingTools.delete(toolCallId)
-			this.ui.requestRender()
-		}
-	}
+    private handleToolEnd(
+        toolCallId: string,
+        result: unknown,
+        isError: boolean,
+    ): void {
+        // If this is a subagent tool, store the result in the SubagentExecutionComponent
+        const subagentComponent = this.pendingSubagents.get(toolCallId)
+        if (subagentComponent) {
+            // The final result is available here
+            const resultText = this.formatToolResult(result)
+            // We'll need to wait for subagent_end to set this
+            // Store it temporarily
+            ;(subagentComponent as any)._pendingResult = resultText
+        }
+        
+        const component = this.pendingTools.get(toolCallId)
+        if (component) {
+            const toolResult: ToolResult = {
+                content: [{ type: "text", text: this.formatToolResult(result) }],
+                isError,
+            }
+            component.updateResult(toolResult, false)
+            this.pendingTools.delete(toolCallId)
+            this.ui.requestRender()
+        }
+    }
 
 	/**
 	 * Format a tool result for display.
@@ -1657,8 +1676,11 @@ ${instructions}`,
     ): void {
         const component = this.pendingSubagents.get(toolCallId)
         if (component) {
-            component.finish(isError, durationMs)
+            // Get the stored result from tool_end
+            const result = (component as any)._pendingResult
+            component.finish(isError, durationMs, result)
             this.pendingSubagents.delete(toolCallId)
+            this.allToolComponents.push(component as any)  // Add to tool components for keyboard nav
             this.ui.requestRender()
         }
     }

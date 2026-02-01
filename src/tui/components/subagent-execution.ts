@@ -12,6 +12,7 @@
 import { Box, Container, Spacer, type TUI } from "@mariozechner/pi-tui"
 import { theme } from "../theme.js"
 import { CollapsibleComponent } from "./collapsible.js"
+import type { IToolExecutionComponent } from "./tool-execution-interface.js"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -29,7 +30,7 @@ export interface SubagentToolCall {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export class SubagentExecutionComponent extends Container {
+export class SubagentExecutionComponent extends Container implements IToolExecutionComponent {
     private contentBox: Box
     private collapsible: CollapsibleComponent
     private ui: TUI
@@ -41,6 +42,7 @@ export class SubagentExecutionComponent extends Container {
     private done = false
     private isError = false
     private durationMs = 0
+    private finalResult?: string
 
     constructor(agentType: string, task: string, ui: TUI) {
         super()
@@ -92,10 +94,11 @@ export class SubagentExecutionComponent extends Container {
         this.refresh()
     }
 
-    finish(isError: boolean, durationMs: number): void {
+    finish(isError: boolean, durationMs: number, result?: string): void {
         this.done = true
         this.isError = isError
         this.durationMs = durationMs
+        this.finalResult = result
 
         // Auto-collapse on success, stay expanded on error
         if (!isError) {
@@ -112,6 +115,15 @@ export class SubagentExecutionComponent extends Container {
     toggleExpanded(): void {
         this.collapsible.toggle()
         this.invalidate()
+    }
+
+    // IToolExecutionComponent interface methods
+    updateArgs(args: unknown): void {
+        // Not needed for subagent - args are set at creation
+    }
+
+    updateResult(result: unknown, isPartial: boolean): void {
+        // Not needed for subagent - results come through finish()
     }
 
     // ── Internal ──────────────────────────────────────────────────────────
@@ -163,6 +175,13 @@ export class SubagentExecutionComponent extends Container {
 
     private buildSummary(): string {
         const taskPreview = truncate(this.task, 60)
+        
+        // If we have a final result, show a preview of it
+        if (this.done && this.finalResult) {
+            const resultPreview = truncate(this.finalResult.replace(/\n/g, ' '), 80)
+            return theme.fg("muted", `   ${resultPreview}`)
+        }
+        
         if (this.toolCalls.length === 0) {
             return theme.fg("muted", `   ${taskPreview}`)
         }
@@ -183,6 +202,16 @@ export class SubagentExecutionComponent extends Container {
         // Tool calls
         for (const tc of this.toolCalls) {
             lines.push(formatToolCallLine(tc))
+        }
+
+        // Final result (if available)
+        if (this.done && this.finalResult) {
+            lines.push("") // blank line
+            lines.push(theme.fg("muted", "   ───"))
+            const resultLines = this.finalResult.split('\n')
+            for (const line of resultLines) {
+                lines.push(`   ${line}`)
+            }
         }
 
         this.collapsible.setContent(lines)

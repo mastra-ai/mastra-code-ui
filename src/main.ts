@@ -39,6 +39,7 @@ import {
     createSubagentTool,
     todoWriteTool,
     todoCheckTool,
+    askUserTool,
 } from "./tools/index.js"
 import { buildFullPrompt, type PromptContext } from "./prompts/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
@@ -396,6 +397,8 @@ const codeAgent = new Agent({
             // Todo tracking — always available (planning tool, not a write tool)
             todo_write: todoWriteTool,
             todo_check: todoCheckTool,
+            // User interaction — always available
+            ask_user: askUserTool,
         }
 
 		// Write tools — NOT available in plan mode
