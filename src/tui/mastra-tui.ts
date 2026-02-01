@@ -1466,36 +1466,43 @@ ${instructions}`,
 		this.ui.requestRender()
 	}
 
-	private handleToolStart(
-		toolCallId: string,
-		toolName: string,
-		args: unknown,
-	): void {
-		if (!this.seenToolCallIds.has(toolCallId)) {
-			this.seenToolCallIds.add(toolCallId)
-			this.chatContainer.addChild(new Text("", 0, 0))
+    private handleToolStart(
+        toolCallId: string,
+        toolName: string,
+        args: unknown,
+    ): void {
+        if (!this.seenToolCallIds.has(toolCallId)) {
+            this.seenToolCallIds.add(toolCallId)
+            
+            // Skip creating the regular tool component for subagent calls
+            // The SubagentExecutionComponent will handle all the rendering
+            if (toolName === "subagent") {
+                return
+            }
+            
+            this.chatContainer.addChild(new Text("", 0, 0))
             const component = new ToolExecutionComponentEnhanced(
                 toolName,
                 args,
                 { showImages: false, collapsedByDefault: !this.toolOutputExpanded },
                 this.ui,
             )
-			component.setExpanded(this.toolOutputExpanded)
-			this.chatContainer.addChild(component)
-			this.pendingTools.set(toolCallId, component)
-			this.allToolComponents.push(component)
+            component.setExpanded(this.toolOutputExpanded)
+            this.chatContainer.addChild(component)
+            this.pendingTools.set(toolCallId, component)
+            this.allToolComponents.push(component)
 
-			// Create a new post-tool AssistantMessageComponent so pre-tool text is preserved
-			this.streamingComponent = new AssistantMessageComponent(
-				undefined,
-				this.hideThinkingBlock,
-				getMarkdownTheme(),
-			)
-			this.chatContainer.addChild(this.streamingComponent)
+            // Create a new post-tool AssistantMessageComponent so pre-tool text is preserved
+            this.streamingComponent = new AssistantMessageComponent(
+                undefined,
+                this.hideThinkingBlock,
+                getMarkdownTheme(),
+            )
+            this.chatContainer.addChild(this.streamingComponent)
 
-			this.ui.requestRender()
-		}
-	}
+            this.ui.requestRender()
+        }
+    }
 
 	private handleToolUpdate(toolCallId: string, partialResult: unknown): void {
 		const component = this.pendingTools.get(toolCallId)
@@ -1612,13 +1619,8 @@ ${instructions}`,
         this.pendingSubagents.set(toolCallId, component)
         this.chatContainer.addChild(component)
 
-        // Create a new post-subagent AssistantMessageComponent so pre-tool text is preserved
-        this.streamingComponent = new AssistantMessageComponent(
-            undefined,
-            this.hideThinkingBlock,
-            getMarkdownTheme(),
-        )
-        this.chatContainer.addChild(this.streamingComponent)
+        // Don't create a new AssistantMessageComponent here - it will be created
+        // when the next text delta arrives after the subagent completes
 
         this.ui.requestRender()
     }
