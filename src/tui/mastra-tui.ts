@@ -134,6 +134,7 @@ export class MastraTUI {
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
+	private pendingTagPrompt = false // True when we should prompt to tag a resumed thread with current dir
 	private lastAskUserComponent?: IToolExecutionComponent // Track the most recent ask_user tool for inline question placement
 
 	// Status line state
@@ -500,6 +501,16 @@ export class MastraTUI {
 
 		// Render existing todos if any
 		await this.renderExistingTodos()
+
+		// If we resumed a thread that doesn't match the current directory,
+		// prompt the user to tag it so it auto-resumes next time
+		if (this.pendingTagPrompt) {
+			this.pendingTagPrompt = false
+			// Use setTimeout to let the UI render first
+			setTimeout(() => {
+				this.tagThreadWithDir()
+			}, 100)
+		}
 	}
 
 	/**
@@ -601,6 +612,8 @@ export class MastraTUI {
 		if (answer) {
 			// Resume the existing thread
 			await this.harness.switchThread(mostRecent.id)
+			// Prompt to tag with current directory so it auto-resumes next time
+			this.pendingTagPrompt = true
 		} else {
 			// Defer new thread creation until first message
 			this.pendingNewThread = true
