@@ -292,10 +292,10 @@ export class MastraTUI {
 			const currentId = this.harness.getCurrentModeId()
 			const currentIndex = modes.findIndex((m) => m.id === currentId)
 			const nextIndex = (currentIndex + 1) % modes.length
-			const nextMode = modes[nextIndex]
-			await this.harness.switchMode(nextMode.id)
-			this.showInfo(`Mode: ${nextMode.name || nextMode.id}`)
-			this.updateStatusLine()
+            const nextMode = modes[nextIndex]
+            await this.harness.switchMode(nextMode.id)
+            // The mode_changed event handler will show the info message
+            this.updateStatusLine()
 		})
 
 		// Ctrl+F - queue follow-up message while streaming
