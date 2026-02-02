@@ -475,11 +475,11 @@ export class MastraTUI {
 		// Setup key handlers
 		this.setupKeyHandlers()
 
-		// Setup editor submit handler
-		this.setupEditorSubmitHandler()
+        // Setup editor submit handler
+        this.setupEditorSubmitHandler()
 
-		// Subscribe to harness events
-		this.subscribeToHarness()
+        // Subscribe to harness events
+        this.subscribeToHarness()
 
 		// Load OM progress now that we're subscribed (the event during
 		// thread selection fired before we were listening)
@@ -1136,12 +1136,14 @@ ${instructions}`,
 				)
 				break
 
-			case "todo_updated":
-				if (this.todoProgress) {
-					this.todoProgress.updateTodos(event.todos as TodoItem[])
-					this.ui.requestRender()
-				}
-				break
+            case "todo_updated": {
+                const todos = event.todos as TodoItem[]
+                if (this.todoProgress) {
+                    this.todoProgress.updateTodos(todos ?? [])
+                    this.ui.requestRender()
+                }
+                break
+            }
 
 			case "ask_question":
 				await this.handleAskQuestion(

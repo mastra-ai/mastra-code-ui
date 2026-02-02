@@ -52,16 +52,17 @@ States:
 				| HarnessRuntimeContext
 				| undefined
 
-			if (harnessCtx) {
-				// Persist todos to harness state (stored in thread metadata)
-				await harnessCtx.setState({ todos })
-
-				// Emit event for TUI rendering
-				harnessCtx.emitEvent?.({
-					type: "todo_updated",
-					todos,
-				} as any)
-			}
+            if (harnessCtx) {
+                // Always update state
+                await harnessCtx.setState({ todos })
+                
+                // Always emit event immediately for real-time updates
+                // The TUI will handle deduplication if needed
+                harnessCtx.emitEvent?.({
+                    type: "todo_updated",
+                    todos,
+                } as any)
+            }
 
 			// Build summary for the model's context
 			const completed = todos.filter(
