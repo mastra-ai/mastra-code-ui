@@ -4,256 +4,258 @@
  */
 
 import { Container, Text, type TUI } from "@mariozechner/pi-tui"
-import { theme, fg } from "../theme.js"
+import { theme } from "../theme.js"
 
 export interface CollapsibleOptions {
-  /** Initial expanded state */
-  expanded?: boolean
-  /** Header text or component */
-  header: string | Container
-  /** Summary shown when collapsed */
-  summary?: string
-  /** Max lines to show when collapsed (0 = fully collapsed) */
-  collapsedLines?: number
-  /** Max lines to show when expanded */
-  expandedLines?: number
-  /** Whether to show line count in header */
-  showLineCount?: boolean
-  /** Custom expand/collapse indicators */
-  expandIndicator?: string
-  collapseIndicator?: string
+	/** Initial expanded state */
+	expanded?: boolean
+	/** Header text or component */
+	header: string | Container
+	/** Summary shown when collapsed */
+	summary?: string
+	/** Max lines to show when collapsed (0 = fully collapsed) */
+	collapsedLines?: number
+	/** Max lines to show when expanded */
+	expandedLines?: number
+	/** Whether to show line count in header */
+	showLineCount?: boolean
 }
 
 export class CollapsibleComponent extends Container {
-  private expanded: boolean
-  private header: string | Container
-  protected summary?: string
-  private content: string[] = []
-  private options: CollapsibleOptions
-  private ui: TUI
+	private expanded: boolean
+	private header: string | Container
+	protected summary?: string
+	private content: string[] = []
+	private options: CollapsibleOptions
+	private ui: TUI
 
-  constructor(options: CollapsibleOptions, ui: TUI) {
-    super()
-    this.options = {
-      expanded: false,
-      collapsedLines: 10,
-      expandedLines: 100,
-      showLineCount: true,
-      expandIndicator: "▶",
-      collapseIndicator: "▼",
-      ...options
-    }
-    this.expanded = this.options.expanded ?? false
-    this.header = options.header
-    this.summary = options.summary
-    this.ui = ui
-    this.updateDisplay()
-  }
+	constructor(options: CollapsibleOptions, ui: TUI) {
+		super()
+		this.options = {
+			expanded: false,
+			collapsedLines: 10,
+			expandedLines: 100,
+			showLineCount: true,
+			...options,
+		}
+		this.expanded = this.options.expanded ?? false
+		this.header = options.header
+		this.summary = options.summary
+		this.ui = ui
+		this.updateDisplay()
+	}
 
-  setContent(content: string | string[]): void {
-    this.content = Array.isArray(content) ? content : content.split("\n")
-    this.updateDisplay()
-  }
+	setContent(content: string | string[]): void {
+		this.content = Array.isArray(content) ? content : content.split("\n")
+		this.updateDisplay()
+	}
 
-  isExpanded(): boolean {
-    return this.expanded
-  }
+	isExpanded(): boolean {
+		return this.expanded
+	}
 
-  setExpanded(expanded: boolean): void {
-    this.expanded = expanded
-    this.updateDisplay()
-  }
+	setExpanded(expanded: boolean): void {
+		this.expanded = expanded
+		this.updateDisplay()
+	}
 
-  toggle(): void {
-    this.expanded = !this.expanded
-    this.updateDisplay()
-  }
+	toggle(): void {
+		this.expanded = !this.expanded
+		this.updateDisplay()
+	}
 
-  private updateDisplay(): void {
-    this.clear()
+	private updateDisplay(): void {
+		this.clear()
 
-    // Render header with expand/collapse indicator
-    const indicator = this.expanded
-      ? (this.options.collapseIndicator ?? "▼")
-      : (this.options.expandIndicator ?? "▶")
-    
-    const lineCount = this.options.showLineCount && this.content.length > 0
-      ? theme.fg("muted", ` (${this.content.length} lines)`)
-      : ""
+		const lineCount =
+			this.options.showLineCount && this.content.length > 0
+				? theme.fg("muted", ` (${this.content.length} lines)`)
+				: ""
 
-    const headerText = typeof this.header === "string"
-      ? `${theme.fg("accent", indicator)} ${this.header}${lineCount}`
-      : this.header
+		const headerText =
+			typeof this.header === "string"
+				? `${this.header}${lineCount}`
+				: this.header
 
-    if (typeof headerText === "string") {
-      this.addChild(new Text(headerText, 0, 0))
-    } else {
-      this.addChild(headerText)
-    }
+		if (typeof headerText === "string") {
+			this.addChild(new Text(headerText, 0, 0))
+		} else {
+			this.addChild(headerText)
+		}
 
-    // Show summary when collapsed if provided
-    if (!this.expanded && this.summary) {
-      this.addChild(new Text(theme.fg("muted", this.summary), 0, 0))
-      return
-    }
+		// Show summary when collapsed if provided
+		if (!this.expanded && this.summary) {
+			this.addChild(new Text(theme.fg("muted", this.summary), 0, 0))
+			return
+		}
 
-    // Show content
-    if (this.content.length === 0) return
+		// Show content
+		if (this.content.length === 0) return
 
-    const maxLines = this.expanded 
-      ? this.options.expandedLines! 
-      : this.options.collapsedLines!
+		const maxLines = this.expanded
+			? this.options.expandedLines!
+			: this.options.collapsedLines!
 
-    if (maxLines === 0 && !this.expanded) {
-      // Fully collapsed, show nothing
-      return
-    }
+		if (maxLines === 0 && !this.expanded) {
+			// Fully collapsed, show nothing
+			return
+		}
 
-    const linesToShow = Math.min(this.content.length, maxLines)
-    const hasMore = this.content.length > maxLines
+		const linesToShow = Math.min(this.content.length, maxLines)
+		const hasMore = this.content.length > maxLines
 
-    // Add content lines
-    for (let i = 0; i < linesToShow; i++) {
-      this.addChild(new Text(this.content[i], 0, 0))
-    }
+		// Add content lines
+		for (let i = 0; i < linesToShow; i++) {
+			this.addChild(new Text(this.content[i], 0, 0))
+		}
 
-    // Show truncation indicator
-    if (hasMore) {
-      const remaining = this.content.length - linesToShow
-      const action = this.expanded ? "collapse" : "expand"
-      const hint = theme.fg("muted", `... ${remaining} more lines (Ctrl+E to ${action} all)`)
-      this.addChild(new Text(hint, 0, 0))
-    }
-  }
+		// Show truncation indicator
+		if (hasMore) {
+			const remaining = this.content.length - linesToShow
+			const action = this.expanded ? "collapse" : "expand"
+			const hint = theme.fg(
+				"muted",
+				`... ${remaining} more lines (Ctrl+E to ${action} all)`,
+			)
+			this.addChild(new Text(hint, 0, 0))
+		}
+	}
 }
 
 /**
  * File viewer with collapsible content
  */
 export class CollapsibleFileViewer extends CollapsibleComponent {
-  constructor(
-    path: string,
-    content: string,
-    options: Partial<CollapsibleOptions>,
-    ui: TUI
-  ) {
-    // Clean up the content - remove trailing whitespace from each line but preserve structure
-    const lines = content.split("\n").map(line => line.trimEnd())
-    // Remove trailing empty lines
-    while (lines.length > 0 && lines[lines.length - 1] === '') {
-      lines.pop()
-    }
-    
-    const header = `${theme.bold(theme.fg("toolTitle", "📄"))} ${theme.fg("accent", path)}`
-    
-    super({
-      header,
-      summary: `${lines.length} lines`,
-      collapsedLines: 20,
-      expandedLines: 200,
-      showLineCount: true,
-      ...options
-    }, ui)
+	constructor(
+		path: string,
+		content: string,
+		options: Partial<CollapsibleOptions>,
+		ui: TUI,
+	) {
+		// Clean up the content - remove trailing whitespace from each line but preserve structure
+		const lines = content.split("\n").map((line) => line.trimEnd())
+		// Remove trailing empty lines
+		while (lines.length > 0 && lines[lines.length - 1] === "") {
+			lines.pop()
+		}
 
-    this.setContent(lines)
-  }
+		const header = `${theme.bold(theme.fg("toolTitle", "📄 view"))} ${theme.fg("accent", path)}`
+
+		super(
+			{
+				header,
+				collapsedLines: 20,
+				expandedLines: 200,
+				showLineCount: true,
+				...options,
+			},
+			ui,
+		)
+
+		this.setContent(lines)
+	}
 }
 
 /**
  * Diff viewer with collapsible hunks
  */
 export class CollapsibleDiffViewer extends CollapsibleComponent {
-  private oldContent: string
-  private newContent: string
-  private path: string
+	private oldContent: string
+	private newContent: string
 
-  constructor(
-    path: string,
-    oldContent: string,
-    newContent: string,
-    options: Partial<CollapsibleOptions>,
-    ui: TUI
-  ) {
-    const header = `${theme.bold(theme.fg("toolTitle", "📝 Diff:"))} ${theme.fg("accent", path)}`
-    
-    super({
-      header,
-      collapsedLines: 15,
-      expandedLines: 100,
-      showLineCount: false,
-      ...options
-    }, ui)
+	constructor(
+		path: string,
+		oldContent: string,
+		newContent: string,
+		options: Partial<CollapsibleOptions>,
+		ui: TUI,
+	) {
+		const header = `${theme.bold(theme.fg("toolTitle", "✏️ edit"))} ${theme.fg("accent", path)}`
 
-    this.path = path
-    this.oldContent = oldContent
-    this.newContent = newContent
-    this.generateDiff()
-  }
+		super(
+			{
+				header,
+				collapsedLines: 15,
+				expandedLines: 100,
+				showLineCount: false,
+				...options,
+			},
+			ui,
+		)
 
-  private generateDiff(): void {
-    const oldLines = this.oldContent.split("\n")
-    const newLines = this.newContent.split("\n")
-    const diff: string[] = []
+		this.oldContent = oldContent
+		this.newContent = newContent
+		this.generateDiff()
+	}
 
-    // Simple line-by-line diff (in production, use a proper diff algorithm)
-    const maxLines = Math.max(oldLines.length, newLines.length)
-    let addedCount = 0
-    let removedCount = 0
+	private generateDiff(): void {
+		const oldLines = this.oldContent.split("\n")
+		const newLines = this.newContent.split("\n")
+		const diff: string[] = []
 
-    for (let i = 0; i < maxLines; i++) {
-      if (i >= oldLines.length) {
-        diff.push(theme.fg("success", `+ ${newLines[i]}`))
-        addedCount++
-      } else if (i >= newLines.length) {
-        diff.push(theme.fg("error", `- ${oldLines[i]}`))
-        removedCount++
-      } else if (oldLines[i] !== newLines[i]) {
-        diff.push(theme.fg("error", `- ${oldLines[i]}`))
-        diff.push(theme.fg("success", `+ ${newLines[i]}`))
-        addedCount++
-        removedCount++
-      } else {
-        // Context line
-        diff.push(theme.fg("muted", `  ${oldLines[i]}`))
-      }
-    }
+		// Simple line-by-line diff (in production, use a proper diff algorithm)
+		const maxLines = Math.max(oldLines.length, newLines.length)
+		let addedCount = 0
+		let removedCount = 0
 
-    this.summary = `+${addedCount} -${removedCount} lines changed`
-    this.setContent(diff)
-  }
+		for (let i = 0; i < maxLines; i++) {
+			if (i >= oldLines.length) {
+				diff.push(theme.fg("success", `+ ${newLines[i]}`))
+				addedCount++
+			} else if (i >= newLines.length) {
+				diff.push(theme.fg("error", `- ${oldLines[i]}`))
+				removedCount++
+			} else if (oldLines[i] !== newLines[i]) {
+				diff.push(theme.fg("error", `- ${oldLines[i]}`))
+				diff.push(theme.fg("success", `+ ${newLines[i]}`))
+				addedCount++
+				removedCount++
+			} else {
+				// Context line
+				diff.push(theme.fg("muted", `  ${oldLines[i]}`))
+			}
+		}
+
+		this.summary = `+${addedCount} -${removedCount} lines changed`
+		this.setContent(diff)
+	}
 }
 
 /**
  * Command output viewer with collapsible sections
  */
 export class CollapsibleCommandOutput extends CollapsibleComponent {
-  constructor(
-    command: string,
-    output: string,
-    exitCode: number,
-    options: Partial<CollapsibleOptions>,
-    ui: TUI
-  ) {
-    const status = exitCode === 0 
-      ? theme.fg("success", "✓")
-      : theme.fg("error", `✗ (exit ${exitCode})`)
-    
-    const header = `${theme.bold(theme.fg("toolTitle", "$"))} ${command} ${status}`
-    
-    // Clean up output
-    const lines = output.split("\n").map(line => line.trimEnd())
-    while (lines.length > 0 && lines[lines.length - 1] === '') {
-      lines.pop()
-    }
-    
-    super({
-      header,
-      collapsedLines: exitCode === 0 ? 10 : 50, // Show more on error
-      expandedLines: 500,
-      showLineCount: true,
-      ...options
-    }, ui)
+	constructor(
+		command: string,
+		output: string,
+		exitCode: number,
+		options: Partial<CollapsibleOptions>,
+		ui: TUI,
+	) {
+		const status =
+			exitCode === 0
+				? theme.fg("success", "✓")
+				: theme.fg("error", `✗ (exit ${exitCode})`)
 
-    this.setContent(lines)
-  }
+		const header = `${theme.bold(theme.fg("toolTitle", "command"))} ${theme.fg("accent", command)} ${status}`
+
+		// Clean up output
+		const lines = output.split("\n").map((line) => line.trimEnd())
+		while (lines.length > 0 && lines[lines.length - 1] === "") {
+			lines.pop()
+		}
+
+		super(
+			{
+				header,
+				collapsedLines: exitCode === 0 ? 10 : 50, // Show more on error
+				expandedLines: 500,
+				showLineCount: true,
+				...options,
+			},
+			ui,
+		)
+
+		this.setContent(lines)
+	}
 }

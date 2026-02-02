@@ -2559,27 +2559,27 @@ ${instructions}`,
 	private async handleSlashCommand(input: string): Promise<boolean> {
 		const trimmedInput = input.trim()
 
-		// Check for custom command prefix (//)
-		// When user types //command, pi-tui strips the first / and passes /command
+		// Routing logic:
+		// When user types //command, pi-tui strips one / so we receive /command.
+		// When user types /command, we receive command (no slash).
+		// So: if trimmedInput starts with / it was originally //.
 		if (trimmedInput.startsWith("/")) {
-			const commandName = trimmedInput.slice(1).split(" ")[0]
-			const args = trimmedInput
-				.slice(1 + commandName.length)
-				.trim()
-				.split(" ")
-				.filter(Boolean)
-
+			// Explicit custom command (// prefix)
+			// Strip all leading slashes — autocomplete may add extras
+			const withoutSlashes = trimmedInput.replace(/^\/+/, "")
+			const [cmdName, ...cmdArgs] = withoutSlashes.split(" ")
 			const customCommand = this.customSlashCommands.find(
-				(cmd) => cmd.name === commandName,
+				(cmd) => cmd.name === cmdName,
 			)
 			if (customCommand) {
-				await this.handleCustomSlashCommand(customCommand, args)
+				await this.handleCustomSlashCommand(customCommand, cmdArgs)
 				return true
 			}
-			// If not found as custom command, fall through to built-in commands
+			this.showError(`Unknown custom command: //${cmdName}`)
+			return true
 		}
 
-		const [command, ...args] = trimmedInput.slice(1).split(" ")
+		const [command, ...args] = trimmedInput.split(" ")
 
 		switch (command) {
 			case "new": {
@@ -2875,9 +2875,18 @@ Keyboard shortcuts:
 				return true
 			}
 
-			default:
+			default: {
+				// Fall back to custom commands for single-slash input
+				const customCommand = this.customSlashCommands.find(
+					(cmd) => cmd.name === command,
+				)
+				if (customCommand) {
+					await this.handleCustomSlashCommand(customCommand, args)
+					return true
+				}
 				this.showError(`Unknown command: ${command}`)
 				return true
+			}
 		}
 	}
 
