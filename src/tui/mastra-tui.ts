@@ -2556,29 +2556,30 @@ ${instructions}`,
 	// Slash Commands
 	// ===========================================================================
 
-    private async handleSlashCommand(input: string): Promise<boolean> {
-        const trimmedInput = input.trim()
+	private async handleSlashCommand(input: string): Promise<boolean> {
+		const trimmedInput = input.trim()
 
-        // Strip all leading slashes to get the raw command content
-        // User may type /command or //command, and pi-tui may or may not strip one /
-        const withoutSlashes = trimmedInput.replace(/^\/+/, "")
-        const customCommandName = withoutSlashes.split(" ")[0]
-        const customArgs = withoutSlashes
-            .slice(customCommandName.length)
-            .trim()
-            .split(" ")
-            .filter(Boolean)
+		// Routing logic:
+		// When user types //command, pi-tui strips one / so we receive /command.
+		// When user types /command, we receive command (no slash).
+		// So: if trimmedInput starts with / it was originally //.
+		if (trimmedInput.startsWith("/")) {
+			// Explicit custom command (// prefix)
+			// Strip all leading slashes — autocomplete may add extras
+			const withoutSlashes = trimmedInput.replace(/^\/+/, "")
+			const [cmdName, ...cmdArgs] = withoutSlashes.split(" ")
+			const customCommand = this.customSlashCommands.find(
+				(cmd) => cmd.name === cmdName,
+			)
+			if (customCommand) {
+				await this.handleCustomSlashCommand(customCommand, cmdArgs)
+				return true
+			}
+			this.showError(`Unknown custom command: //${cmdName}`)
+			return true
+		}
 
-        // Check for custom command match first
-        const customCommand = this.customSlashCommands.find(
-            (cmd) => cmd.name === customCommandName,
-        )
-        if (customCommand) {
-            await this.handleCustomSlashCommand(customCommand, customArgs)
-            return true
-        }
-
-        const [command, ...args] = withoutSlashes.split(" ")
+		const [command, ...args] = trimmedInput.split(" ")
 
 		switch (command) {
 			case "new": {
@@ -2874,9 +2875,18 @@ Keyboard shortcuts:
 				return true
 			}
 
-            default:
-                this.showError(`Unknown command: ${command}`)
-                return true
+			default: {
+				// Fall back to custom commands for single-slash input
+				const customCommand = this.customSlashCommands.find(
+					(cmd) => cmd.name === command,
+				)
+				if (customCommand) {
+					await this.handleCustomSlashCommand(customCommand, args)
+					return true
+				}
+				this.showError(`Unknown command: ${command}`)
+				return true
+			}
 		}
 	}
 
