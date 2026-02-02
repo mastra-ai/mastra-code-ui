@@ -991,14 +991,14 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				updates.observationThreshold = meta.observationThreshold
 			if (meta?.reflectionThreshold)
 				updates.reflectionThreshold = meta.reflectionThreshold
-            if (meta?.thinkingLevel) updates.thinkingLevel = meta.thinkingLevel
-            if (
-                meta?.sandboxAllowedPaths &&
-                Array.isArray(meta.sandboxAllowedPaths)
-            ) {
-                updates.sandboxAllowedPaths = meta.sandboxAllowedPaths
-            }
-            // Only load todos if they exist and have items
+			if (meta?.thinkingLevel) updates.thinkingLevel = meta.thinkingLevel
+			if (
+				meta?.sandboxAllowedPaths &&
+				Array.isArray(meta.sandboxAllowedPaths)
+			) {
+				updates.sandboxAllowedPaths = meta.sandboxAllowedPaths
+			}
+			// Only load todos if they exist and have items
 			if (meta?.todos && Array.isArray(meta.todos) && meta.todos.length > 0) {
 				updates.todos = meta.todos
 			}
@@ -1531,25 +1531,60 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	/**
 	 * Get message history for the current thread.
 	 */
-	async getMessages(): Promise<HarnessMessage[]> {
+	async getMessages(options?: { limit?: number }): Promise<HarnessMessage[]> {
 		if (!this.currentThreadId) {
 			return []
 		}
-		return this.getMessagesForThread(this.currentThreadId)
+		return this.getMessagesForThread(this.currentThreadId, options)
 	}
 
 	/**
 	 * Get message history for a specific thread.
+	 * @param options.limit - Max number of most recent messages to fetch. Omit or pass undefined for all.
 	 */
-	async getMessagesForThread(threadId: string): Promise<HarnessMessage[]> {
+	async getMessagesForThread(
+		threadId: string,
+		options?: { limit?: number },
+	): Promise<HarnessMessage[]> {
 		const memoryStorage = await this.getMemoryStorage()
+		const limit = options?.limit
+
+		if (limit) {
+			// Fetch the last N messages by querying DESC and reversing
+			const result = await memoryStorage.listMessages({
+				threadId,
+				perPage: limit,
+				page: 0,
+				orderBy: { field: "createdAt", direction: "DESC" },
+			})
+			return result.messages
+				.map((msg) => this.convertToHarnessMessage(msg))
+				.reverse()
+		}
+
 		const result = await memoryStorage.listMessages({
 			threadId,
 			perPage: false,
 		})
-
-		// Convert MastraDBMessage to HarnessMessage
 		return result.messages.map((msg) => this.convertToHarnessMessage(msg))
+	}
+
+	/**
+	 * Get the first user message for a thread (for previews).
+	 */
+	async getFirstUserMessageForThread(
+		threadId: string,
+	): Promise<HarnessMessage | null> {
+		const memoryStorage = await this.getMemoryStorage()
+		// Fetch a small batch from the beginning — first user message is usually in the first few
+		const result = await memoryStorage.listMessages({
+			threadId,
+			perPage: 5,
+			page: 0,
+			orderBy: { field: "createdAt", direction: "ASC" },
+		})
+		const userMsg = result.messages.find((m) => m.role === "user")
+		return userMsg ? this.convertToHarnessMessage(userMsg) : null
 	}
 
 	/**
