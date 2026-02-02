@@ -234,7 +234,7 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     
     if (!this.result || this.isPartial) {
       const status = this.getStatusIndicator()
-      const header = `${theme.fg("toolTitle", theme.bold(`$ ${command}`))}${cwdSuffix}${timeoutSuffix}${status}`
+      const header = `${theme.bold(theme.fg("toolTitle", "🔧 shell"))} ${theme.fg("accent", command)}${cwdSuffix}${timeoutSuffix}${status}`
       this.contentBox.addChild(new Text(header, 0, 0))
       return
     }
@@ -242,7 +242,7 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     // For errors, use enhanced error display
     if (this.result.isError) {
       const status = theme.fg("error", " ✗")
-      const header = `${theme.fg("toolTitle", theme.bold(`$ ${command}`))}${cwdSuffix}${timeoutSuffix}${status}`
+      const header = `${theme.bold(theme.fg("toolTitle", "🔧 shell"))} ${theme.fg("accent", command)}${cwdSuffix}${timeoutSuffix}${status}`
       this.renderErrorResult(header)
       return
     }
@@ -252,7 +252,7 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     const looksLikeError = outputText.match(/Error:|TypeError:|SyntaxError:|ReferenceError:|command not found|fatal:|error:/i)
     if (looksLikeError) {
       const status = theme.fg("error", " ✗")
-      const header = `${theme.fg("toolTitle", theme.bold(`$ ${command}`))}${cwdSuffix}${timeoutSuffix}${status}`
+      const header = `${theme.bold(theme.fg("toolTitle", "🔧 shell"))} ${theme.fg("accent", command)}${cwdSuffix}${timeoutSuffix}${status}`
       this.renderErrorResult(header)
       return
     }

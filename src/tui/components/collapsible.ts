@@ -237,7 +237,7 @@ export class CollapsibleCommandOutput extends CollapsibleComponent {
 				? theme.fg("success", "✓")
 				: theme.fg("error", `✗ (exit ${exitCode})`)
 
-		const header = `${theme.bold(theme.fg("toolTitle", "$"))} ${command} ${status}`
+        const header = `${theme.bold(theme.fg("toolTitle", "🔧 shell"))} ${theme.fg("accent", command)} ${status}`
 
 		// Clean up output
 		const lines = output.split("\n").map((line) => line.trimEnd())
