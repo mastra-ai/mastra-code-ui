@@ -153,7 +153,8 @@ export class ThreadSelectorComponent extends Box implements Focusable {
 			? fuzzyFilter(
 					this.allThreads,
 					query,
-					(t) => `${t.title ?? ""} ${t.resourceId} ${t.id}`,
+					(t) =>
+						`${t.title ?? ""} ${t.resourceId} ${t.id} ${(t.metadata?.projectPath as string) ?? ""}`,
 				)
 			: this.allThreads
 
@@ -199,6 +200,10 @@ export class ThreadSelectorComponent extends Box implements Focusable {
 			const isCurrent = thread.id === this.currentThreadId
 			const checkmark = isCurrent ? fg("success", " ✓") : ""
 			const shortId = thread.id.slice(-6)
+			const threadPath = thread.metadata?.projectPath as string | undefined
+			const pathTag = threadPath
+				? fg("dim", ` [${threadPath.split("/").pop()}]`)
+				: ""
 			const displayId = `${thread.resourceId}/${shortId}`
 			const timeAgo = fg("muted", ` (${this.formatTimeAgo(thread.updatedAt)})`)
 
@@ -207,9 +212,9 @@ export class ThreadSelectorComponent extends Box implements Focusable {
 
 			let line = ""
 			if (isSelected) {
-				line = fg("accent", `→ ${displayId}`) + timeAgo + checkmark
+				line = fg("accent", `→ ${displayId}`) + pathTag + timeAgo + checkmark
 			} else {
-				line = `  ${displayId}` + timeAgo + checkmark
+				line = `  ${displayId}` + pathTag + timeAgo + checkmark
 			}
 
 			this.listContainer.addChild(new Text(line, 0, 0))
