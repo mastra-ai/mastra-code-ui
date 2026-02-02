@@ -163,6 +163,8 @@ export interface HarnessThread {
 	updatedAt: Date
 	/** Token usage for this thread (persisted for status line) */
 	tokenUsage?: TokenUsage
+	/** Optional metadata (gitBranch, etc.) — may be absent on older threads */
+	metadata?: Record<string, unknown>
 }
 
 /**
@@ -285,66 +287,66 @@ export type HarnessEvent =
 			workspaceId: string
 			workspaceName: string
 	  }
-    | { type: "workspace_error"; error: Error }
-    // Subagent / Task delegation events
-    | {
-            type: "subagent_start"
-            toolCallId: string
-            agentType: string
-            task: string
-      }
-    | {
-            type: "subagent_tool_start"
-            toolCallId: string
-            agentType: string
-            subToolName: string
-            subToolArgs: unknown
-      }
-    | {
-            type: "subagent_tool_end"
-            toolCallId: string
-            agentType: string
-            subToolName: string
-            subToolResult: unknown
-            isError: boolean
-      }
-    | {
-            type: "subagent_text_delta"
-            toolCallId: string
-            agentType: string
-            textDelta: string
-      }
-    | {
-            type: "subagent_end"
-            toolCallId: string
-            agentType: string
-            result: string
-            isError: boolean
-            durationMs: number
-      }
-    // Todo list events
-    | {
-            type: "todo_updated"
-            todos: Array<{
-                content: string
-                status: "pending" | "in_progress" | "completed"
-                activeForm: string
-            }>
-      }
-    // Ask question events
-    | {
-            type: "ask_question"
-            questionId: string
-            question: string
-            options?: Array<{ label: string; description?: string }>
-      }
-    // Plan approval events
-    | {
-            type: "plan_approval_required"
-            planId: string
-            title: string
-            plan: string
-      }
+	| { type: "workspace_error"; error: Error }
+	// Subagent / Task delegation events
+	| {
+			type: "subagent_start"
+			toolCallId: string
+			agentType: string
+			task: string
+	  }
+	| {
+			type: "subagent_tool_start"
+			toolCallId: string
+			agentType: string
+			subToolName: string
+			subToolArgs: unknown
+	  }
+	| {
+			type: "subagent_tool_end"
+			toolCallId: string
+			agentType: string
+			subToolName: string
+			subToolResult: unknown
+			isError: boolean
+	  }
+	| {
+			type: "subagent_text_delta"
+			toolCallId: string
+			agentType: string
+			textDelta: string
+	  }
+	| {
+			type: "subagent_end"
+			toolCallId: string
+			agentType: string
+			result: string
+			isError: boolean
+			durationMs: number
+	  }
+	// Todo list events
+	| {
+			type: "todo_updated"
+			todos: Array<{
+				content: string
+				status: "pending" | "in_progress" | "completed"
+				activeForm: string
+			}>
+	  }
+	// Ask question events
+	| {
+			type: "ask_question"
+			questionId: string
+			question: string
+			options?: Array<{ label: string; description?: string }>
+	  }
+	// Plan approval events
+	| {
+			type: "plan_approval_required"
+			planId: string
+			title: string
+			plan: string
+	  }
 
 /**
  * Listener function for harness events.
@@ -444,44 +446,50 @@ export type ObservationalMemoryDebugEvent =
  * Tools can access harness state and methods through this.
  */
 export interface HarnessRuntimeContext<
-    TState extends HarnessStateSchema = HarnessStateSchema,
+	TState extends HarnessStateSchema = HarnessStateSchema,
 > {
-    /** The harness instance ID */
-    harnessId: string
+	/** The harness instance ID */
+	harnessId: string
 
-    /** Current harness state (read-only snapshot) */
-    state: z.infer<TState>
+	/** Current harness state (read-only snapshot) */
+	state: z.infer<TState>
 
-    /** Get the current harness state (live, not snapshot) */
-    getState: () => z.infer<TState>
+	/** Get the current harness state (live, not snapshot) */
+	getState: () => z.infer<TState>
 
-    /** Update harness state */
-    setState: (updates: Partial<z.infer<TState>>) => Promise<void>
+	/** Update harness state */
+	setState: (updates: Partial<z.infer<TState>>) => Promise<void>
 
-    /** Current thread ID */
-    threadId: string | null
+	/** Current thread ID */
+	threadId: string | null
 
-    /** Current resource ID */
-    resourceId: string
+	/** Current resource ID */
+	resourceId: string
 
-    /** Current mode ID */
-    modeId: string
+	/** Current mode ID */
+	modeId: string
 
-    /** Abort signal for the current operation */
-    abortSignal?: AbortSignal
+	/** Abort signal for the current operation */
+	abortSignal?: AbortSignal
 
-    /** Workspace instance (if configured on the Harness) */
-    workspace?: Workspace
+	/** Workspace instance (if configured on the Harness) */
+	workspace?: Workspace
 
-    /** Emit a harness event (used by tools like task to forward subagent events) */
-    emitEvent?: (event: HarnessEvent) => void
+	/** Emit a harness event (used by tools like task to forward subagent events) */
+	emitEvent?: (event: HarnessEvent) => void
 
-    /** Register a pending question resolver (used by ask_user tool) */
-    registerQuestion?: (questionId: string, resolve: (answer: string) => void) => void
+	/** Register a pending question resolver (used by ask_user tool) */
+	registerQuestion?: (
+		questionId: string,
+		resolve: (answer: string) => void,
+	) => void
 
-    /** Register a pending plan approval resolver (used by submit_plan tool) */
-    registerPlanApproval?: (
-        planId: string,
-        resolve: (result: { action: "approved" | "rejected"; feedback?: string }) => void,
-    ) => void
+	/** Register a pending plan approval resolver (used by submit_plan tool) */
+	registerPlanApproval?: (
+		planId: string,
+		resolve: (result: {
+			action: "approved" | "rejected"
+			feedback?: string
+		}) => void,
+	) => void
 }
