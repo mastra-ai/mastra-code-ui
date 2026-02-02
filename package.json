@@ -9,7 +9,8 @@
 		"dev": "tsx watch src/main.ts",
 		"build": "tsc",
 		"typecheck": "tsc --noEmit",
-		"test": "echo \"Error: no test specified\" && exit 1"
+        "test": "vitest run",
+        "format": "prettier --write ."
 	},
 	"keywords": [],
 	"author": "",
@@ -44,7 +45,9 @@
 		"@types/chalk": "^2.2.4",
 		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^25.0.10",
+		"prettier": "^3.8.1",
 		"tsx": "^4.21.0",
-		"typescript": "^5.8.0"
+		"typescript": "^5.8.0",
+		"vitest": "^4.0.18"
 	}
 }
