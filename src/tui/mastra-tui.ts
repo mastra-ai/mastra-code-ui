@@ -1584,9 +1584,6 @@ ${instructions}`,
             // Track ask_user tool components for inline question placement
             if (toolName === "ask_user") {
                 this.lastAskUserComponent = component
-                if (this.options.verbose) {
-                    console.error(`[DEBUG] Tracking ask_user tool component`)
-                }
             }
 
             // Track submit_plan tool components for inline plan approval placement
@@ -1704,9 +1701,7 @@ ${instructions}`,
                     
                     if (askUserIndex >= 0) {
                         // Debug: Log the positioning
-                        if (this.options.verbose) {
-                            console.error(`[DEBUG] Found ask_user tool at index ${askUserIndex} out of ${children.length} components`)
-                        }
+
                         
                         // Clear and rebuild with question in the right place
                         this.chatContainer.clear()
@@ -1726,10 +1721,7 @@ ${instructions}`,
                             this.chatContainer.addChild(children[i])
                         }
                     } else {
-                        // Debug: Log when not found
-                        if (this.options.verbose) {
-                            console.error(`[DEBUG] Could not find ask_user tool component in chat container (${children.length} total components)`)
-                        }
+
                         // Fallback: add at the end
                         this.chatContainer.addChild(new Spacer(1))
                         this.chatContainer.addChild(questionComponent)

@@ -164,11 +164,6 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
    * - initial construction
    */
   private rebuild(): void {
-    console.error("[DEBUG] ToolExecutionEnhanced.rebuild() called", {
-      toolName: this.toolName,
-      isError: this.result?.isError,
-      hasResult: !!this.result
-    })
     this.updateBgColor()
     this.contentBox.clear()
     this.collapsible = undefined
@@ -254,7 +249,6 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     const outputText = this.getFormattedOutput()
     const looksLikeError = outputText.match(/Error:|TypeError:|SyntaxError:|ReferenceError:|command not found|fatal:|error:/i)
     if (looksLikeError) {
-      console.error("[DEBUG] Detected error pattern in output, using enhanced display")
       const status = theme.fg("error", " ✗")
       const header = `${theme.fg("toolTitle", theme.bold(`$ ${command}`))}${cwdSuffix}${timeoutSuffix}${status}`
       this.renderErrorResult(header)
@@ -444,8 +438,6 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
 
     if (!errorText) return
 
-    console.error("[DEBUG] renderErrorResult called with error text:", errorText.substring(0, 100))
-
     // Try to parse as an error object
     let error: Error | string = errorText
     try {
@@ -469,7 +461,6 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     }
 
     // Create error display component
-    console.error("[DEBUG] Creating ErrorDisplayComponent with error:", error)
     const errorDisplay = new ErrorDisplayComponent(
       error,
       {
@@ -480,7 +471,6 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
       this.ui
     )
 
-    console.error("[DEBUG] Adding ErrorDisplayComponent to contentBox")
     this.contentBox.addChild(errorDisplay)
   }
 }

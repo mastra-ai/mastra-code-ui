@@ -153,9 +153,7 @@ export class ErrorDisplayComponent extends Container {
     }
 
     private build(): void {
-        console.error("[DEBUG] ErrorDisplayComponent.build() called with error:", this.error)
         const info = parseErrorInfo(this.error)
-        console.error("[DEBUG] Parsed error info:", info)
         
         // Add a visible border around the entire error display
         const borderTop = new Text(fg("error", "┌─ Error ─" + "─".repeat(50) + "┐"), 0, 0)
