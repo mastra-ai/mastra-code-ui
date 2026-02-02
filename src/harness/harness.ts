@@ -991,8 +991,14 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				updates.observationThreshold = meta.observationThreshold
 			if (meta?.reflectionThreshold)
 				updates.reflectionThreshold = meta.reflectionThreshold
-			if (meta?.thinkingLevel) updates.thinkingLevel = meta.thinkingLevel
-			// Only load todos if they exist and have items
+            if (meta?.thinkingLevel) updates.thinkingLevel = meta.thinkingLevel
+            if (
+                meta?.sandboxAllowedPaths &&
+                Array.isArray(meta.sandboxAllowedPaths)
+            ) {
+                updates.sandboxAllowedPaths = meta.sandboxAllowedPaths
+            }
+            // Only load todos if they exist and have items
 			if (meta?.todos && Array.isArray(meta.todos) && meta.todos.length > 0) {
 				updates.todos = meta.todos
 			}

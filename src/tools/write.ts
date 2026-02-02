@@ -5,6 +5,7 @@ import { createTool } from "@mastra/core/tools"
 import { z } from "zod/v3"
 import * as path from "path"
 import * as fs from "fs"
+import { assertPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 
 /**
  * Create the write_file tool for creating/overwriting files.
@@ -27,24 +28,15 @@ Usage notes:
 				.describe("File path to write to (relative to project root)"),
 			content: z.string().describe("The full content to write to the file"),
 		}),
-		execute: async (context) => {
-			try {
-				const root = projectRoot || process.cwd()
-				const filePath = context.path
-				const absolutePath = path.resolve(root, filePath)
+        execute: async (context, toolContext) => {
+            try {
+                const root = projectRoot || process.cwd()
+                const filePath = context.path
+                const absolutePath = path.resolve(root, filePath)
+                const allowedPaths = getAllowedPathsFromContext(toolContext)
 
-				// Security: ensure the path is within the project root
-				const resolved = path.resolve(absolutePath)
-				const resolvedRoot = path.resolve(root)
-				if (
-					!resolved.startsWith(resolvedRoot + path.sep) &&
-					resolved !== resolvedRoot
-				) {
-					return {
-						content: `Error: Cannot write outside project root. Path "${filePath}" resolves to "${resolved}" which is outside "${resolvedRoot}".`,
-						isError: true,
-					}
-				}
+                // Security: ensure the path is within the project root or allowed paths
+                assertPathAllowed(absolutePath, root, allowedPaths)
 
 				// Check if file exists
 				const exists = fs.existsSync(absolutePath)

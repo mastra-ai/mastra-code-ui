@@ -188,5 +188,9 @@ For tasks with 3+ steps:
 - NEVER make up URLs. Only use URLs the user provides or that you find in the codebase.
 - When referencing code locations, include the file path and line number.
 - If you're unsure about something, ask the user rather than guessing.
+
+# File Access & Sandbox
+
+By default, you can only access files within the current project directory. If you get a "Permission denied" or "Access denied" error when trying to read, write, or access files outside the project root, do NOT keep retrying. Instead, tell the user to run the \`/sandbox\` command to add the external directory to the allowed paths for this thread. Once they do, you will be able to access it.
 `
 }

@@ -3,6 +3,7 @@ import { z } from "zod/v3"
 import { parse, Lang } from "@ast-grep/napi"
 import { readFileSync, writeFileSync } from "fs"
 import { resolve } from "path"
+import { assertPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 
 // Get the project root from the working directory
 const getProjectRoot = () => process.cwd()
@@ -65,19 +66,17 @@ Examples:
 - Rename function: { transform: 'rename-function', targetName: 'oldFunc', newName: 'newFunc' }
 - Pattern replace: { pattern: 'console.log($ARG)', replacement: 'logger.debug($ARG)' }`,
 	inputSchema: astSmartEditSchema,
-	execute: async ({
-		path,
-		pattern,
-		replacement,
-		selector,
-		transform,
-		targetName,
-		newName,
-		importSpec,
-	}) => {
-		try {
-			const projectRoot = getProjectRoot()
-			const filePath = resolve(projectRoot, path)
+    execute: async (
+        { path, pattern, replacement, selector, transform, targetName, newName, importSpec },
+        toolContext,
+    ) => {
+        try {
+            const projectRoot = getProjectRoot()
+            const filePath = resolve(projectRoot, path)
+
+            // Security: ensure the path is within the project root or allowed paths
+            const allowedPaths = getAllowedPathsFromContext(toolContext)
+            assertPathAllowed(filePath, projectRoot, allowedPaths)
 
 			// Read the file
 			const content = readFileSync(filePath, "utf-8")

@@ -6,6 +6,7 @@ import { findWorkspaceRoot } from "../lsp/workspace.js"
 import * as path from "path"
 import * as fs from "fs"
 import { truncateStringForTokenEstimate } from "../utils/token-estimator.js"
+import { assertPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 
 export const stringReplaceLspTool = createTool({
 	id: "string_replace_lsp",
@@ -26,20 +27,25 @@ Usage notes:
 		new_str: z.string().optional(),
 		start_line: z.number().optional(),
 	}),
-	async execute(context) {
-		const { path: filePath, old_str, new_str, start_line } = context
+    async execute(context, toolContext) {
+        const { path: filePath, old_str, new_str, start_line } = context
 
-		try {
-			// Convert relative paths to absolute (same logic as validatePath in utils.ts)
-			const absoluteFilePath = path.isAbsolute(filePath)
-				? filePath
-				: path.join(process.cwd(), filePath)
+        try {
+            // Convert relative paths to absolute (same logic as validatePath in utils.ts)
+            const absoluteFilePath = path.isAbsolute(filePath)
+                ? filePath
+                : path.join(process.cwd(), filePath)
 
-			// Create relative path for display
-			const cwd = process.cwd()
-			const relativeFilePath = absoluteFilePath.startsWith(cwd)
-				? "./" + absoluteFilePath.slice(cwd.length + 1)
-				: filePath
+            // Security: ensure the path is within the project root or allowed paths
+            const root = process.cwd()
+            const allowedPaths = getAllowedPathsFromContext(toolContext)
+            assertPathAllowed(absoluteFilePath, root, allowedPaths)
+
+            // Create relative path for display
+            const cwd = process.cwd()
+            const relativeFilePath = absoluteFilePath.startsWith(cwd)
+                ? "./" + absoluteFilePath.slice(cwd.length + 1)
+                : filePath
 
 			// Call the FileEditor strReplace method
 			const result = await sharedFileEditor.strReplace({
