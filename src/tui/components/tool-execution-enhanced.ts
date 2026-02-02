@@ -209,8 +209,9 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
 
     const output = this.getFormattedOutput()
     if (output) {
+      const status = this.getStatusIndicator()
       this.collapsible = new CollapsibleFileViewer(
-        `${path}${range}`,
+        `${path}${range}${status}`,
         output,
         { 
           expanded: this.expanded,
@@ -289,8 +290,9 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
 
     // For edits, show the diff
     if (argsObj?.old_str && argsObj?.new_str && !this.result.isError) {
+      const editStatus = this.getStatusIndicator()
       this.collapsible = new CollapsibleDiffViewer(
-        `${path}${line}`,
+        `${path}${line}${editStatus}`,
         String(argsObj.old_str),
         String(argsObj.new_str),
         { 
@@ -344,9 +346,10 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     if (output) {
       const lines = output.split("\n")
       const fileCount = lines.filter(l => l.trim() && !l.includes("└") && !l.includes("├") && !l.includes("│")).length
+      const listStatus = this.getStatusIndicator()
       
       this.collapsible = new CollapsibleComponent({
-        header: `${theme.bold(theme.fg("toolTitle", "📁 list"))} ${theme.fg("accent", path)}`,
+        header: `${theme.bold(theme.fg("toolTitle", "📁 list"))} ${theme.fg("accent", path)}${listStatus}`,
         summary: `${fileCount} items`,
         expanded: this.expanded,
         collapsedLines: 15,
