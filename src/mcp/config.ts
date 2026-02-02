@@ -78,10 +78,7 @@ function validateConfig(raw: unknown): McpConfig {
 				env:
 					typeof (entry as Record<string, unknown>).env === "object" &&
 					(entry as Record<string, unknown>).env !== null
-						? ((entry as Record<string, unknown>).env as Record<
-								string,
-								string
-							>)
+						? ((entry as Record<string, unknown>).env as Record<string, string>)
 						: undefined,
 			}
 		}

@@ -14,9 +14,9 @@ import { executeSubagent } from "./execute.js"
 
 /** All registered subagent definitions, keyed by ID. */
 const subagentRegistry: Record<string, SubagentDefinition> = {
-    explore: exploreSubagent,
-    plan: planSubagent,
-    execute: executeSubagent,
+	explore: exploreSubagent,
+	plan: planSubagent,
+	execute: executeSubagent,
 }
 
 /**
@@ -24,14 +24,14 @@ const subagentRegistry: Record<string, SubagentDefinition> = {
  * Returns undefined if not found.
  */
 export function getSubagentDefinition(
-    id: string,
+	id: string,
 ): SubagentDefinition | undefined {
-    return subagentRegistry[id]
+	return subagentRegistry[id]
 }
 
 /**
  * Get all registered subagent IDs (for tool description / validation).
  */
 export function getSubagentIds(): string[] {
-    return Object.keys(subagentRegistry)
+	return Object.keys(subagentRegistry)
 }

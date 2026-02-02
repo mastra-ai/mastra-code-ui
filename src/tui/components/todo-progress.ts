@@ -36,20 +36,18 @@ export class TodoProgressComponent extends Container {
 		return [...this.todos]
 	}
 
-    private rebuildDisplay(): void {
-        this.clear()
+	private rebuildDisplay(): void {
+		this.clear()
 
-        // No todos = no render (component takes zero vertical space)
-        if (this.todos.length === 0) return
+		// No todos = no render (component takes zero vertical space)
+		if (this.todos.length === 0) return
 
-        // Progress header
-        const completed = this.todos.filter(
-            (t) => t.status === "completed",
-        ).length
-        const total = this.todos.length
+		// Progress header
+		const completed = this.todos.filter((t) => t.status === "completed").length
+		const total = this.todos.length
 
-        // Hide the component when all todos are completed
-        if (completed === total) return
+		// Hide the component when all todos are completed
+		if (completed === total) return
 		const headerText =
 			"  " +
 			bold(fg("accent", "Tasks")) +

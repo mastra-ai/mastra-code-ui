@@ -7,11 +7,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
-import type {
-	HooksConfig,
-	HookDefinition,
-	HookEventName,
-} from "./types.js"
+import type { HooksConfig, HookDefinition, HookEventName } from "./types.js"
 
 const VALID_EVENTS: HookEventName[] = [
 	"PreToolUse",
@@ -74,10 +70,7 @@ function isValidHook(raw: unknown): raw is HookDefinition {
 	return obj.type === "command" && typeof obj.command === "string"
 }
 
-function mergeConfigs(
-	global: HooksConfig,
-	project: HooksConfig,
-): HooksConfig {
+function mergeConfigs(global: HooksConfig, project: HooksConfig): HooksConfig {
 	const merged: HooksConfig = {}
 
 	for (const event of VALID_EVENTS) {

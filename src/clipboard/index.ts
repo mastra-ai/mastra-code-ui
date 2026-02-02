@@ -106,28 +106,22 @@ function getLinuxClipboardImage(): ClipboardImage | null {
 function getLinuxClipboardImageXclip(): ClipboardImage | null {
 	try {
 		// Check available targets
-		const targets = execSync(
-			"xclip -selection clipboard -target TARGETS -o",
-			{
-				encoding: "utf-8",
-				timeout: 3000,
-				stdio: ["pipe", "pipe", "pipe"],
-			},
-		)
+		const targets = execSync("xclip -selection clipboard -target TARGETS -o", {
+			encoding: "utf-8",
+			timeout: 3000,
+			stdio: ["pipe", "pipe", "pipe"],
+		})
 
 		if (!targets.includes("image/png")) {
 			return null
 		}
 
 		// Extract PNG data
-		const buffer = execSync(
-			"xclip -selection clipboard -target image/png -o",
-			{
-				timeout: 5000,
-				stdio: ["pipe", "pipe", "pipe"],
-				maxBuffer: 50 * 1024 * 1024, // 50MB max
-			},
-		)
+		const buffer = execSync("xclip -selection clipboard -target image/png -o", {
+			timeout: 5000,
+			stdio: ["pipe", "pipe", "pipe"],
+			maxBuffer: 50 * 1024 * 1024, // 50MB max
+		})
 
 		if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
 			return null

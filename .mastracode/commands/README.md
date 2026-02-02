@@ -10,6 +10,7 @@ This directory also includes skills-related commands:
 - `//skills:list` - List all installed skills
 
 Skills are automatically discovered from these locations (priority order):
+
 1. `.mastracode/skills/` (project-local)
 2. `.claude/skills/` (project-local, Claude Code compatible)
 3. `~/.mastracode/skills/` (user-wide)
@@ -35,6 +36,7 @@ Run shell commands with !`command`.
 ## Examples
 
 ### Simple command with arguments
+
 ```markdown
 ---
 name: explain
@@ -45,6 +47,7 @@ Please explain: $ARGUMENTS
 ```
 
 ### File content inclusion
+
 ```markdown
 ---
 name: review
@@ -57,6 +60,7 @@ Please review this file:
 ```
 
 ### Shell command output
+
 ```markdown
 ---
 name: gitstatus
@@ -71,6 +75,7 @@ Please analyze any issues.
 ```
 
 ### Combined example
+
 ```markdown
 ---
 name: analyze
@@ -91,6 +96,7 @@ Please analyze the changes.
 ## Namespacing
 
 Use subdirectories for namespaced commands:
+
 - `.mastracode/commands/git/commit.md` → `/git:commit`
 - `.mastracode/commands/docs/readme.md` → `/docs:readme`
 

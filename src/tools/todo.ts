@@ -42,9 +42,7 @@ States:
 - in_progress: Currently working on (limit to ONE)
 - completed: Finished successfully`,
 	inputSchema: z.object({
-		todos: z
-			.array(todoItemSchema)
-			.describe("The complete updated todo list"),
+		todos: z.array(todoItemSchema).describe("The complete updated todo list"),
 	}),
 	execute: async ({ todos }, context) => {
 		try {
@@ -64,12 +62,8 @@ States:
 			}
 
 			// Build summary for the model's context
-			const completed = todos.filter(
-				(t) => t.status === "completed",
-			).length
-			const inProgress = todos.find(
-				(t) => t.status === "in_progress",
-			)
+			const completed = todos.filter((t) => t.status === "completed").length
+			const inProgress = todos.find((t) => t.status === "in_progress")
 			const total = todos.length
 
 			let summary = `Todos updated: [${completed}/${total} completed]`
@@ -82,8 +76,7 @@ States:
 				isError: false,
 			}
 		} catch (error) {
-			const msg =
-				error instanceof Error ? error.message : "Unknown error"
+			const msg = error instanceof Error ? error.message : "Unknown error"
 			return {
 				content: `Failed to update todos: ${msg}`,
 				isError: true,

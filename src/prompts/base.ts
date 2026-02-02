@@ -4,17 +4,17 @@
  */
 
 export interface PromptContext {
-    projectPath: string
-    projectName: string
-    gitBranch?: string
-    platform: string
-    date: string
-    mode: string
-    activePlan?: { title: string; plan: string; approvedAt: string } | null
+	projectPath: string
+	projectName: string
+	gitBranch?: string
+	platform: string
+	date: string
+	mode: string
+	activePlan?: { title: string; plan: string; approvedAt: string } | null
 }
 
 export function buildBasePrompt(ctx: PromptContext): string {
-    return `You are Mastra Code, an interactive CLI coding agent that helps users with software engineering tasks.
+	return `You are Mastra Code, an interactive CLI coding agent that helps users with software engineering tasks.
 
 # Environment
 Working directory: ${ctx.projectPath}

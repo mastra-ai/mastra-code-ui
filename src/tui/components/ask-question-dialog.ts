@@ -104,13 +104,7 @@ export class AskQuestionDialogComponent extends Box implements Focusable {
 
 		this.addChild(this.input)
 		this.addChild(new Spacer(1))
-		this.addChild(
-			new Text(
-				fg("dim", "  Enter to submit · Esc to skip"),
-				0,
-				0,
-			),
-		)
+		this.addChild(new Text(fg("dim", "  Enter to submit · Esc to skip"), 0, 0))
 	}
 
 	handleInput(data: string): void {

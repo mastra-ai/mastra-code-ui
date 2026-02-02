@@ -161,9 +161,8 @@ Usage notes:
 			const isACPMode = process.argv.includes("--acp-internal")
 			if (isACPMode) {
 				const { acpEventBus } = await import("../acp/event-bus.js")
-				const { getGlobalConfirmationId } = await import(
-					"./wrap-with-confirmation.js"
-				)
+				const { getGlobalConfirmationId } =
+					await import("./wrap-with-confirmation.js")
 
 				const confirmationId = getGlobalConfirmationId()
 
@@ -273,7 +272,7 @@ Usage notes:
 				subprocess = execa(command, {
 					cwd,
 					shell: true,
-                    stdio: ["pipe", "pipe", "pipe"], // all piped — TUI owns the terminal
+					stdio: ["pipe", "pipe", "pipe"], // all piped — TUI owns the terminal
 					buffer: true, // Buffer output for return value
 					all: true, // Combine stdout and stderr
 					env: {
@@ -321,20 +320,20 @@ Usage notes:
 						}
 					}, timeoutMS - 100) // Kill 100ms before execa's timeout
 				}
-                // Capture stdout/stderr (no direct piping — TUI renders via tool results)
-                if (subprocess.stdout) {
-                    subprocess.stdout.on(`data`, (chunk: Buffer) => {
-                        const text = chunk.toString()
-                        ipcReporter.send(`shell-output`, { output: text, type: `stdout` })
-                    })
-                }
+				// Capture stdout/stderr (no direct piping — TUI renders via tool results)
+				if (subprocess.stdout) {
+					subprocess.stdout.on(`data`, (chunk: Buffer) => {
+						const text = chunk.toString()
+						ipcReporter.send(`shell-output`, { output: text, type: `stdout` })
+					})
+				}
 
-                if (subprocess.stderr) {
-                    subprocess.stderr.on(`data`, (chunk: Buffer) => {
-                        const text = chunk.toString()
-                        ipcReporter.send(`shell-output`, { output: text, type: `stderr` })
-                    })
-                }
+				if (subprocess.stderr) {
+					subprocess.stderr.on(`data`, (chunk: Buffer) => {
+						const text = chunk.toString()
+						ipcReporter.send(`shell-output`, { output: text, type: `stderr` })
+					})
+				}
 
 				// Wait for completion
 				const result = await subprocess

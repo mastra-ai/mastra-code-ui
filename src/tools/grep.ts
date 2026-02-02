@@ -128,11 +128,7 @@ Usage notes:
 					output = result.stdout || ""
 				} else {
 					// Fallback to grep
-					const args: string[] = [
-						"-r",
-						"-n",
-						"--color=never",
-					]
+					const args: string[] = ["-r", "-n", "--color=never"]
 
 					if (!caseSensitive) args.push("-i")
 					if (contextLines > 0) {
@@ -203,8 +199,7 @@ Usage notes:
 					isError: false,
 				}
 			} catch (error) {
-				const msg =
-					error instanceof Error ? error.message : "Unknown error"
+				const msg = error instanceof Error ? error.message : "Unknown error"
 				return {
 					content: `grep failed: ${msg}`,
 					isError: true,

@@ -52,6 +52,7 @@ The enhanced error display is automatically used when:
 3. File operations encounter errors
 
 The component will:
+
 - Parse the error to extract useful information
 - Display it in a structured, readable format
 - Allow collapsing/expanding of stack traces

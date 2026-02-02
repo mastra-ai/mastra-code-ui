@@ -65,11 +65,7 @@ export class PlanApprovalInlineComponent
 
 		// Plan title header
 		this.contentBox.addChild(
-			new Text(
-				theme.bold(theme.fg("accent", `Plan: ${options.title}`)),
-				0,
-				0,
-			),
+			new Text(theme.bold(theme.fg("accent", `Plan: ${options.title}`)), 0, 0),
 		)
 		this.contentBox.addChild(new Spacer(1))
 
@@ -94,11 +90,7 @@ export class PlanApprovalInlineComponent
 			},
 		]
 
-		this.selectList = new SelectList(
-			items,
-			items.length,
-			getSelectListTheme(),
-		)
+		this.selectList = new SelectList(items, items.length, getSelectListTheme())
 
 		this.selectList.onSelect = (item: SelectItem) => {
 			this.handleSelection(item.value)
@@ -147,9 +139,7 @@ export class PlanApprovalInlineComponent
 	private handleReject(feedback?: string): void {
 		if (this.resolved) return
 		this.resolved = true
-		const detail = feedback
-			? `Feedback: ${feedback}`
-			: "No feedback provided"
+		const detail = feedback ? `Feedback: ${feedback}` : "No feedback provided"
 		this.showResult(theme.fg("error", "Plan Rejected"), detail)
 		this.onReject(feedback)
 	}
@@ -161,11 +151,7 @@ export class PlanApprovalInlineComponent
 		// Rebuild content box with feedback input
 		this.contentBox.clear()
 		this.contentBox.addChild(
-			new Text(
-				theme.fg("accent", "Provide feedback for revision:"),
-				0,
-				0,
-			),
+			new Text(theme.fg("accent", "Provide feedback for revision:"), 0, 0),
 		)
 		this.contentBox.addChild(new Spacer(1))
 
@@ -195,16 +181,10 @@ export class PlanApprovalInlineComponent
 
 	private showResult(status: string, detail: string): void {
 		this.contentBox.clear()
-		this.contentBox.setBgFn((text: string) =>
-			theme.bg("toolSuccessBg", text),
-		)
-		this.contentBox.addChild(
-			new Text(theme.bold(status), 0, 0),
-		)
+		this.contentBox.setBgFn((text: string) => theme.bg("toolSuccessBg", text))
+		this.contentBox.addChild(new Text(theme.bold(status), 0, 0))
 		this.contentBox.addChild(new Spacer(1))
-		this.contentBox.addChild(
-			new Text(theme.fg("text", detail), 0, 0),
-		)
+		this.contentBox.addChild(new Text(theme.fg("text", detail), 0, 0))
 	}
 
 	handleInput(data: string): void {

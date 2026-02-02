@@ -11,6 +11,7 @@ First argument: $1
 Second argument: $2
 
 The command template supports:
+
 - Variable substitution with $ARGUMENTS or $1, $2, etc.
 - File inclusion with @filename
 - Shell command execution with !\`command\`
