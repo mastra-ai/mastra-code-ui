@@ -14,6 +14,7 @@ import {
 } from "./collapsible.js"
 import type { IToolExecutionComponent, ToolResult } from "./tool-execution-interface.js"
 import { ErrorDisplayComponent } from "./error-display.js"
+import { ToolValidationErrorComponent, parseValidationErrors } from "./tool-validation-error.js"
 
 export type { ToolResult }
 
@@ -437,6 +438,28 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
       .join("\n")
 
     if (!errorText) return
+
+    // Check if this is a validation error
+    const isValidationError = errorText.toLowerCase().includes("validation") ||
+                            errorText.toLowerCase().includes("required parameter") ||
+                            errorText.toLowerCase().includes("missing required") ||
+                            errorText.match(/at "\w+"/i) || // Zod-style errors
+                            errorText.includes("Expected") && errorText.includes("Received")
+
+    if (isValidationError) {
+      // Use specialized validation error component
+      const validationErrors = parseValidationErrors(errorText)
+      const validationDisplay = new ToolValidationErrorComponent(
+        {
+          toolName: this.toolName,
+          errors: validationErrors,
+          args: this.args
+        },
+        this.ui
+      )
+      this.contentBox.addChild(validationDisplay)
+      return
+    }
 
     // Try to parse as an error object
     let error: Error | string = errorText

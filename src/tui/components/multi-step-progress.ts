@@ -49,7 +49,6 @@ export class MultiStepProgressComponent extends Container {
             showTimings: true,
             showStepNumbers: true,
             collapsedByDefault: false,
-            estimatedTime: undefined,
             ...options
         }
         this.isCollapsed = this.options.collapsedByDefault

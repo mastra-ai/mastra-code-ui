@@ -2907,40 +2907,57 @@ Keyboard shortcuts:
 		this.ui.requestRender()
 	}
 
-	/**
-	 * Show a formatted error with helpful context based on error type.
-	 */
-	private showFormattedError(event: {
-		error: Error
-		errorType?: string
-		retryable?: boolean
-		retryDelay?: number
-	}): void {
-		const parsed = parseError(event.error)
+    /**
+     * Show a formatted error with helpful context based on error type.
+     */
+    showFormattedError(event: {
+        error: Error
+        errorType?: string
+        retryable?: boolean
+        retryDelay?: number
+    } | Error): void {
+        const error = 'error' in event ? event.error : event
+        const parsed = parseError(error)
 
-		this.chatContainer.addChild(new Spacer(1))
+        this.chatContainer.addChild(new Spacer(1))
 
-		// Show the main error message
-		let errorText = `Error: ${parsed.message}`
+        // Check if this is a tool validation error
+        const errorMessage = error.message || String(error)
+        const isValidationError = errorMessage.toLowerCase().includes("validation failed") ||
+                                errorMessage.toLowerCase().includes("required parameter") ||
+                                errorMessage.includes("Required")
 
-		// Add retry info if applicable
-		if (parsed.retryable && parsed.retryDelay) {
-			const seconds = Math.ceil(parsed.retryDelay / 1000)
-			errorText += fg("muted", ` (retry in ${seconds}s)`)
-		}
+        if (isValidationError) {
+            // Show a simplified message for validation errors
+            this.chatContainer.addChild(new Text(fg("error", "Tool validation error - see details above"), 1, 0))
+            this.chatContainer.addChild(
+                new Text(fg("muted", "  Check the tool execution box for specific parameter requirements"), 1, 0)
+            )
+        } else {
+            // Show the main error message
+            let errorText = `Error: ${parsed.message}`
 
-		this.chatContainer.addChild(new Text(fg("error", errorText), 1, 0))
+            // Add retry info if applicable
+            const retryable = 'retryable' in event ? event.retryable : parsed.retryable
+            const retryDelay = 'retryDelay' in event ? event.retryDelay : parsed.retryDelay
+            if (retryable && retryDelay) {
+                const seconds = Math.ceil(retryDelay / 1000)
+                errorText += fg("muted", ` (retry in ${seconds}s)`)
+            }
 
-		// Add helpful hints based on error type
-		const hint = this.getErrorHint(parsed.type)
-		if (hint) {
-			this.chatContainer.addChild(
-				new Text(fg("muted", `  Hint: ${hint}`), 1, 0),
-			)
-		}
+            this.chatContainer.addChild(new Text(fg("error", errorText), 1, 0))
 
-		this.ui.requestRender()
-	}
+            // Add helpful hints based on error type
+            const hint = this.getErrorHint(parsed.type)
+            if (hint) {
+                this.chatContainer.addChild(
+                    new Text(fg("muted", `  Hint: ${hint}`), 1, 0),
+                )
+            }
+        }
+
+        this.ui.requestRender()
+    }
 
 	/**
 	 * Get a helpful hint based on error type.
