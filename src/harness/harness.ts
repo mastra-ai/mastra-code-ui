@@ -283,10 +283,16 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 		this.state = result.data as z.infer<TState>
 
-		// Persist specific state keys to thread metadata
-		if ("todos" in updates) {
-			this.persistThreadSetting("todos", updates.todos).catch(() => {})
-		}
+        // Persist specific state keys to thread metadata
+        if ("todos" in updates) {
+            // Only persist todos if they have items, otherwise remove from metadata
+            if (Array.isArray(updates.todos) && updates.todos.length > 0) {
+                this.persistThreadSetting("todos", updates.todos).catch(() => {})
+            } else {
+                // Remove todos from metadata when empty
+                this.removeThreadSetting("todos").catch(() => {})
+            }
+        }
 
 		this.emit({
 			type: "state_changed",
@@ -897,10 +903,37 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					},
 				})
 			}
-		} catch (error) {
-			// Silently fail - settings persistence is not critical
-		}
-	}
+        } catch (error) {
+            // Silently fail - settings persistence is not critical
+        }
+    }
+
+    /**
+     * Remove a key from the current thread's metadata.
+     */
+    private async removeThreadSetting(key: string): Promise<void> {
+        if (!this.currentThreadId) return
+
+        try {
+            const memoryStorage = await this.getMemoryStorage()
+            const thread = await memoryStorage.getThreadById({
+                threadId: this.currentThreadId,
+            })
+            if (thread && thread.metadata) {
+                const metadata = { ...thread.metadata }
+                delete metadata[key]
+                await memoryStorage.saveThread({
+                    thread: {
+                        ...thread,
+                        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+                        updatedAt: new Date(),
+                    },
+                })
+            }
+        } catch (error) {
+            // Silently fail - settings removal is not critical
+        }
+    }
 
 	private async persistModelId(modelId: string): Promise<void> {
 		await this.persistThreadSetting("currentModelId", modelId)
@@ -957,7 +990,10 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			if (meta?.reflectionThreshold)
 				updates.reflectionThreshold = meta.reflectionThreshold
 			if (meta?.thinkingLevel) updates.thinkingLevel = meta.thinkingLevel
-			if (meta?.todos) updates.todos = meta.todos
+            // Only load todos if they exist and have items
+            if (meta?.todos && Array.isArray(meta.todos) && meta.todos.length > 0) {
+                updates.todos = meta.todos
+            }
 
 			// Restore mode (must happen before model loading since model is per-mode)
 			if (meta?.currentModeId) {
