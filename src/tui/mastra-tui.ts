@@ -548,13 +548,25 @@ export class MastraTUI {
 		// Fall back to the overall most recent thread if no directory match
 		// (handles old threads without projectPath metadata).
 		let mostRecent: (typeof sortedThreads)[0]
+		let isDirectoryMatch = false
 		if (currentPath) {
 			const dirThread = sortedThreads.find(
 				(t) => t.metadata?.projectPath === currentPath,
 			)
-			mostRecent = dirThread ?? sortedThreads[0]
+			if (dirThread) {
+				mostRecent = dirThread
+				isDirectoryMatch = true
+			} else {
+				mostRecent = sortedThreads[0]
+			}
 		} else {
 			mostRecent = sortedThreads[0]
+		}
+
+		// If the thread is tagged with this directory, auto-resume it
+		if (isDirectoryMatch) {
+			await this.harness.switchThread(mostRecent.id)
+			return
 		}
 
 		// Get first user message for preview
