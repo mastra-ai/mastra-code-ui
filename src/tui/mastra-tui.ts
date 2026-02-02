@@ -1922,13 +1922,13 @@ ${instructions}`,
 			}
 			component.updateResult(toolResult, false)
 
-			// Check if this was a todo_write tool and update the todo display
-			const toolName = (component as any).toolName || ""
-			if (toolName === "todo_write" && !isError) {
-				this.handleTodoUpdate(result)
-			}
+            // Check if this was a todo_write tool and update the todo display
+            const toolName = (component as any).toolName || ""
+            if (toolName === "todo_write" && !isError) {
+                this.handleTodoUpdate(result, component)
+            }
 
-			this.pendingTools.delete(toolCallId)
+            this.pendingTools.delete(toolCallId)
 			this.ui.requestRender()
 		}
 	}
@@ -1954,19 +1954,58 @@ ${instructions}`,
 		return String(result)
 	}
 
-	/**
-	 * Handle todo updates from todo_write tool
-	 */
-	private handleTodoUpdate(result: unknown): void {
-		// Parse the result to extract todos
-		if (result && typeof result === "object" && "todos" in result) {
-			const todoResult = result as { todos: TodoItem[] }
-			if (this.todoProgress) {
-				this.todoProgress.updateTodos(todoResult.todos)
-				this.ui.requestRender()
-			}
-		}
-	}
+    /**
+     * Handle todo updates from todo_write tool
+     */
+    private handleTodoUpdate(result: unknown, toolComponent?: IToolExecutionComponent): void {
+        // Parse the result to extract todos
+        if (result && typeof result === "object" && "todos" in result) {
+            const todoResult = result as { todos: TodoItem[] }
+            if (this.todoProgress) {
+                this.todoProgress.updateTodos(todoResult.todos)
+
+                // When all todos are completed, replace the tool component with the full inline list
+                const todos = todoResult.todos
+                const allCompleted =
+                    todos.length > 0 &&
+                    todos.every((t) => t.status === "completed")
+                if (allCompleted) {
+                    if (toolComponent) {
+                        this.chatContainer.removeChild(toolComponent as any)
+                        this.allToolComponents = this.allToolComponents.filter((c) => c !== toolComponent)
+                    }
+                    this.renderCompletedTodosInline(todos)
+                }
+
+                this.ui.requestRender()
+            }
+        }
+    }
+
+    /**
+     * Render a completed todo list inline in the chat history.
+     * This mirrors the pinned TodoProgressComponent format but shows
+     * all items as completed, since the pinned component hides itself
+     * when everything is done.
+     */
+    private renderCompletedTodosInline(todos: TodoItem[]): void {
+        const headerText =
+            "  " +
+            bold(fg("accent", "Tasks")) +
+            fg("dim", ` [${todos.length}/${todos.length} completed]`)
+
+        const container = new Container()
+        container.addChild(new Spacer(1))
+        container.addChild(new Text(headerText, 0, 0))
+
+        for (const todo of todos) {
+            const icon = chalk.green("\u2713")
+            const text = chalk.green.strikethrough(todo.content)
+            container.addChild(new Text(`    ${icon} ${text}`, 0, 0))
+        }
+
+        this.chatContainer.addChild(container)
+    }
 
 	// ===========================================================================
 	// Subagent Events
@@ -3027,9 +3066,22 @@ Keyboard shortcuts:
 							)
 						}
 
-						this.chatContainer.addChild(toolComponent)
-						this.allToolComponents.push(toolComponent) // Track for expand/collapse
-					} else if (
+                        // If this was todo_write with all completed, show inline list instead of the tool component
+                        let replacedWithInline = false
+                        if (content.name === "todo_write" && toolResult?.type === "tool_result" && !toolResult.isError) {
+                            const args = content.args as { todos?: TodoItem[] } | undefined
+                            const todos = args?.todos
+                            if (todos && todos.length > 0 && todos.every((t) => t.status === "completed")) {
+                                this.renderCompletedTodosInline(todos)
+                                replacedWithInline = true
+                            }
+                        }
+
+                        if (!replacedWithInline) {
+                            this.chatContainer.addChild(toolComponent)
+                            this.allToolComponents.push(toolComponent)
+                        }
+                    } else if (
 						content.type === "om_observation_start" ||
 						content.type === "om_observation_end" ||
 						content.type === "om_observation_failed"
