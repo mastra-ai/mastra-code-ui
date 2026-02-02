@@ -2875,9 +2875,18 @@ Keyboard shortcuts:
 				return true
 			}
 
-			default:
+			default: {
+				// Check if this matches a custom slash command (user typed /command instead of //command)
+				const customCommand = this.customSlashCommands.find(
+					(cmd) => cmd.name === command,
+				)
+				if (customCommand) {
+					await this.handleCustomSlashCommand(customCommand, args)
+					return true
+				}
 				this.showError(`Unknown command: ${command}`)
 				return true
+			}
 		}
 	}
 

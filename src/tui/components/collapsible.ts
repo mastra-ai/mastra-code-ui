@@ -144,7 +144,6 @@ export class CollapsibleFileViewer extends CollapsibleComponent {
 		super(
 			{
 				header,
-				summary: `${lines.length} lines`,
 				collapsedLines: 20,
 				expandedLines: 200,
 				showLineCount: true,
