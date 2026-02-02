@@ -2556,30 +2556,29 @@ ${instructions}`,
 	// Slash Commands
 	// ===========================================================================
 
-	private async handleSlashCommand(input: string): Promise<boolean> {
-		const trimmedInput = input.trim()
+    private async handleSlashCommand(input: string): Promise<boolean> {
+        const trimmedInput = input.trim()
 
-		// Check for custom command prefix (//)
-		// When user types //command, pi-tui strips the first / and passes /command
-		if (trimmedInput.startsWith("/")) {
-			const commandName = trimmedInput.slice(1).split(" ")[0]
-			const args = trimmedInput
-				.slice(1 + commandName.length)
-				.trim()
-				.split(" ")
-				.filter(Boolean)
+        // Strip all leading slashes to get the raw command content
+        // User may type /command or //command, and pi-tui may or may not strip one /
+        const withoutSlashes = trimmedInput.replace(/^\/+/, "")
+        const customCommandName = withoutSlashes.split(" ")[0]
+        const customArgs = withoutSlashes
+            .slice(customCommandName.length)
+            .trim()
+            .split(" ")
+            .filter(Boolean)
 
-			const customCommand = this.customSlashCommands.find(
-				(cmd) => cmd.name === commandName,
-			)
-			if (customCommand) {
-				await this.handleCustomSlashCommand(customCommand, args)
-				return true
-			}
-			// If not found as custom command, fall through to built-in commands
-		}
+        // Check for custom command match first
+        const customCommand = this.customSlashCommands.find(
+            (cmd) => cmd.name === customCommandName,
+        )
+        if (customCommand) {
+            await this.handleCustomSlashCommand(customCommand, customArgs)
+            return true
+        }
 
-		const [command, ...args] = trimmedInput.slice(1).split(" ")
+        const [command, ...args] = withoutSlashes.split(" ")
 
 		switch (command) {
 			case "new": {
@@ -2875,18 +2874,9 @@ Keyboard shortcuts:
 				return true
 			}
 
-			default: {
-				// Check if this matches a custom slash command (user typed /command instead of //command)
-				const customCommand = this.customSlashCommands.find(
-					(cmd) => cmd.name === command,
-				)
-				if (customCommand) {
-					await this.handleCustomSlashCommand(customCommand, args)
-					return true
-				}
-				this.showError(`Unknown command: ${command}`)
-				return true
-			}
+            default:
+                this.showError(`Unknown command: ${command}`)
+                return true
 		}
 	}
 
