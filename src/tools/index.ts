@@ -5,7 +5,6 @@
 export { createViewTool } from "./file-view"
 export { createExecuteCommandTool, executeCommandTool } from "./shell"
 export { stringReplaceLspTool } from "./string-replace-lsp"
-export { stringReplaceSmartTool } from "./string-replace-smart"
 export { createWebSearchTool, createWebExtractTool } from "./web-search"
 export { createGrepTool } from "./grep"
 export { createGlobTool } from "./glob"

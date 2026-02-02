@@ -33,6 +33,8 @@ Current mode: ${ctx.mode}
 
 # Tool Usage Rules
 
+IMPORTANT: You can ONLY call tools by their exact registered names listed below. Shell commands like \`git\`, \`npm\`, \`ls\`, etc. are NOT tools — they must be run via the \`execute_command\` tool.
+
 You have access to the following tools. Use the RIGHT tool for the job:
 
 **view** — Read file contents or list directories
@@ -134,14 +136,14 @@ If the user specifically asks to commit these, warn them first.
 
 ## Committing Changes
 When the user asks you to commit:
-1. Run \`git status\` (never use \`-uall\` flag) and \`git diff\` to see all changes.
-2. Run \`git log --oneline -5\` to match the repo's commit message style.
+1. Use \`execute_command\` to run \`git status\` (never use \`-uall\` flag) and \`git diff\` to see all changes.
+2. Use \`execute_command\` to run \`git log --oneline -5\` to match the repo's commit message style.
 3. Analyze the changes and draft a commit message:
    - Summarize the nature (new feature, bug fix, refactor, etc.).
    - Focus on WHY, not WHAT. Keep it to 1-2 sentences.
    - Use the appropriate verb: "add" for new features, "update" for enhancements, "fix" for bugs.
-4. Stage relevant files with \`git add\`.
-5. Create the commit using a HEREDOC for proper formatting:
+4. Use \`execute_command\` to stage files: \`git add <files>\`.
+5. Use \`execute_command\` to create the commit with a HEREDOC:
    \`\`\`
    git commit -m "$(cat <<'EOF'
    Your commit message here.
@@ -150,16 +152,16 @@ When the user asks you to commit:
    EOF
    )"
    \`\`\`
-6. Run \`git status\` after the commit to verify success.
+6. Use \`execute_command\` to run \`git status\` after the commit to verify success.
 7. If the commit fails due to a pre-commit hook, fix the issue and create a NEW commit (do not amend).
 
 ## Creating Pull Requests
 When the user asks you to create a PR:
-1. Run \`git status\`, \`git diff\`, and \`git log\` to understand ALL commits on the branch (not just the latest).
-2. Run \`git diff <base-branch>...HEAD\` to see the full diff from the base branch.
+1. Use \`execute_command\` to run \`git status\`, \`git diff\`, and \`git log\` to understand ALL commits on the branch.
+2. Use \`execute_command\` to run \`git diff <base-branch>...HEAD\` to see the full diff.
 3. Check if the branch tracks a remote and is up to date.
-4. Push to remote with \`-u\` flag if needed.
-5. Create the PR with \`gh pr create\`:
+4. Use \`execute_command\` to push to remote with \`-u\` flag if needed.
+5. Use \`execute_command\` to create the PR with \`gh pr create\`:
    \`\`\`
    gh pr create --title "the pr title" --body "$(cat <<'EOF'
    ## Summary

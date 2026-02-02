@@ -32,7 +32,6 @@ import {
     createViewTool,
     createExecuteCommandTool,
     stringReplaceLspTool,
-    stringReplaceSmartTool,
     astSmartEditTool,
     createWebSearchTool,
     createWebExtractTool,
@@ -77,8 +76,8 @@ console.log()
 // =============================================================================
 // Configuration
 // =============================================================================
-// Default OM model
-const DEFAULT_OM_MODEL_ID = "anthropic/claude-3-5-haiku-latest"
+// Default OM model - using sonnet as haiku is not suitable for output matching
+const DEFAULT_OM_MODEL_ID = "anthropic/claude-3-5-sonnet-latest"
 // State schema for the harness
 const stateSchema = z.object({
 	projectPath: z.string().optional(),

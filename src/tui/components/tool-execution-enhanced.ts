@@ -453,9 +453,9 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
         {
           toolName: this.toolName,
           errors: validationErrors,
-          args: this.args
+          args: this.args,
         },
-        this.ui
+        this.ui,
       )
       this.contentBox.addChild(validationDisplay)
       return

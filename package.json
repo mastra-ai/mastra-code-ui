@@ -40,6 +40,7 @@
 		"zod": "^3.24.0"
 	},
 	"devDependencies": {
+		"@ast-grep/napi": "^0.40.5",
 		"@types/chalk": "^2.2.4",
 		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^25.0.10",

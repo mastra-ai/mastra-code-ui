@@ -1454,6 +1454,26 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			if (error instanceof Error && error.name === "AbortError") {
 				// Aborted - emit end event with aborted status
 				this.emit({ type: "agent_end", reason: "aborted" })
+			} else if (
+				error instanceof Error &&
+				error.message.match(/^Tool .+ not found$/)
+			) {
+				// Model hallucinated a tool name — recover by sending a corrective
+				// follow-up so the agent can retry with the right tool
+				const badTool = error.message.replace("Tool ", "").replace(" not found", "")
+				this.emit({
+					type: "error",
+					error: new Error(
+						`Unknown tool "${badTool}". Shell commands must be run via execute_command.`,
+					),
+					retryable: true,
+				})
+				this.followUpQueue.push(
+					`[System] Your previous tool call used "${badTool}" which is not a valid tool. ` +
+					`Shell commands like git, npm, etc. must be run via the execute_command tool. ` +
+					`Please retry with the correct tool name.`,
+				)
+				this.emit({ type: "agent_end", reason: "error" })
 			} else {
 				// Parse the error for better user feedback
 				const parsed = parseError(error)
