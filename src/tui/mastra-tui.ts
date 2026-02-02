@@ -36,7 +36,7 @@ import { extractSlashCommand } from "../utils/slash-command-extractor.js"
 import { AssistantMessageComponent } from "./components/assistant-message.js"
 import { CustomEditor } from "./components/custom-editor.js"
 import { LoginDialogComponent } from "./components/login-dialog.js"
-import { LoginSelectorComponent } from "./components/login-selector.js"
+
 import {
 	ModelSelectorComponent,
 	type ModelItem,
@@ -44,7 +44,7 @@ import {
 import { ThreadSelectorComponent } from "./components/thread-selector.js"
 import { OMMarkerComponent } from "./components/om-marker.js"
 import { OMSettingsComponent } from "./components/om-settings.js"
-import { ThinkingSettingsComponent } from "./components/thinking-settings.js"
+
 import {
 	OMProgressComponent,
 	type OMProgressState,
@@ -2118,6 +2118,10 @@ ${instructions}`,
 				{
 					question: `Tag this thread with directory "${dirName}"?\n  ${fg("dim", projectPath)}`,
 					options: [{ label: "Yes" }, { label: "No" }],
+					formatResult: (answer) =>
+						answer === "Yes"
+							? `Tagged thread with: ${dirName}`
+							: `Thread not tagged`,
 					onSubmit: async (answer) => {
 						this.activeInlineQuestion = undefined
 						if (answer.toLowerCase().startsWith("y")) {
@@ -2125,15 +2129,11 @@ ${instructions}`,
 								"projectPath",
 								projectPath,
 							)
-							this.showInfo(`Tagged thread with: ${projectPath}`)
-						} else {
-							this.showInfo("Cancelled.")
 						}
 						resolve()
 					},
 					onCancel: () => {
 						this.activeInlineQuestion = undefined
-						this.showInfo("Cancelled.")
 						resolve()
 					},
 				},
@@ -2325,29 +2325,50 @@ ${instructions}`,
 	private async showThinkingSettings(): Promise<void> {
 		const currentLevel = this.harness.getThinkingLevel()
 
-		return new Promise<void>((resolve) => {
-			const settings = new ThinkingSettingsComponent(currentLevel, {
-				onLevelChange: async (level) => {
-					await this.harness.setThinkingLevel(level)
-					const label =
-						level === "off"
-							? "Off"
-							: level.charAt(0).toUpperCase() + level.slice(1)
-					this.showInfo(`Thinking level → ${label}`)
-					this.updateStatusLine()
-				},
-				onClose: () => {
-					this.ui.hideOverlay()
-					resolve()
-				},
-			})
+		const levels = [
+			{ label: "Off", description: "No extended thinking", id: "off" },
+			{ label: "Minimal", description: "~1k budget tokens", id: "minimal" },
+			{ label: "Low", description: "~4k budget tokens", id: "low" },
+			{ label: "Medium", description: "~10k budget tokens", id: "medium" },
+			{ label: "High", description: "~32k budget tokens", id: "high" },
+		]
 
-			this.ui.showOverlay(settings, {
-				width: "60%",
-				maxHeight: "50%",
-				anchor: "center",
-			})
-			settings.focused = true
+		const currentLabel =
+			levels.find((l) => l.id === currentLevel)?.label ?? "Off"
+
+		return new Promise<void>((resolve) => {
+			const questionComponent = new AskQuestionInlineComponent(
+				{
+					question: `Set thinking level (currently: ${currentLabel})`,
+					options: levels.map((l) => ({
+						label: l.label,
+						description: l.description,
+					})),
+					formatResult: (answer) =>
+						`Thinking level: ${currentLabel} → ${answer}`,
+					onSubmit: async (answer) => {
+						this.activeInlineQuestion = undefined
+						const level = levels.find((l) => l.label === answer)
+						if (level) {
+							await this.harness.setThinkingLevel(level.id)
+							this.updateStatusLine()
+						}
+						resolve()
+					},
+					onCancel: () => {
+						this.activeInlineQuestion = undefined
+						resolve()
+					},
+				},
+				this.ui,
+			)
+
+			this.activeInlineQuestion = questionComponent
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(questionComponent)
+			this.chatContainer.addChild(new Spacer(1))
+			this.ui.requestRender()
+			this.chatContainer.invalidate()
 		})
 	}
 
@@ -2356,45 +2377,67 @@ ${instructions}`,
 	// ===========================================================================
 
 	private async showLoginSelector(mode: "login" | "logout"): Promise<void> {
-		// For logout, filter to only logged-in providers
+		const allProviders = this.harness.getOAuthProviders()
+		const loggedInIds = this.harness.getLoggedInProviders()
+
 		if (mode === "logout") {
-			const loggedInProviders = this.harness.getLoggedInProviders()
-			if (loggedInProviders.length === 0) {
+			if (loggedInIds.length === 0) {
 				this.showInfo("No OAuth providers logged in. Use /login first.")
 				return
 			}
 		}
 
-		return new Promise((resolve) => {
-			const selector = new LoginSelectorComponent(
-				mode,
-				this.harness,
-				async (providerId: string) => {
-					this.ui.hideOverlay()
+		const providers =
+			mode === "logout"
+				? allProviders.filter((p) => loggedInIds.includes(p.id))
+				: allProviders
 
-					if (mode === "login") {
-						await this.performLogin(providerId)
-					} else {
-						this.harness.logout(providerId)
-						const provider = this.harness
-							.getOAuthProviders()
-							.find((p) => p.id === providerId)
-						this.showInfo(`Logged out from ${provider?.name || providerId}`)
-					}
-					resolve()
+		if (providers.length === 0) {
+			this.showInfo("No OAuth providers available.")
+			return
+		}
+
+		const action = mode === "login" ? "Log in to" : "Log out from"
+
+		return new Promise<void>((resolve) => {
+			const questionComponent = new AskQuestionInlineComponent(
+				{
+					question: `${action} which provider?`,
+					options: providers.map((p) => ({
+						label: p.name,
+						description: loggedInIds.includes(p.id) ? "(logged in)" : "",
+					})),
+					formatResult: (answer) =>
+						mode === "login"
+							? `Logging in to ${answer}…`
+							: `Logged out from ${answer}`,
+					onSubmit: async (answer) => {
+						this.activeInlineQuestion = undefined
+						const provider = providers.find((p) => p.name === answer)
+						if (provider) {
+							if (mode === "login") {
+								await this.performLogin(provider.id)
+							} else {
+								this.harness.logout(provider.id)
+								this.showInfo(`Logged out from ${provider.name}`)
+							}
+						}
+						resolve()
+					},
+					onCancel: () => {
+						this.activeInlineQuestion = undefined
+						resolve()
+					},
 				},
-				() => {
-					this.ui.hideOverlay()
-					resolve()
-				},
+				this.ui,
 			)
 
-			// Show as overlay - left aligned like model selector
-			this.ui.showOverlay(selector, {
-				width: "80%",
-				maxHeight: "60%",
-				anchor: "center",
-			})
+			this.activeInlineQuestion = questionComponent
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(questionComponent)
+			this.chatContainer.addChild(new Spacer(1))
+			this.ui.requestRender()
+			this.chatContainer.invalidate()
 		})
 	}
 
