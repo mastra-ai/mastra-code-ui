@@ -16,6 +16,8 @@ import {
 	type SlashCommand,
 } from "@mariozechner/pi-tui"
 import chalk from "chalk"
+import path from "path"
+import fs from "fs"
 import type { Harness } from "../harness/harness.js"
 import type {
 	HarnessEvent,
@@ -866,10 +868,14 @@ ${instructions}`,
 			{ name: "logout", description: "Logout from OAuth provider" },
 			{ name: "hooks", description: "Show/reload configured hooks" },
 			{ name: "mcp", description: "Show/reload MCP server connections" },
-			{
-				name: "thread:tag-dir",
-				description: "Tag current thread with this directory",
-			},
+            {
+                name: "thread:tag-dir",
+                description: "Tag current thread with this directory",
+            },
+            {
+                name: "sandbox",
+                description: "Manage allowed paths (add/remove directories)",
+            },
 			{ name: "exit", description: "Exit the TUI" },
 			{ name: "help", description: "Show available commands" },
 		]
@@ -2217,11 +2223,170 @@ ${instructions}`,
 			this.ui.requestRender()
 			this.chatContainer.invalidate()
 		})
-	}
+    }
 
-	// ===========================================================================
-	// Skills List
-	// ===========================================================================
+    // ===========================================================================
+    // Sandbox Management
+    // ===========================================================================
+
+    private async handleSandboxCommand(args: string[]): Promise<void> {
+        const state = this.harness.getState() as {
+            sandboxAllowedPaths?: string[]
+        }
+        const currentPaths = state.sandboxAllowedPaths ?? []
+
+        // If called with args, handle directly (e.g. /sandbox add /some/path)
+        const subcommand = args[0]?.toLowerCase()
+        if (subcommand === "add" && args.length > 1) {
+            await this.sandboxAddPath(args.slice(1).join(" ").trim())
+            return
+        }
+        if (subcommand === "remove" && args.length > 1) {
+            await this.sandboxRemovePath(
+                args.slice(1).join(" ").trim(),
+                currentPaths,
+            )
+            return
+        }
+
+        // Interactive mode — show inline selector
+        const options: Array<{ label: string; description?: string }> = [
+            { label: "Add path", description: "Allow access to another directory" },
+        ]
+
+        for (const p of currentPaths) {
+            const short = p.split("/").pop() || p
+            options.push({
+                label: `Remove: ${short}`,
+                description: p,
+            })
+        }
+
+        const pathsSummary = currentPaths.length
+            ? `${currentPaths.length} allowed path${currentPaths.length > 1 ? "s" : ""}`
+            : "no extra paths"
+
+        return new Promise<void>((resolve) => {
+            const questionComponent = new AskQuestionInlineComponent(
+                {
+                    question: `Sandbox settings (${pathsSummary})`,
+                    options,
+                    formatResult: (answer) => {
+                        if (answer === "Add path") return "Adding sandbox path…"
+                        if (answer.startsWith("Remove: ")) {
+                            const short = answer.replace("Remove: ", "")
+                            return `Removed: ${short}`
+                        }
+                        return answer
+                    },
+                    onSubmit: async (answer) => {
+                        this.activeInlineQuestion = undefined
+                        if (answer === "Add path") {
+                            resolve()
+                            await this.showSandboxAddPrompt()
+                        } else if (answer.startsWith("Remove: ")) {
+                            const short = answer.replace("Remove: ", "")
+                            const fullPath = currentPaths.find(
+                                (p) => (p.split("/").pop() || p) === short,
+                            )
+                            if (fullPath) {
+                                await this.sandboxRemovePath(fullPath, currentPaths)
+                            }
+                            resolve()
+                        } else {
+                            resolve()
+                        }
+                    },
+                    onCancel: () => {
+                        this.activeInlineQuestion = undefined
+                        resolve()
+                    },
+                },
+                this.ui,
+            )
+
+            this.activeInlineQuestion = questionComponent
+            this.chatContainer.addChild(new Spacer(1))
+            this.chatContainer.addChild(questionComponent)
+            this.chatContainer.addChild(new Spacer(1))
+            this.ui.requestRender()
+            this.chatContainer.invalidate()
+        })
+    }
+
+    private async showSandboxAddPrompt(): Promise<void> {
+        return new Promise<void>((resolve) => {
+            const questionComponent = new AskQuestionInlineComponent(
+                {
+                    question: "Enter path to allow",
+                    formatResult: (answer) => {
+                        const resolved = path.resolve(answer)
+                        return `Added: ${resolved}`
+                    },
+                    onSubmit: async (answer) => {
+                        this.activeInlineQuestion = undefined
+                        await this.sandboxAddPath(answer)
+                        resolve()
+                    },
+                    onCancel: () => {
+                        this.activeInlineQuestion = undefined
+                        resolve()
+                    },
+                },
+                this.ui,
+            )
+
+            this.activeInlineQuestion = questionComponent
+            this.chatContainer.addChild(new Spacer(1))
+            this.chatContainer.addChild(questionComponent)
+            this.chatContainer.addChild(new Spacer(1))
+            this.ui.requestRender()
+            this.chatContainer.invalidate()
+        })
+    }
+
+    private async sandboxAddPath(rawPath: string): Promise<void> {
+        const state = this.harness.getState() as {
+            sandboxAllowedPaths?: string[]
+        }
+        const currentPaths = state.sandboxAllowedPaths ?? []
+        const resolved = path.resolve(rawPath)
+
+        if (currentPaths.includes(resolved)) {
+            this.showInfo(`Path already allowed: ${resolved}`)
+            return
+        }
+        try {
+            await fs.promises.access(resolved)
+        } catch {
+            this.showError(`Path does not exist: ${resolved}`)
+            return
+        }
+        const updated = [...currentPaths, resolved]
+        this.harness.setState({ sandboxAllowedPaths: updated } as any)
+        await this.harness.persistThreadSetting("sandboxAllowedPaths", updated)
+        this.showInfo(`Added to sandbox: ${resolved}`)
+    }
+
+    private async sandboxRemovePath(
+        rawPath: string,
+        currentPaths: string[],
+    ): Promise<void> {
+        const resolved = path.resolve(rawPath)
+        const match = currentPaths.find((p) => p === resolved || p === rawPath)
+        if (!match) {
+            this.showError(`Path not in allowed list: ${resolved}`)
+            return
+        }
+        const updated = currentPaths.filter((p) => p !== match)
+        this.harness.setState({ sandboxAllowedPaths: updated } as any)
+        await this.harness.persistThreadSetting("sandboxAllowedPaths", updated)
+        this.showInfo(`Removed from sandbox: ${match}`)
+    }
+
+    // ===========================================================================
+    // Skills List
+    // ===========================================================================
 
 	/**
 	 * Get the workspace, preferring harness-owned workspace over the direct option.
@@ -2617,27 +2782,22 @@ ${instructions}`,
 	private async handleSlashCommand(input: string): Promise<boolean> {
 		const trimmedInput = input.trim()
 
-		// Routing logic:
-		// When user types //command, pi-tui strips one / so we receive /command.
-		// When user types /command, we receive command (no slash).
-		// So: if trimmedInput starts with / it was originally //.
-		if (trimmedInput.startsWith("/")) {
-			// Explicit custom command (// prefix)
-			// Strip all leading slashes — autocomplete may add extras
-			const withoutSlashes = trimmedInput.replace(/^\/+/, "")
-			const [cmdName, ...cmdArgs] = withoutSlashes.split(" ")
-			const customCommand = this.customSlashCommands.find(
-				(cmd) => cmd.name === cmdName,
-			)
-			if (customCommand) {
-				await this.handleCustomSlashCommand(customCommand, cmdArgs)
-				return true
-			}
-			this.showError(`Unknown custom command: //${cmdName}`)
-			return true
-		}
+        // Strip leading slashes — pi-tui may pass /command or command depending
+        // on how the user invoked it.  Try custom commands first, then built-in.
+        const withoutSlashes = trimmedInput.replace(/^\/+/, "")
+        if (trimmedInput.startsWith("/")) {
+            const [cmdName, ...cmdArgs] = withoutSlashes.split(" ")
+            const customCommand = this.customSlashCommands.find(
+                (cmd) => cmd.name === cmdName,
+            )
+            if (customCommand) {
+                await this.handleCustomSlashCommand(customCommand, cmdArgs)
+                return true
+            }
+            // Not a custom command — fall through to built-in routing
+        }
 
-		const [command, ...args] = trimmedInput.split(" ")
+        const [command, ...args] = withoutSlashes.split(" ")
 
 		switch (command) {
 			case "new": {
@@ -2662,10 +2822,15 @@ ${instructions}`,
 				return true
 			}
 
-			case "thread:tag-dir": {
-				await this.tagThreadWithDir()
-				return true
-			}
+            case "thread:tag-dir": {
+                await this.tagThreadWithDir()
+                return true
+            }
+
+            case "sandbox": {
+                await this.handleSandboxCommand(args)
+                return true
+            }
 
 			case "mode": {
 				const modes = this.harness.getModes()
@@ -2763,6 +2928,7 @@ ${modeList}`)
   /think    - Set thinking level (Anthropic)
   /yolo     - Toggle YOLO mode (auto-approve tools)
   /cost     - Show token usage and estimated costs
+  /sandbox  - Manage sandbox allowed paths
   /hooks    - Show/reload configured hooks
   /mcp      - Show/reload MCP server connections
   /login    - Login with OAuth provider

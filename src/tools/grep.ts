@@ -6,6 +6,7 @@ import { z } from "zod/v3"
 import { execa } from "execa"
 import * as path from "path"
 import { truncateStringForTokenEstimate } from "../utils/token-estimator.js"
+import { assertPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 
 const MAX_GREP_TOKENS = 3_000
 
@@ -71,12 +72,16 @@ Usage notes:
 				.optional()
 				.describe("Whether the search is case-sensitive (default: true)"),
 		}),
-		execute: async (context) => {
-			try {
-				const root = projectRoot || process.cwd()
-				const searchPath = context.path
-					? path.resolve(root, context.path)
-					: root
+        execute: async (context, toolContext) => {
+            try {
+                const root = projectRoot || process.cwd()
+                const searchPath = context.path
+                    ? path.resolve(root, context.path)
+                    : root
+
+                // Security: ensure the search path is within the project root or allowed paths
+                const allowedPaths = getAllowedPathsFromContext(toolContext)
+                assertPathAllowed(searchPath, root, allowedPaths)
 				const maxResults = context.maxResults ?? 100
 				const contextLines = context.contextLines ?? 0
 				const caseSensitive = context.caseSensitive ?? true

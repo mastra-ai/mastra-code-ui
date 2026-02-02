@@ -58,6 +58,28 @@ import { createAnthropic } from "@ai-sdk/anthropic"
 startGatewaySync(5 * 60 * 1000) // Sync every 5 minutes
 
 // =============================================================================
+// Helpers
+// =============================================================================
+
+/** Find the deepest common ancestor directory for a list of absolute paths. */
+function findCommonAncestor(paths: string[]): string {
+	if (paths.length === 0) return "/"
+	if (paths.length === 1) return paths[0]
+	const split = paths.map((p) => path.resolve(p).split(path.sep))
+	const minLen = Math.min(...split.map((s) => s.length))
+	const common: string[] = []
+	for (let i = 0; i < minLen; i++) {
+		const seg = split[0][i]
+		if (split.every((s) => s[i] === seg)) {
+			common.push(seg)
+		} else {
+			break
+		}
+	}
+	return common.length <= 1 ? path.sep : common.join(path.sep)
+}
+
+// =============================================================================
 // Create Auth Storage (shared with Claude Max provider and Harness)
 // =============================================================================
 
@@ -111,6 +133,8 @@ const stateSchema = z.object({
 			}),
 		)
 		.default([]),
+	// Sandbox allowed paths (per-thread, absolute paths allowed in addition to project root)
+	sandboxAllowedPaths: z.array(z.string()).default([]),
 	// Active plan (set when a plan is approved in Plan mode)
 	activePlan: z
 		.object({
@@ -342,7 +366,10 @@ const skillPaths = collectSkillPaths([
 	claudeGlobalSkillsPath,
 ])
 
-// Create workspace with filesystem, sandbox, and skills
+// Create workspace with filesystem, sandbox, and skills.
+// Disable auto-injected mastra_workspace_* tools — we have our own custom tools
+// (view, write_file, string_replace_lsp, search_content, find_files, execute_command)
+// that properly respect sandboxAllowedPaths.
 const workspace = new Workspace({
 	id: "mastra-code-workspace",
 	name: "Mastra Code Workspace",
@@ -354,6 +381,7 @@ const workspace = new Workspace({
 		env: process.env,
 	}),
 	...(skillPaths.length > 0 ? { skills: skillPaths } : {}),
+	tools: { enabled: false },
 })
 
 if (skillPaths.length > 0) {
@@ -397,6 +425,28 @@ const codeAgent = new Agent({
 		const ctx = requestContext.get("harness") as
 			| HarnessRuntimeContext<typeof stateSchema>
 			| undefined
+		const allowedPaths = ctx?.getState?.()?.sandboxAllowedPaths ?? []
+		if (allowedPaths.length > 0) {
+			// Create expanded workspace that covers the project root + all allowed paths
+			const allPaths = [
+				project.rootPath,
+				...allowedPaths.map((p: string) => path.resolve(p)),
+			]
+			const commonRoot = findCommonAncestor(allPaths)
+			return new Workspace({
+				id: "mastra-code-workspace-expanded",
+				name: "Mastra Code Workspace (Expanded)",
+				filesystem: new LocalFilesystem({
+					basePath: commonRoot,
+				}),
+				sandbox: new LocalSandbox({
+					workingDirectory: project.rootPath,
+					env: process.env,
+				}),
+				...(skillPaths.length > 0 ? { skills: skillPaths } : {}),
+				tools: { enabled: false },
+			})
+		}
 		return ctx?.workspace ?? workspace
 	},
 	tools: ({ requestContext }) => {

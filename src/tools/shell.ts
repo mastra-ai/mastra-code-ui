@@ -6,6 +6,8 @@ import treeKill from "tree-kill"
 import type { TerminalManager } from "../acp/terminal-manager.js"
 import { ipcReporter } from "../ipc/ipc-reporter.js"
 import { createTool } from "@mastra/core/tools"
+import * as path from "path"
+import { isPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 
 // Global registry for terminal managers (used in ACP mode)
 let globalTerminalManager: TerminalManager | null = null
@@ -126,10 +128,28 @@ Usage notes:
 - For interactive commands that need user input, they will fail. Set CI=true is already forced.`,
 		inputSchema: ExecuteCommandSchema,
 		// requireApproval: true, // TODO: re-enable when Mastra workflow suspension is stable
-		execute: async (context) => {
-			const { command } = context
-			// Use provided cwd, fall back to project root, then process.cwd()
-			const cwd = context.cwd || projectRoot || process.cwd()
+        execute: async (context, toolContext) => {
+            const { command } = context
+            // Use provided cwd, fall back to project root, then process.cwd()
+            const cwd = context.cwd || projectRoot || process.cwd()
+            const root = projectRoot || process.cwd()
+
+            // Security: if a custom cwd was provided, ensure it's within the project root or allowed paths
+            if (context.cwd) {
+                const allowedPaths = getAllowedPathsFromContext(toolContext)
+                const resolvedCwd = path.resolve(context.cwd)
+                if (!isPathAllowed(resolvedCwd, root, allowedPaths)) {
+                    return {
+                        content: [
+                            {
+                                type: "text" as const,
+                                text: `Error: cwd "${resolvedCwd}" is outside the project root "${root}". Use /sandbox to add additional allowed paths.`,
+                            },
+                        ],
+                        isError: true,
+                    }
+                }
+            }
 
 			// Reject commands that pipe to tail - use the tail parameter instead
 			if (/\|\s*tail\s*(-\d+|-n\s*\d+)?\s*$/.test(command)) {

@@ -6,6 +6,7 @@ import { promisify } from "util"
 import * as path from "path"
 import { homedir } from "os"
 import { truncateStringForTokenEstimate } from "../utils/token-estimator"
+import { assertPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 
 const execAsync = promisify(exec)
 
@@ -136,17 +137,19 @@ Usage notes:
 				.optional()
 				.describe("Optional range of lines to view [start, end]"),
 		}),
-		execute: async (context) => {
-			try {
-				const { path: filePath, view_range } = context
+        execute: async (context, toolContext) => {
+            try {
+                const { path: filePath, view_range } = context
+                const root = projectRoot || process.cwd()
 
-				// Resolve relative to projectRoot if provided, otherwise relative to process.cwd()
-				const absolutePath = path.resolve(
-					projectRoot || process.cwd(),
-					filePath,
-				)
+                // Resolve relative to projectRoot if provided, otherwise relative to process.cwd()
+                const absolutePath = path.resolve(root, filePath)
 
-				await validatePath("view", absolutePath)
+                // Security: ensure the path is within the project root or allowed paths
+                const allowedPaths = getAllowedPathsFromContext(toolContext)
+                assertPathAllowed(absolutePath, root, allowedPaths)
+
+                await validatePath("view", absolutePath)
 
 				// Handle directory listing
 				if (await isDirectory(absolutePath)) {

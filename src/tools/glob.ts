@@ -7,6 +7,7 @@ import { execa } from "execa"
 import * as path from "path"
 import * as fs from "fs"
 import { truncateStringForTokenEstimate } from "../utils/token-estimator.js"
+import { assertPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 
 const MAX_GLOB_TOKENS = 2_000
 
@@ -217,12 +218,16 @@ Usage notes:
 					"Directory to search in (relative to project root). Defaults to project root.",
 				),
 		}),
-		execute: async (context) => {
-			try {
-				const root = projectRoot || process.cwd()
-				const searchPath = context.path
-					? path.resolve(root, context.path)
-					: root
+        execute: async (context, toolContext) => {
+            try {
+                const root = projectRoot || process.cwd()
+                const searchPath = context.path
+                    ? path.resolve(root, context.path)
+                    : root
+
+                // Security: ensure the search path is within the project root or allowed paths
+                const allowedPaths = getAllowedPathsFromContext(toolContext)
+                assertPathAllowed(searchPath, root, allowedPaths)
 
 				const matches = await matchGlob(context.pattern, searchPath, root)
 
