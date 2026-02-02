@@ -5,6 +5,7 @@ The AST Smart Edit tool provides intelligent, syntax-aware code transformations 
 ## Features
 
 ### 1. Pattern-Based Replacement
+
 Use metavariables (e.g., `$ARG`, `$FUNC`, `$VAR`) to capture and transform code patterns:
 
 ```typescript
@@ -22,6 +23,7 @@ Use metavariables (e.g., `$ARG`, `$FUNC`, `$VAR`) to capture and transform code 
 ```
 
 ### 2. Function Renaming
+
 Rename functions and update all references automatically:
 
 ```typescript
@@ -33,6 +35,7 @@ Rename functions and update all references automatically:
 ```
 
 ### 3. Variable Renaming
+
 Rename variables with scope awareness:
 
 ```typescript
@@ -44,6 +47,7 @@ Rename variables with scope awareness:
 ```
 
 ### 4. Import Management
+
 Add imports intelligently:
 
 ```typescript
@@ -69,6 +73,7 @@ Add imports intelligently:
 ```
 
 ### 5. Remove Imports
+
 Remove specific imports:
 
 ```typescript
@@ -81,6 +86,7 @@ Remove specific imports:
 ## Pattern Syntax
 
 ### Metavariables
+
 - `$NAME` - Captures any identifier (variable, function name, etc.)
 - `$ARG`, `$ARGS` - Captures function arguments
 - `$BODY` - Captures block statements
@@ -92,6 +98,7 @@ Remove specific imports:
 ### Examples
 
 #### Transform async/await to promises:
+
 ```typescript
 {
     pattern: 'await $PROMISE',
@@ -100,6 +107,7 @@ Remove specific imports:
 ```
 
 #### Add error handling:
+
 ```typescript
 {
     pattern: '$FUNC($ARGS)',
@@ -112,6 +120,7 @@ Remove specific imports:
 ```
 
 #### Convert CommonJS to ES modules:
+
 ```typescript
 {
     pattern: 'const $VAR = require($MODULE)',
@@ -122,56 +131,59 @@ Remove specific imports:
 ## Advanced Usage
 
 ### Bulk Transformations
+
 Process multiple files with the same transformation:
 
 ```typescript
-const files = ['src/utils/*.ts', 'src/components/*.tsx'];
+const files = ["src/utils/*.ts", "src/components/*.tsx"]
 
 for (const file of files) {
-    await astSmartEditTool.execute({
-        path: file,
-        pattern: 'console.log($ARG)',
-        replacement: 'logger.info($ARG)'
-    });
+	await astSmartEditTool.execute({
+		path: file,
+		pattern: "console.log($ARG)",
+		replacement: "logger.info($ARG)",
+	})
 }
 ```
 
 ### Chained Transformations
+
 Apply multiple transformations in sequence:
 
 ```typescript
 // Step 1: Add import
 await astSmartEditTool.execute({
-    path: 'myfile.ts',
-    transform: 'add-import',
-    importSpec: { module: './logger', names: ['logger'], isDefault: true }
-});
+	path: "myfile.ts",
+	transform: "add-import",
+	importSpec: { module: "./logger", names: ["logger"], isDefault: true },
+})
 
 // Step 2: Replace console calls
 await astSmartEditTool.execute({
-    path: 'myfile.ts',
-    pattern: 'console.log($ARG)',
-    replacement: 'logger.info($ARG)'
-});
+	path: "myfile.ts",
+	pattern: "console.log($ARG)",
+	replacement: "logger.info($ARG)",
+})
 ```
 
 ### Conditional Transformations
+
 Use selectors to find specific patterns before transforming:
 
 ```typescript
 // First, check if pattern exists
 const result = await astSmartEditTool.execute({
-    path: 'myfile.ts',
-    selector: 'console.log'
-});
+	path: "myfile.ts",
+	selector: "console.log",
+})
 
 if (result.matches > 0) {
-    // Then apply transformation
-    await astSmartEditTool.execute({
-        path: 'myfile.ts',
-        pattern: 'console.log($ARG)',
-        replacement: 'logger.debug($ARG)'
-    });
+	// Then apply transformation
+	await astSmartEditTool.execute({
+		path: "myfile.ts",
+		pattern: "console.log($ARG)",
+		replacement: "logger.debug($ARG)",
+	})
 }
 ```
 
@@ -196,13 +208,13 @@ The tool provides detailed error information:
 
 ```typescript
 const result = await astSmartEditTool.execute({
-    path: 'myfile.ts',
-    pattern: 'invalid pattern here'
-});
+	path: "myfile.ts",
+	pattern: "invalid pattern here",
+})
 
 if (result.error) {
-    console.error('Transformation failed:', result.error);
-    console.error('Stack trace:', result.stack);
+	console.error("Transformation failed:", result.error)
+	console.error("Stack trace:", result.stack)
 }
 ```
 

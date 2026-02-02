@@ -42,7 +42,10 @@ export class MCPManager {
 		}
 
 		// Build server definitions for MCPClient
-		const serverDefs: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {}
+		const serverDefs: Record<
+			string,
+			{ command: string; args?: string[]; env?: Record<string, string> }
+		> = {}
 		for (const [name, cfg] of Object.entries(servers)) {
 			serverDefs[name] = {
 				command: cfg.command,
@@ -75,8 +78,7 @@ export class MCPManager {
 				})
 			}
 		} catch (error) {
-			const errMsg =
-				error instanceof Error ? error.message : String(error)
+			const errMsg = error instanceof Error ? error.message : String(error)
 
 			// If MCPClient throws at top level, mark all servers as failed
 			for (const name of Object.keys(servers)) {

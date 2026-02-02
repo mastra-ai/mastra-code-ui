@@ -33,31 +33,32 @@ Simply type your message and press Enter. The agent will respond with streaming 
 
 ### Slash commands
 
-| Command | Description |
-|---------|-------------|
-| `/new` | Start a new conversation thread |
-| `/threads` | List all threads for this project |
-| `/models` | Select a different AI model |
-| `/cost` | Show token usage for current conversation |
-| `/login` | Authenticate with OAuth providers |
-| `/logout` | Log out from a provider |
-| `/help` | Show available commands |
-| `/exit` | Exit the TUI |
+| Command    | Description                               |
+| ---------- | ----------------------------------------- |
+| `/new`     | Start a new conversation thread           |
+| `/threads` | List all threads for this project         |
+| `/models`  | Select a different AI model               |
+| `/cost`    | Show token usage for current conversation |
+| `/login`   | Authenticate with OAuth providers         |
+| `/logout`  | Log out from a provider                   |
+| `/help`    | Show available commands                   |
+| `/exit`    | Exit the TUI                              |
 
 ### Keyboard shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+C` | Interrupt current operation |
-| `Ctrl+D` | Exit (when editor is empty) |
+| Shortcut | Action                            |
+| -------- | --------------------------------- |
+| `Ctrl+C` | Interrupt current operation       |
+| `Ctrl+D` | Exit (when editor is empty)       |
 | `Ctrl+T` | Toggle thinking blocks visibility |
-| `Ctrl+E` | Expand/collapse all tool outputs |
+| `Ctrl+E` | Expand/collapse all tool outputs  |
 
 ## Configuration
 
 ### Project-based threads
 
 Threads are automatically scoped to your project based on:
+
 1. Git remote URL (if available)
 2. Absolute path (fallback)
 
@@ -66,6 +67,7 @@ This means conversations are shared across clones, worktrees, and SSH/HTTPS URLs
 ### Database location
 
 The SQLite database is stored in your system's application data directory:
+
 - **macOS**: `~/Library/Application Support/mastra-code/`
 - **Linux**: `~/.local/share/mastra-code/`
 - **Windows**: `%APPDATA%/mastra-code/`

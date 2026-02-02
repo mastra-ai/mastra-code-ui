@@ -5,7 +5,11 @@
 import { Agent } from "@mastra/core/agent"
 import type { RequestContext } from "@mastra/core/request-context"
 import { ModelRouterLanguageModel } from "@mastra/core/llm"
-import { Workspace, LocalFilesystem, LocalSandbox } from "@mastra/core/workspace"
+import {
+	Workspace,
+	LocalFilesystem,
+	LocalSandbox,
+} from "@mastra/core/workspace"
 import { LibSQLStore } from "@mastra/libsql"
 import { Memory } from "@mastra/memory"
 import { z } from "zod"
@@ -29,20 +33,20 @@ import { MCPManager } from "./mcp/index.js"
 import { detectProject, getDatabasePath } from "./utils/project.js"
 import { startGatewaySync } from "./utils/gateway-sync.js"
 import {
-    createViewTool,
-    createExecuteCommandTool,
-    stringReplaceLspTool,
-    astSmartEditTool,
-    createWebSearchTool,
-    createWebExtractTool,
-    createGrepTool,
-    createGlobTool,
-    createWriteFileTool,
-    createSubagentTool,
-    todoWriteTool,
-    todoCheckTool,
-    askUserTool,
-    submitPlanTool,
+	createViewTool,
+	createExecuteCommandTool,
+	stringReplaceLspTool,
+	astSmartEditTool,
+	createWebSearchTool,
+	createWebExtractTool,
+	createGrepTool,
+	createGlobTool,
+	createWriteFileTool,
+	createSubagentTool,
+	todoWriteTool,
+	todoCheckTool,
+	askUserTool,
+	submitPlanTool,
 } from "./tools/index.js"
 import { buildFullPrompt, type PromptContext } from "./prompts/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
@@ -93,20 +97,20 @@ const stateSchema = z.object({
 	reflectionThreshold: z.number().default(40_000),
 	// Thinking level for extended thinking (Anthropic models)
 	thinkingLevel: z.string().default("off"),
-    // YOLO mode — auto-approve all tool calls
-    yolo: z.boolean().default(true),
-    // Smart editing mode — use AST-based analysis for code edits
-    smartEditing: z.boolean().default(true),
-    // Todo list (persisted per-thread)
-    todos: z
-        .array(
-            z.object({
-                content: z.string(),
-                status: z.enum(["pending", "in_progress", "completed"]),
-                activeForm: z.string(),
-            }),
-        )
-        .default([]),
+	// YOLO mode — auto-approve all tool calls
+	yolo: z.boolean().default(true),
+	// Smart editing mode — use AST-based analysis for code edits
+	smartEditing: z.boolean().default(true),
+	// Todo list (persisted per-thread)
+	todos: z
+		.array(
+			z.object({
+				content: z.string(),
+				status: z.enum(["pending", "in_progress", "completed"]),
+				activeForm: z.string(),
+			}),
+		)
+		.default([]),
 	// Active plan (set when a plan is approved in Plan mode)
 	activePlan: z
 		.object({
@@ -247,20 +251,20 @@ function getDynamicModel({
 // The subagent tool needs tools and resolveModel to spawn subagents.
 // We pass all tools that subagents might need based on their type.
 const subagentTool = createSubagentTool({
-    tools: {
-        // Read-only tools (for explore, plan)
-        view: viewTool,
-        search_content: grepTool,
-        find_files: globTool,
-        // Write tools (for execute)
-        string_replace_lsp: stringReplaceLspTool,
-        write_file: writeFileTool,
-        execute_command: executeCommandTool,
-        // Task tracking (for execute)
-        todo_write: todoWriteTool,
-        todo_check: todoCheckTool,
-    },
-    resolveModel,
+	tools: {
+		// Read-only tools (for explore, plan)
+		view: viewTool,
+		search_content: grepTool,
+		find_files: globTool,
+		// Write tools (for execute)
+		string_replace_lsp: stringReplaceLspTool,
+		write_file: writeFileTool,
+		execute_command: executeCommandTool,
+		// Task tracking (for execute)
+		todo_write: todoWriteTool,
+		todo_check: todoCheckTool,
+	},
+	resolveModel,
 })
 
 // =============================================================================
@@ -370,22 +374,22 @@ const codeAgent = new Agent({
 		const state = harnessContext?.state
 		const modeId = harnessContext?.modeId ?? "build"
 
-        const promptCtx: PromptContext = {
-            projectPath: state?.projectPath ?? project.rootPath,
-            projectName: state?.projectName ?? project.name,
-            gitBranch: state?.gitBranch ?? project.gitBranch,
-            platform: process.platform,
-            date: new Date().toISOString().split("T")[0],
-            mode: modeId,
-            activePlan: state?.activePlan ?? null,
-            // Add missing fields for PromptContext
-            modeId: modeId,
-            currentDate: new Date().toISOString().split("T")[0],
-            workingDir: state?.projectPath ?? project.rootPath,
-            state: state
-        }
+		const promptCtx: PromptContext = {
+			projectPath: state?.projectPath ?? project.rootPath,
+			projectName: state?.projectName ?? project.name,
+			gitBranch: state?.gitBranch ?? project.gitBranch,
+			platform: process.platform,
+			date: new Date().toISOString().split("T")[0],
+			mode: modeId,
+			activePlan: state?.activePlan ?? null,
+			// Add missing fields for PromptContext
+			modeId: modeId,
+			currentDate: new Date().toISOString().split("T")[0],
+			workingDir: state?.projectPath ?? project.rootPath,
+			state: state,
+		}
 
-        return buildFullPrompt(promptCtx)
+		return buildFullPrompt(promptCtx)
 	},
 	model: getDynamicModel,
 	memory,
@@ -407,27 +411,27 @@ const codeAgent = new Agent({
 		// NOTE: Tool names "grep" and "glob" are reserved by Anthropic's OAuth
 		// validation (they match Claude Code's internal tools). We use
 		// "search_content" and "find_files" to avoid the collision.
-        const tools: Record<string, any> = {
-            // Read-only tools — always available
-            view: viewTool,
-            search_content: grepTool,
-            find_files: globTool,
-            // Subagent delegation — always available
-            subagent: subagentTool,
-            // Todo tracking — always available (planning tool, not a write tool)
-            todo_write: todoWriteTool,
-            todo_check: todoCheckTool,
-            // User interaction — always available
-            ask_user: askUserTool,
-        }
+		const tools: Record<string, any> = {
+			// Read-only tools — always available
+			view: viewTool,
+			search_content: grepTool,
+			find_files: globTool,
+			// Subagent delegation — always available
+			subagent: subagentTool,
+			// Todo tracking — always available (planning tool, not a write tool)
+			todo_write: todoWriteTool,
+			todo_check: todoCheckTool,
+			// User interaction — always available
+			ask_user: askUserTool,
+		}
 
-        // Write tools — NOT available in plan mode
-        if (modeId !== "plan") {
-            tools.string_replace_lsp = stringReplaceLspTool
-            tools.ast_smart_edit = astSmartEditTool
-            tools.write_file = writeFileTool
-            tools.execute_command = executeCommandTool
-        }
+		// Write tools — NOT available in plan mode
+		if (modeId !== "plan") {
+			tools.string_replace_lsp = stringReplaceLspTool
+			tools.ast_smart_edit = astSmartEditTool
+			tools.write_file = writeFileTool
+			tools.execute_command = executeCommandTool
+		}
 
 		// Plan submission — only available in plan mode
 		if (modeId === "plan") {
@@ -449,7 +453,6 @@ const codeAgent = new Agent({
 		return tools
 	},
 })
-
 
 // =============================================================================
 // Anthropic Provider Tools (web search & fetch - zero implementation needed)
@@ -537,7 +540,11 @@ const harness = new Harness({
 // persisted OM model preferences from thread metadata).
 harness.subscribe((event) => {
 	if (event.type === "om_model_changed") {
-		const { role, modelId } = event as { type: string; role: string; modelId: string }
+		const { role, modelId } = event as {
+			type: string
+			role: string
+			modelId: string
+		}
 		if (role === "observer") omModelState.observerModelId = modelId
 		if (role === "reflector") omModelState.reflectorModelId = modelId
 	} else if (event.type === "thread_changed") {

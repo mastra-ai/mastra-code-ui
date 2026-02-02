@@ -23,9 +23,7 @@ export const submitPlanTool = createTool({
 		title: z
 			.string()
 			.optional()
-			.describe(
-				"Short title for the plan (e.g., 'Add dark mode toggle')",
-			),
+			.describe("Short title for the plan (e.g., 'Add dark mode toggle')"),
 		plan: z
 			.string()
 			.min(1)

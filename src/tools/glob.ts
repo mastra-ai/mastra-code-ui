@@ -31,12 +31,7 @@ async function matchGlob(
 	if (isGit) {
 		// Use git ls-files which respects .gitignore
 		// --cached = tracked files, --others --exclude-standard = untracked but not ignored
-		const args = [
-			"ls-files",
-			"--cached",
-			"--others",
-			"--exclude-standard",
-		]
+		const args = ["ls-files", "--cached", "--others", "--exclude-standard"]
 
 		const result = await execa("git", args, {
 			cwd: searchPath,
@@ -229,11 +224,7 @@ Usage notes:
 					? path.resolve(root, context.path)
 					: root
 
-				const matches = await matchGlob(
-					context.pattern,
-					searchPath,
-					root,
-				)
+				const matches = await matchGlob(context.pattern, searchPath, root)
 
 				if (matches.length === 0) {
 					return {
@@ -254,9 +245,7 @@ Usage notes:
 				withTimes.sort((a, b) => b.mtime - a.mtime)
 
 				// Make paths relative to project root
-				const relativePaths = withTimes.map((f) =>
-					path.relative(root, f.path),
-				)
+				const relativePaths = withTimes.map((f) => path.relative(root, f.path))
 
 				const header = `Found ${relativePaths.length} file${relativePaths.length !== 1 ? "s" : ""} matching "${context.pattern}":\n\n`
 				const listing = relativePaths.join("\n")
@@ -270,8 +259,7 @@ Usage notes:
 					isError: false,
 				}
 			} catch (error) {
-				const msg =
-					error instanceof Error ? error.message : "Unknown error"
+				const msg = error instanceof Error ? error.message : "Unknown error"
 				return {
 					content: `glob failed: ${msg}`,
 					isError: true,

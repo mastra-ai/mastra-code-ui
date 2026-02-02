@@ -75,13 +75,13 @@ export function createWebSearchTool() {
 						.filter(Boolean),
 					answer: response.answer,
 				}
-            } catch (error) {
-                return {
-                    results: [],
-                    images: [],
-                    answer: undefined,
-                }
-            }
+			} catch (error) {
+				return {
+					results: [],
+					images: [],
+					answer: undefined,
+				}
+			}
 		},
 	})
 }
@@ -148,15 +148,15 @@ export function createWebExtractTool() {
 						}),
 					),
 				}
-            } catch (error) {
-                return {
-                    results: [],
-                    failedResults: context.urls.map((url) => ({
-                        url,
-                        error: String(error),
-                    })),
-                }
-            }
+			} catch (error) {
+				return {
+					results: [],
+					failedResults: context.urls.map((url) => ({
+						url,
+						error: String(error),
+					})),
+				}
+			}
 		},
 	})
 }

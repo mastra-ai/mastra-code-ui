@@ -8,9 +8,9 @@
 import type { SubagentDefinition } from "./types.js"
 
 export const executeSubagent: SubagentDefinition = {
-    id: "execute",
-    name: "Execute",
-    instructions: `You are a focused execution agent. Your job is to complete a specific, well-defined task by making the necessary changes to the codebase.
+	id: "execute",
+	name: "Execute",
+	instructions: `You are a focused execution agent. Your job is to complete a specific, well-defined task by making the necessary changes to the codebase.
 
 ## Rules
 - You have FULL ACCESS to read, write, and execute within your task scope.
@@ -36,18 +36,18 @@ End your response with a structured summary:
 4. **Notes**: Any important considerations or follow-up needed
 
 Keep your work focused and your summary concise.`,
-    allowedTools: [
-        // Read tools
-        "view",
-        "search_content",
-        "find_files",
-        // Write tools
-        "string_replace_lsp",
-        "write_file",
-        // Execution tool
-        "execute_command",
-        // Task tracking
-        "todo_write",
-        "todo_check",
-    ],
+	allowedTools: [
+		// Read tools
+		"view",
+		"search_content",
+		"find_files",
+		// Write tools
+		"string_replace_lsp",
+		"write_file",
+		// Execution tool
+		"execute_command",
+		// Task tracking
+		"todo_write",
+		"todo_check",
+	],
 }

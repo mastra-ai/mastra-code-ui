@@ -21,9 +21,7 @@ export function isBlockingEvent(
 	event: HookEventName,
 ): event is BlockingHookEvent {
 	return (
-		event === "PreToolUse" ||
-		event === "Stop" ||
-		event === "UserPromptSubmit"
+		event === "PreToolUse" || event === "Stop" || event === "UserPromptSubmit"
 	)
 }
 

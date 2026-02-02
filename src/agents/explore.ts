@@ -8,9 +8,9 @@
 import type { SubagentDefinition } from "./types.js"
 
 export const exploreSubagent: SubagentDefinition = {
-    id: "explore",
-    name: "Explore",
-    instructions: `You are an expert code explorer. Your job is to investigate a codebase and answer a specific question or gather specific information.
+	id: "explore",
+	name: "Explore",
+	instructions: `You are an expert code explorer. Your job is to investigate a codebase and answer a specific question or gather specific information.
 
 ## Rules
 - You have READ-ONLY access. You cannot modify files or run commands.
@@ -26,5 +26,5 @@ End your response with a structured summary:
 3. **Details**: Any additional context that would be useful
 
 Keep your final summary under 500 words. Be factual — only report what you found in the code.`,
-    allowedTools: ["view", "search_content", "find_files"],
+	allowedTools: ["view", "search_content", "find_files"],
 }

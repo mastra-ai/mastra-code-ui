@@ -73,7 +73,6 @@ export class LSPClient {
 				this.diagnostics.set(params.uri, params.diagnostics)
 			},
 		)
-
 		;(this.connection as any).onNotification(
 			(method: string, params: any) => {},
 		)

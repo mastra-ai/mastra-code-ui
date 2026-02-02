@@ -25,9 +25,7 @@ Usage notes:
 			path: z
 				.string()
 				.describe("File path to write to (relative to project root)"),
-			content: z
-				.string()
-				.describe("The full content to write to the file"),
+			content: z.string().describe("The full content to write to the file"),
 		}),
 		execute: async (context) => {
 			try {
@@ -38,7 +36,10 @@ Usage notes:
 				// Security: ensure the path is within the project root
 				const resolved = path.resolve(absolutePath)
 				const resolvedRoot = path.resolve(root)
-				if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
+				if (
+					!resolved.startsWith(resolvedRoot + path.sep) &&
+					resolved !== resolvedRoot
+				) {
 					return {
 						content: `Error: Cannot write outside project root. Path "${filePath}" resolves to "${resolved}" which is outside "${resolvedRoot}".`,
 						isError: true,
@@ -72,8 +73,7 @@ Usage notes:
 					}
 				}
 			} catch (error) {
-				const msg =
-					error instanceof Error ? error.message : "Unknown error"
+				const msg = error instanceof Error ? error.message : "Unknown error"
 				return {
 					content: `write_file failed: ${msg}`,
 					isError: true,

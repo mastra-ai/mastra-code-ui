@@ -17,9 +17,7 @@ export const askUserTool = createTool({
 		question: z
 			.string()
 			.min(1)
-			.describe(
-				"The question to ask the user. Should be clear and specific.",
-			),
+			.describe("The question to ask the user. Should be clear and specific."),
 		options: z
 			.array(
 				z.object({

@@ -1,5 +1,9 @@
 export { HookManager } from "./manager.js"
-export { loadHooksConfig, getProjectHooksPath, getGlobalHooksPath } from "./config.js"
+export {
+	loadHooksConfig,
+	getProjectHooksPath,
+	getGlobalHooksPath,
+} from "./config.js"
 export { executeHook, runHooksForEvent, matchesHook } from "./executor.js"
 export { isBlockingEvent } from "./types.js"
 export type {

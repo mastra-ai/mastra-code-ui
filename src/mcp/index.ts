@@ -5,8 +5,4 @@ export {
 	getGlobalMcpPath,
 	getClaudeSettingsPath,
 } from "./config.js"
-export type {
-	McpConfig,
-	McpServerConfig,
-	McpServerStatus,
-} from "./types.js"
+export type { McpConfig, McpServerConfig, McpServerStatus } from "./types.js"

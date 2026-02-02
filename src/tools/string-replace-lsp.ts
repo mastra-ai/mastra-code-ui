@@ -9,7 +9,7 @@ import { truncateStringForTokenEstimate } from "../utils/token-estimator.js"
 
 export const stringReplaceLspTool = createTool({
 	id: "string_replace_lsp",
-    description: `Edit a file by replacing exact text matches. Returns Language Server Protocol (LSP) diagnostics to show any errors/warnings introduced by your edit.
+	description: `Edit a file by replacing exact text matches. Returns Language Server Protocol (LSP) diagnostics to show any errors/warnings introduced by your edit.
 
 Usage notes:
 - You MUST use the view tool to read a file before editing it. Never edit blind.

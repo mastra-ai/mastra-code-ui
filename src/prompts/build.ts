@@ -11,7 +11,8 @@ import type { PromptContext } from "./base.js"
  */
 export function buildModePromptFn(ctx: PromptContext): string {
 	if (ctx.activePlan) {
-		return `# Approved Plan
+		return (
+			`# Approved Plan
 
 **${ctx.activePlan.title}**
 
@@ -22,6 +23,7 @@ ${ctx.activePlan.plan}
 Implement the approved plan above. Follow the steps in order and verify each step works before moving on.
 
 ` + buildModePrompt
+		)
 	}
 	return buildModePrompt
 }
