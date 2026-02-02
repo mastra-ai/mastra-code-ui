@@ -115,7 +115,15 @@ const ExecuteCommandSchema = z.object({
 export function createExecuteCommandTool(projectRoot?: string) {
 	return createTool({
 		id: "execute_command",
-		description: "Execute a command in the local system",
+		description: `Execute a shell command in the local system.
+
+Usage notes:
+- Use for: git commands, npm/pnpm, docker, build tools, test runners, linters, and other terminal operations.
+- Do NOT use for: reading files (use view tool), searching file contents (use grep tool), finding files (use glob tool), editing files (use string_replace_lsp tool).
+- Commands run with a 30-second default timeout. Use the timeout parameter for longer commands.
+- Output is stripped of ANSI codes and truncated if too long. Use the tail parameter instead of piping to tail.
+- Be careful with destructive commands. Never run git push --force, git reset --hard, or rm -rf without explicit user request.
+- For interactive commands that need user input, they will fail. Set CI=true is already forced.`,
 		inputSchema: ExecuteCommandSchema,
 		// requireApproval: true, // TODO: re-enable when Mastra workflow suspension is stable
 		execute: async (context) => {

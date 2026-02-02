@@ -5,7 +5,7 @@
 import { Agent } from "@mastra/core/agent"
 import type { RequestContext } from "@mastra/core/request-context"
 import { ModelRouterLanguageModel } from "@mastra/core/llm"
-import { Workspace } from "@mastra/core/workspace"
+import { Workspace, LocalFilesystem, LocalSandbox } from "@mastra/core/workspace"
 import { LibSQLStore } from "@mastra/libsql"
 import { Memory } from "@mastra/memory"
 import { z } from "zod"
@@ -24,15 +24,27 @@ import {
 	setAuthStorage as setOpenAIAuthStorage,
 } from "./providers/openai-codex.js"
 import { AuthStorage } from "./auth/storage.js"
+import { HookManager } from "./hooks/index.js"
+import { MCPManager } from "./mcp/index.js"
 import { detectProject, getDatabasePath } from "./utils/project.js"
 import { startGatewaySync } from "./utils/gateway-sync.js"
 import {
-	createViewTool,
-	createExecuteCommandTool,
-	stringReplaceLspTool,
-	createWebSearchTool,
-	createWebExtractTool,
+    createViewTool,
+    createExecuteCommandTool,
+    stringReplaceLspTool,
+    astSmartEditTool,
+    createWebSearchTool,
+    createWebExtractTool,
+    createGrepTool,
+    createGlobTool,
+    createWriteFileTool,
+    createSubagentTool,
+    todoWriteTool,
+    todoCheckTool,
+    askUserTool,
+    submitPlanTool,
 } from "./tools/index.js"
+import { buildFullPrompt, type PromptContext } from "./prompts/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
 
 // =============================================================================
@@ -64,7 +76,7 @@ console.log()
 // =============================================================================
 // Configuration
 // =============================================================================
-// Default OM model
+// Default OM model - using gemini-2.5-flash for efficiency
 const DEFAULT_OM_MODEL_ID = "google/gemini-2.5-flash"
 // State schema for the harness
 const stateSchema = z.object({
@@ -81,8 +93,29 @@ const stateSchema = z.object({
 	reflectionThreshold: z.number().default(40_000),
 	// Thinking level for extended thinking (Anthropic models)
 	thinkingLevel: z.string().default("off"),
-	// YOLO mode — auto-approve all tool calls
-	yolo: z.boolean().default(true),
+    // YOLO mode — auto-approve all tool calls
+    yolo: z.boolean().default(true),
+    // Smart editing mode — use AST-based analysis for code edits
+    smartEditing: z.boolean().default(true),
+    // Todo list (persisted per-thread)
+    todos: z
+        .array(
+            z.object({
+                content: z.string(),
+                status: z.enum(["pending", "in_progress", "completed"]),
+                activeForm: z.string(),
+            }),
+        )
+        .default([]),
+	// Active plan (set when a plan is approved in Plan mode)
+	activePlan: z
+		.object({
+			title: z.string(),
+			plan: z.string(),
+			approvedAt: z.string(),
+		})
+		.nullable()
+		.default(null),
 })
 
 // =============================================================================
@@ -101,36 +134,28 @@ const storage = new LibSQLStore({
 const omObsThreshold = 30_000
 const omRefThreshold = 60_000
 
+// Mutable OM model state — updated by harness event listeners, read by OM model
+// functions. We use this instead of requestContext because Mastra's OM system
+// does NOT propagate requestContext to observer/reflector agent.generate() calls.
+const omModelState = {
+	observerModelId: DEFAULT_OM_MODEL_ID,
+	reflectorModelId: DEFAULT_OM_MODEL_ID,
+}
+
 /**
  * Dynamic model function for Observer agent.
- * Reads the observer model ID from harness state.
+ * Reads from module-level omModelState (kept in sync by harness events).
  */
-function getObserverModel({
-	requestContext,
-}: {
-	requestContext: RequestContext
-}) {
-	const harnessContext = requestContext.get("harness") as
-		| HarnessRuntimeContext<typeof stateSchema>
-		| undefined
-	const modelId = harnessContext?.state?.observerModelId ?? DEFAULT_OM_MODEL_ID
-	return new ModelRouterLanguageModel(modelId)
+function getObserverModel() {
+	return resolveModel(omModelState.observerModelId)
 }
 
 /**
  * Dynamic model function for Reflector agent.
- * Reads the reflector model ID from harness state.
+ * Reads from module-level omModelState (kept in sync by harness events).
  */
-function getReflectorModel({
-	requestContext,
-}: {
-	requestContext: RequestContext
-}) {
-	const harnessContext = requestContext.get("harness") as
-		| HarnessRuntimeContext<typeof stateSchema>
-		| undefined
-	const modelId = harnessContext?.state?.reflectorModelId ?? DEFAULT_OM_MODEL_ID
-	return new ModelRouterLanguageModel(modelId)
+function getReflectorModel() {
+	return resolveModel(omModelState.reflectorModelId)
 }
 
 const memory = new Memory({
@@ -157,33 +182,21 @@ const memory = new Memory({
 // Create tools with project root
 const viewTool = createViewTool(project.rootPath)
 const executeCommandTool = createExecuteCommandTool(project.rootPath)
+const grepTool = createGrepTool(project.rootPath)
+const globTool = createGlobTool(project.rootPath)
+const writeFileTool = createWriteFileTool(project.rootPath)
 const webSearchTool = createWebSearchTool()
 const webExtractTool = createWebExtractTool()
 /**
- * Dynamic model function that reads the current model from harness state.
- * This allows runtime model switching via the /models picker.
+ * Resolve a model ID to the correct provider instance.
+ * Shared by the main agent, observer, and reflector.
  *
  * - For anthropic/* models: Uses Claude Max OAuth provider (opencode auth)
  * - For openai/* models with OAuth: Uses OpenAI Codex OAuth provider
+ * - For moonshotai/* models: Uses Moonshot AI Anthropic-compatible endpoint
  * - For all other providers: Uses Mastra's model router (models.dev gateway)
  */
-function getDynamicModel({
-	requestContext,
-}: {
-	requestContext: RequestContext
-}) {
-	// Get harness context from requestContext
-	const harnessContext = requestContext.get("harness") as
-		| HarnessRuntimeContext<typeof stateSchema>
-		| undefined
-
-	// Get model ID from harness state
-	const modelId = harnessContext?.state?.currentModelId
-	if (!modelId) {
-		throw new Error("No model selected. Use /models to select a model first.")
-	}
-
-	// Check provider prefix
+function resolveModel(modelId: string) {
 	const isAnthropicModel = modelId.startsWith("anthropic/")
 	const isOpenAIModel = modelId.startsWith("openai/")
 	const isMoonshotModel = modelId.startsWith("moonshotai/")
@@ -198,17 +211,57 @@ function getDynamicModel({
 			name: "moonshotai.anthropicv1",
 		})(modelId.substring("moonshotai/".length))
 	} else if (isAnthropicModel) {
-		// Use Claude Max OAuth provider for Anthropic models
 		return opencodeClaudeMaxProvider(modelId.substring(`anthropic/`.length))
 	} else if (isOpenAIModel && authStorage.isLoggedIn("openai-codex")) {
-		// Use OpenAI Codex OAuth provider if logged in
 		return openaiCodexProvider(modelId.substring(`openai/`.length))
 	} else {
-		// Use Mastra's model router for all other providers
-		// This routes through models.dev gateway with proper API key resolution
 		return new ModelRouterLanguageModel(modelId)
 	}
 }
+
+/**
+ * Dynamic model function that reads the current model from harness state.
+ * This allows runtime model switching via the /models picker.
+ */
+function getDynamicModel({
+	requestContext,
+}: {
+	requestContext: RequestContext
+}) {
+	const harnessContext = requestContext.get("harness") as
+		| HarnessRuntimeContext<typeof stateSchema>
+		| undefined
+
+	const modelId = harnessContext?.state?.currentModelId
+	if (!modelId) {
+		throw new Error("No model selected. Use /models to select a model first.")
+	}
+
+	return resolveModel(modelId)
+}
+
+// =============================================================================
+// Create Subagent Tool (subagent delegation)
+// =============================================================================
+
+// The subagent tool needs tools and resolveModel to spawn subagents.
+// We pass all tools that subagents might need based on their type.
+const subagentTool = createSubagentTool({
+    tools: {
+        // Read-only tools (for explore, plan)
+        view: viewTool,
+        search_content: grepTool,
+        find_files: globTool,
+        // Write tools (for execute)
+        string_replace_lsp: stringReplaceLspTool,
+        write_file: writeFileTool,
+        execute_command: executeCommandTool,
+        // Task tracking (for execute)
+        todo_write: todoWriteTool,
+        todo_check: todoCheckTool,
+    },
+    resolveModel,
+})
 
 // =============================================================================
 // Create Workspace with Skills
@@ -285,61 +338,118 @@ const skillPaths = collectSkillPaths([
 	claudeGlobalSkillsPath,
 ])
 
-// Create a single workspace with all discovered skill paths
-let workspace: Workspace | undefined
+// Create workspace with filesystem, sandbox, and skills
+const workspace = new Workspace({
+	id: "mastra-code-workspace",
+	name: "Mastra Code Workspace",
+	filesystem: new LocalFilesystem({
+		basePath: project.rootPath,
+	}),
+	sandbox: new LocalSandbox({
+		workingDirectory: project.rootPath,
+		env: process.env,
+	}),
+	...(skillPaths.length > 0 ? { skills: skillPaths } : {}),
+})
+
 if (skillPaths.length > 0) {
-	workspace = new Workspace({
-		id: "mastra-code-workspace",
-		name: "Mastra Code Workspace",
-		skills: skillPaths,
-	})
 	console.log(`Skills loaded from:`)
 	for (const p of skillPaths) {
 		console.log(`  - ${p}`)
 	}
 }
 
-// Create agent with dynamic model (uses opencode auth)
+// Create agent with dynamic model, dynamic prompt, and full toolset
 const codeAgent = new Agent({
 	id: "code-agent",
 	name: "Code Agent",
-	instructions: `You are a helpful coding assistant. You help users with their coding tasks.
+	instructions: ({ requestContext }) => {
+		const harnessContext = requestContext.get("harness") as
+			| HarnessRuntimeContext<typeof stateSchema>
+			| undefined
+		const state = harnessContext?.state
+		const modeId = harnessContext?.modeId ?? "build"
 
-You have access to tools to:
-- View files and directories (view tool)
-- Execute shell commands (execute_command tool)
-- Edit files with string replacement (string_replace_lsp tool)
+        const promptCtx: PromptContext = {
+            projectPath: state?.projectPath ?? project.rootPath,
+            projectName: state?.projectName ?? project.name,
+            gitBranch: state?.gitBranch ?? project.gitBranch,
+            platform: process.platform,
+            date: new Date().toISOString().split("T")[0],
+            mode: modeId,
+            activePlan: state?.activePlan ?? null,
+            // Add missing fields for PromptContext
+            modeId: modeId,
+            currentDate: new Date().toISOString().split("T")[0],
+            workingDir: state?.projectPath ?? project.rootPath,
+            state: state
+        }
 
-When the user asks you to do something:
-1. Use your tools to understand the codebase
-2. Make changes using the appropriate tools
-3. Verify your changes worked
-
-Be concise but thorough. Always use tools rather than just explaining what you would do.
-You are interacting with the user via a terminal UI, remember that and keep your responses short enough that they don't need to scroll their terminal every time you respond.`,
+        return buildFullPrompt(promptCtx)
+	},
 	model: getDynamicModel,
 	memory,
-	workspace,
+	workspace: ({ requestContext }) => {
+		const ctx = requestContext.get("harness") as
+			| HarnessRuntimeContext<typeof stateSchema>
+			| undefined
+		return ctx?.workspace ?? workspace
+	},
 	tools: ({ requestContext }) => {
 		const harnessContext = requestContext.get("harness") as
 			| HarnessRuntimeContext<typeof stateSchema>
 			| undefined
 		const modelId = harnessContext?.state?.currentModelId ?? ""
+		const modeId = harnessContext?.modeId ?? "build"
 		const isAnthropicModel = modelId.startsWith("anthropic/")
 
-		return {
-			view: viewTool,
-			execute_command: executeCommandTool,
-			string_replace_lsp: stringReplaceLspTool,
-			// Tavily search only for non-Anthropic models (Anthropic uses native web search)
-			...(!isAnthropicModel && webSearchTool
-				? { web_search: webSearchTool }
-				: {}),
-			// Tavily extract available for all models (no native Anthropic equivalent yet)
-			...(webExtractTool ? { web_extract: webExtractTool } : {}),
+		// Build tool set based on mode
+		// NOTE: Tool names "grep" and "glob" are reserved by Anthropic's OAuth
+		// validation (they match Claude Code's internal tools). We use
+		// "search_content" and "find_files" to avoid the collision.
+        const tools: Record<string, any> = {
+            // Read-only tools — always available
+            view: viewTool,
+            search_content: grepTool,
+            find_files: globTool,
+            // Subagent delegation — always available
+            subagent: subagentTool,
+            // Todo tracking — always available (planning tool, not a write tool)
+            todo_write: todoWriteTool,
+            todo_check: todoCheckTool,
+            // User interaction — always available
+            ask_user: askUserTool,
+        }
+
+        // Write tools — NOT available in plan mode
+        if (modeId !== "plan") {
+            tools.string_replace_lsp = stringReplaceLspTool
+            tools.ast_smart_edit = astSmartEditTool
+            tools.write_file = writeFileTool
+            tools.execute_command = executeCommandTool
+        }
+
+		// Plan submission — only available in plan mode
+		if (modeId === "plan") {
+			tools.submit_plan = submitPlanTool
 		}
+
+		// Web tools — conditional on model/API keys
+		if (!isAnthropicModel && webSearchTool) {
+			tools.web_search = webSearchTool
+		}
+		if (webExtractTool) {
+			tools.web_extract = webExtractTool
+		}
+
+		// MCP server tools — injected from connected servers
+		const mcpTools = mcpManager.getTools()
+		Object.assign(tools, mcpTools)
+
+		return tools
 	},
 })
+
 
 // =============================================================================
 // Anthropic Provider Tools (web search & fetch - zero implementation needed)
@@ -360,6 +470,25 @@ function getToolsets(
 }
 
 // =============================================================================
+// Create Hook Manager
+// =============================================================================
+const hookManager = new HookManager(project.rootPath, "session-init")
+
+if (hookManager.hasHooks()) {
+	const hookConfig = hookManager.getConfig()
+	const hookCount = Object.values(hookConfig).reduce(
+		(sum, hooks) => sum + (hooks?.length ?? 0),
+		0,
+	)
+	console.log(`Hooks: ${hookCount} hook(s) configured`)
+}
+
+// =============================================================================
+// Create MCP Manager
+// =============================================================================
+const mcpManager = new MCPManager(project.rootPath)
+
+// =============================================================================
 // Create Harness
 // =============================================================================
 const harness = new Harness({
@@ -373,6 +502,9 @@ const harness = new Harness({
 		gitBranch: project.gitBranch,
 	},
 	getToolsets,
+	workspace,
+	hookManager,
+	mcpManager,
 	modes: [
 		{
 			id: "build",
@@ -400,18 +532,58 @@ const harness = new Harness({
 	authStorage, // Share auth storage with Claude Max provider
 })
 
+// Keep omModelState in sync with harness state changes.
+// We listen for both explicit model changes and thread switches (which restore
+// persisted OM model preferences from thread metadata).
+harness.subscribe((event) => {
+	if (event.type === "om_model_changed") {
+		const { role, modelId } = event as { type: string; role: string; modelId: string }
+		if (role === "observer") omModelState.observerModelId = modelId
+		if (role === "reflector") omModelState.reflectorModelId = modelId
+	} else if (event.type === "thread_changed") {
+		// Thread switch restores OM model IDs from metadata — re-read from harness state
+		omModelState.observerModelId = harness.getObserverModelId()
+		omModelState.reflectorModelId = harness.getReflectorModelId()
+		// Keep hook manager session ID in sync
+		hookManager.setSessionId((event as any).threadId)
+	} else if (event.type === "thread_created") {
+		hookManager.setSessionId((event as any).thread.id)
+	}
+})
+
 // =============================================================================
 // Create and Run TUI
 // =============================================================================
 const tui = new MastraTUI({
 	harness,
-	workspace,
 	appName: "Mastra Code",
 	version: "0.1.0",
+	inlineQuestions: true,
 })
 
-// Run the TUI
-tui.run().catch((error) => {
-	console.error("Fatal error:", error)
-	process.exit(1)
+// Initialize MCP connections, then run the TUI
+;(async () => {
+	if (mcpManager.hasServers()) {
+		await mcpManager.init()
+		const statuses = mcpManager.getServerStatuses()
+		const connected = statuses.filter((s) => s.connected)
+		const failed = statuses.filter((s) => !s.connected)
+		const totalTools = connected.reduce((sum, s) => sum + s.toolCount, 0)
+		console.log(
+			`MCP: ${connected.length} server(s) connected, ${totalTools} tool(s)`,
+		)
+		for (const s of failed) {
+			console.log(`MCP: Failed to connect to "${s.name}": ${s.error}`)
+		}
+	}
+
+	tui.run().catch((error) => {
+		console.error("Fatal error:", error)
+		process.exit(1)
+	})
+})()
+
+// Clean up MCP connections on exit
+process.on("beforeExit", async () => {
+	await mcpManager.disconnect()
 })

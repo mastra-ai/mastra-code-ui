@@ -10,6 +10,8 @@ import {
   Box,
   Container,
   type Focusable,
+  fuzzyFilter,
+  getEditorKeybindings,
   Input,
   SelectList,
   type SelectItem,
@@ -17,6 +19,7 @@ import {
   SettingsList,
   Spacer,
   Text,
+  type TUI,
 } from "@mariozechner/pi-tui"
 import { fg, bg, bold, getSettingsListTheme, getSelectListTheme } from "../theme.js"
 
@@ -179,7 +182,15 @@ class ThresholdSubmenu extends Container {
 // =============================================================================
 
 class ModelSelectSubmenu extends Container {
-  private selectList: SelectList
+  private searchInput: Input
+  private listContainer: Container
+  private allModels: ModelOption[]
+  private filteredModels: ModelOption[]
+  private selectedIndex = 0
+  private currentModelId: string
+  private onSelect: (modelId: string) => void
+  private onCancel: () => void
+  private tui: TUI
 
   constructor(
     title: string,
@@ -187,39 +198,103 @@ class ModelSelectSubmenu extends Container {
     currentModelId: string,
     onSelect: (modelId: string) => void,
     onCancel: () => void,
+    tui: TUI,
   ) {
     super()
+    this.allModels = models
+    this.filteredModels = models
+    this.currentModelId = currentModelId
+    this.onSelect = onSelect
+    this.onCancel = onCancel
+    this.tui = tui
 
     this.addChild(new Text(bold(fg("accent", title)), 0, 0))
     this.addChild(new Spacer(1))
-    this.addChild(new Text(fg("muted", "Select a model for this role"), 0, 0))
+    this.addChild(new Text(fg("muted", "Type to search · ↑↓ navigate · Enter select · Esc back"), 0, 0))
     this.addChild(new Spacer(1))
 
-    const items: SelectItem[] = models.map((m) => ({
-      value: m.id,
-      label: m.label,
-    }))
+    this.searchInput = new Input()
+    this.addChild(this.searchInput)
+    this.addChild(new Spacer(1))
 
-    this.selectList = new SelectList(items, Math.min(items.length, 12), getSelectListTheme())
+    this.listContainer = new Container()
+    this.addChild(this.listContainer)
 
     // Pre-select current model
-    const currentIndex = items.findIndex((i) => i.value === currentModelId)
+    const currentIndex = models.findIndex((m) => m.id === currentModelId)
     if (currentIndex !== -1) {
-      this.selectList.setSelectedIndex(currentIndex)
+      this.selectedIndex = currentIndex
     }
 
-    this.selectList.onSelect = (item: SelectItem) => {
-      onSelect(item.value)
-    }
-    this.selectList.onCancel = onCancel
+    this.updateList()
+  }
 
-    this.addChild(this.selectList)
-    this.addChild(new Spacer(1))
-    this.addChild(new Text(fg("dim", "  Enter to select · Esc to go back"), 0, 0))
+  private filterModels(query: string): void {
+    this.filteredModels = query
+      ? fuzzyFilter(this.allModels, query, (m) => `${m.id} ${m.label}`)
+      : this.allModels
+
+    this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1))
+    this.updateList()
+  }
+
+  private updateList(): void {
+    this.listContainer.clear()
+
+    const maxVisible = 10
+    const total = this.filteredModels.length
+    const startIndex = Math.max(
+      0,
+      Math.min(this.selectedIndex - Math.floor(maxVisible / 2), total - maxVisible),
+    )
+    const endIndex = Math.min(startIndex + maxVisible, total)
+
+    for (let i = startIndex; i < endIndex; i++) {
+      const item = this.filteredModels[i]!
+      const isSelected = i === this.selectedIndex
+      const isCurrent = item.id === this.currentModelId
+      const checkmark = isCurrent ? fg("success", " ✓") : ""
+
+      const line = isSelected
+        ? fg("accent", `→ ${item.label}`) + checkmark
+        : `  ${item.label}` + checkmark
+
+      this.listContainer.addChild(new Text(line, 0, 0))
+    }
+
+    if (startIndex > 0 || endIndex < total) {
+      this.listContainer.addChild(new Text(fg("muted", `(${this.selectedIndex + 1}/${total})`), 0, 0))
+    }
+
+    if (total === 0) {
+      this.listContainer.addChild(new Text(fg("muted", "No matching models"), 0, 0))
+    }
   }
 
   handleInput(data: string): void {
-    this.selectList.handleInput(data)
+    const kb = getEditorKeybindings()
+    const total = this.filteredModels.length
+
+    if (kb.matches(data, "selectUp")) {
+      if (total === 0) return
+      this.selectedIndex = this.selectedIndex === 0 ? total - 1 : this.selectedIndex - 1
+      this.updateList()
+      this.tui.requestRender()
+    } else if (kb.matches(data, "selectDown")) {
+      if (total === 0) return
+      this.selectedIndex = this.selectedIndex === total - 1 ? 0 : this.selectedIndex + 1
+      this.updateList()
+      this.tui.requestRender()
+    } else if (kb.matches(data, "selectConfirm")) {
+      const selected = this.filteredModels[this.selectedIndex]
+      if (selected) this.onSelect(selected.id)
+    } else if (kb.matches(data, "selectCancel")) {
+      this.onCancel()
+    } else {
+      this.searchInput.handleInput(data)
+      this.filterModels(this.searchInput.getValue())
+      this.tui.requestRender()
+    }
   }
 }
 
@@ -243,6 +318,7 @@ export class OMSettingsComponent extends Box implements Focusable {
     config: OMSettingsConfig,
     callbacks: OMSettingsCallbacks,
     models: ModelOption[],
+    tui: TUI,
   ) {
     super(2, 1, (text: string) => bg("overlayBg", text))
 
@@ -268,6 +344,7 @@ export class OMSettingsComponent extends Box implements Focusable {
               done(getShortModelName(modelId))
             },
             () => done(),
+            tui,
           ),
       },
       {
@@ -286,6 +363,7 @@ export class OMSettingsComponent extends Box implements Focusable {
               done(getShortModelName(modelId))
             },
             () => done(),
+            tui,
           ),
       },
       {

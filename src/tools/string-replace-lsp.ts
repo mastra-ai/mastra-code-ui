@@ -9,8 +9,16 @@ import { truncateStringForTokenEstimate } from "../utils/token-estimator.js"
 
 export const stringReplaceLspTool = createTool({
 	id: "string_replace_lsp",
-	description:
-		"Replaces text in a file with fuzzy matching and LSP diagnostics",
+    description: `Edit a file by replacing exact text matches. Returns Language Server Protocol (LSP) diagnostics to show any errors/warnings introduced by your edit.
+
+Usage notes:
+- You MUST use the view tool to read a file before editing it. Never edit blind.
+- old_str must be an exact substring of the file's current content. Include enough surrounding context to uniquely identify the location.
+- If old_str is not found or matches multiple locations, the edit will fail. Provide more context to disambiguate.
+- new_str replaces old_str. If new_str is omitted or empty, old_str is deleted.
+- Use start_line to narrow the search to a specific region of the file.
+- After editing, real LSP diagnostics are returned (TypeScript errors, linting warnings, etc).
+- For creating NEW files, use the write_file tool instead.`,
 	// requireApproval: true, // TODO: re-enable when Mastra workflow suspension is stable
 	inputSchema: z.object({
 		path: z.string(),

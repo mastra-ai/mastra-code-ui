@@ -23,6 +23,7 @@
 		"@mariozechner/pi-tui": "^0.50.1",
 		"@mastra/core": "0.0.0-om-20260130230833",
 		"@mastra/libsql": "0.0.0-om-20260130230833",
+		"@mastra/mcp": "0.0.0-om-20260130230833",
 		"@mastra/memory": "0.0.0-om-20260130230833",
 		"@tavily/core": "^0.7.1",
 		"ai": "^6.0.50",
@@ -39,6 +40,7 @@
 		"zod": "^3.24.0"
 	},
 	"devDependencies": {
+		"@ast-grep/napi": "^0.40.5",
 		"@types/chalk": "^2.2.4",
 		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^25.0.10",

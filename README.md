@@ -38,6 +38,7 @@ Simply type your message and press Enter. The agent will respond with streaming 
 | `/new` | Start a new conversation thread |
 | `/threads` | List all threads for this project |
 | `/models` | Select a different AI model |
+| `/cost` | Show token usage for current conversation |
 | `/login` | Authenticate with OAuth providers |
 | `/logout` | Log out from a provider |
 | `/help` | Show available commands |

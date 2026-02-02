@@ -3,8 +3,12 @@
  */
 
 import { Editor, matchesKey, type EditorTheme, type TUI } from "@mariozechner/pi-tui"
+import { getClipboardImage, type ClipboardImage } from "../../clipboard/index.js"
 
-export type AppAction = 
+const PASTE_START = "\x1b[200~"
+const PASTE_END = "\x1b[201~"
+
+export type AppAction =
   | "clear"      // Ctrl+C - interrupt
   | "exit"       // Ctrl+D - exit when empty
   | "suspend"    // Ctrl+Z - suspend
@@ -19,6 +23,12 @@ export class CustomEditor extends Editor {
   /** Handler for Ctrl+D when editor is empty */
   public onCtrlD?: () => void
 
+  /** Called when clipboard image data is pasted */
+  public onImagePaste?: (image: ClipboardImage) => void
+
+  /** Tracks when we're swallowing paste content that was intercepted as an image */
+  private _imagePasteIntercepted = false
+
   constructor(tui: TUI, theme: EditorTheme) {
     super(tui, theme)
   }
@@ -31,6 +41,36 @@ export class CustomEditor extends Editor {
   }
 
   handleInput(data: string): void {
+    // If we intercepted a paste as image, swallow remaining paste data
+    if (this._imagePasteIntercepted) {
+      if (data.includes(PASTE_END)) {
+        this._imagePasteIntercepted = false
+        const afterPaste = data.substring(data.indexOf(PASTE_END) + PASTE_END.length)
+        if (afterPaste.length > 0) {
+          this.handleInput(afterPaste)
+        }
+      }
+      return
+    }
+
+    // Detect paste start → check clipboard for image
+    if (data.includes(PASTE_START) && this.onImagePaste) {
+      const clipboardImage = getClipboardImage()
+      if (clipboardImage) {
+        this.onImagePaste(clipboardImage)
+        // Swallow the paste text content
+        if (data.includes(PASTE_END)) {
+          const afterPaste = data.substring(data.indexOf(PASTE_END) + PASTE_END.length)
+          if (afterPaste.length > 0) {
+            this.handleInput(afterPaste)
+          }
+        } else {
+          this._imagePasteIntercepted = true
+        }
+        return
+      }
+    }
+
     // Ctrl+C - interrupt
     if (matchesKey(data, "ctrl+c")) {
       const handler = this.actionHandlers.get("clear")
