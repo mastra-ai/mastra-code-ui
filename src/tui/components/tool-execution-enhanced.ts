@@ -13,6 +13,7 @@ import {
   CollapsibleCommandOutput 
 } from "./collapsible.js"
 import type { IToolExecutionComponent, ToolResult } from "./tool-execution-interface.js"
+import { ErrorDisplayComponent } from "./error-display.js"
 
 export type { ToolResult }
 
@@ -163,6 +164,11 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
    * - initial construction
    */
   private rebuild(): void {
+    console.error("[DEBUG] ToolExecutionEnhanced.rebuild() called", {
+      toolName: this.toolName,
+      isError: this.result?.isError,
+      hasResult: !!this.result
+    })
     this.updateBgColor()
     this.contentBox.clear()
     this.collapsible = undefined
@@ -236,16 +242,35 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
       return
     }
 
+    // For errors, use enhanced error display
+    if (this.result.isError) {
+      const status = theme.fg("error", " ✗")
+      const header = `${theme.fg("toolTitle", theme.bold(`$ ${command}`))}${cwdSuffix}${timeoutSuffix}${status}`
+      this.renderErrorResult(header)
+      return
+    }
+    
+    // Also check if output contains common error patterns
+    const outputText = this.getFormattedOutput()
+    const looksLikeError = outputText.match(/Error:|TypeError:|SyntaxError:|ReferenceError:|command not found|fatal:|error:/i)
+    if (looksLikeError) {
+      console.error("[DEBUG] Detected error pattern in output, using enhanced display")
+      const status = theme.fg("error", " ✗")
+      const header = `${theme.fg("toolTitle", theme.bold(`$ ${command}`))}${cwdSuffix}${timeoutSuffix}${status}`
+      this.renderErrorResult(header)
+      return
+    }
+
     const output = this.getFormattedOutput()
-    const exitCode = this.result.isError ? 1 : 0 // TODO: Get actual exit code
+    const exitCode = 0
     
     this.collapsible = new CollapsibleCommandOutput(
       `${command}${cwdSuffix}${timeoutSuffix}`,
       output,
       exitCode,
       { 
-        expanded: this.expanded || this.result.isError,
-        collapsedLines: this.result.isError ? 30 : 10
+        expanded: this.expanded,
+        collapsedLines: 10
       },
       this.ui
     )
@@ -282,13 +307,10 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
       this.contentBox.addChild(this.collapsible)
     } else {
       // Show error or generic output
-      this.contentBox.addChild(new Text(header, 0, 0))
       if (this.result.isError) {
-        const output = this.getFormattedOutput()
-        if (output) {
-          this.contentBox.addChild(new Text("", 0, 0))
-          this.contentBox.addChild(new Text(theme.fg("error", output), 0, 0))
-        }
+        this.renderErrorResult(header)
+      } else {
+        this.contentBox.addChild(new Text(header, 0, 0))
       }
     }
   }
@@ -361,12 +383,18 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
       return
     }
 
+    // Use enhanced error display for errors
+    if (this.result.isError) {
+      this.renderErrorResult(header)
+      return
+    }
+
     const output = this.getFormattedOutput()
     if (output) {
       this.collapsible = new CollapsibleComponent({
         header,
-        expanded: this.expanded || this.result.isError,
-        collapsedLines: this.result.isError ? 30 : 10,
+        expanded: this.expanded,
+        collapsedLines: 10,
         expandedLines: 200,
         showLineCount: true
       }, this.ui)
@@ -397,5 +425,62 @@ export class ToolExecutionComponentEnhanced extends Container implements IToolEx
     const { content } = extractContent(textContent)
     // Remove excessive blank lines while preserving intentional formatting
     return content.trim().replace(/\n\s*\n\s*\n/g, '\n\n')
+  }
+
+  /**
+   * Render an error result using the enhanced error display component
+   */
+  private renderErrorResult(header: string): void {
+    if (!this.result) return
+
+    // First add the header
+    this.contentBox.addChild(new Text(header, 0, 0))
+    
+    // Extract error text from result
+    const errorText = this.result.content
+      .filter((c) => c.type === "text" && c.text)
+      .map((c) => c.text!)
+      .join("\n")
+
+    if (!errorText) return
+
+    console.error("[DEBUG] renderErrorResult called with error text:", errorText.substring(0, 100))
+
+    // Try to parse as an error object
+    let error: Error | string = errorText
+    try {
+      const { content } = extractContent(errorText)
+      error = content
+      
+      // Try to create an Error object with better structure
+      const errorMatch = content.match(/^([A-Z][a-zA-Z]*Error):\s*(.+)$/m)
+      if (errorMatch) {
+        const err = new Error(errorMatch[2])
+        err.name = errorMatch[1]
+        // Try to extract stack trace
+        const stackMatch = content.match(/\n\s+at\s+.+/g)
+        if (stackMatch) {
+          err.stack = `${err.name}: ${err.message}\n${stackMatch.join("\n")}`
+        }
+        error = err
+      }
+    } catch {
+      // Keep as string
+    }
+
+    // Create error display component
+    console.error("[DEBUG] Creating ErrorDisplayComponent with error:", error)
+    const errorDisplay = new ErrorDisplayComponent(
+      error,
+      {
+        showStack: true,
+        showContext: true,
+        expanded: this.expanded
+      },
+      this.ui
+    )
+
+    console.error("[DEBUG] Adding ErrorDisplayComponent to contentBox")
+    this.contentBox.addChild(errorDisplay)
   }
 }

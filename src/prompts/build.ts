@@ -2,6 +2,30 @@
  * Build mode prompt — full tool access, make changes and verify.
  */
 
+import type { PromptContext } from "./base.js"
+
+/**
+ * Dynamic build mode prompt function.
+ * When an approved plan exists in state, prepends it so the agent
+ * knows exactly what to implement.
+ */
+export function buildModePromptFn(ctx: PromptContext): string {
+	if (ctx.activePlan) {
+		return `# Approved Plan
+
+**${ctx.activePlan.title}**
+
+${ctx.activePlan.plan}
+
+---
+
+Implement the approved plan above. Follow the steps in order and verify each step works before moving on.
+
+` + buildModePrompt
+	}
+	return buildModePrompt
+}
+
 export const buildModePrompt = `
 # Build Mode
 

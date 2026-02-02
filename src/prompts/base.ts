@@ -10,6 +10,7 @@ export interface PromptContext {
     platform: string
     date: string
     mode: string
+    activePlan?: { title: string; plan: string; approvedAt: string } | null
 }
 
 export function buildBasePrompt(ctx: PromptContext): string {
@@ -82,6 +83,12 @@ You have access to the following tools. Use the RIGHT tool for the job:
 - Returns the number of completed, in progress, and pending tasks.
 - If any tasks remain incomplete, continue working on them.
 - IMPORTANT: Always check todo completion before ending work on a complex task.
+
+**ask_user** — Ask the user a structured question
+- Use when you need clarification, want to validate assumptions, or need the user to make a decision.
+- Provide clear, specific questions. End with a question mark.
+- Include options (2-4 choices) for structured decisions. Omit options for open-ended questions.
+- Don't use this for simple yes/no — just ask in your text response.
 
 # How to Work on Tasks
 

@@ -39,12 +39,6 @@ Returns:
             }> }
 
             const todos = typedState.todos || []
-            
-            // Debug: Log the actual todos to help diagnose state issues
-            console.error('[todo_check] HarnessCtx exists:', !!harnessCtx)
-            console.error('[todo_check] Using live state:', !!harnessCtx.getState)
-            console.error('[todo_check] Current todos:', JSON.stringify(todos, null, 2))
-            console.error('[todo_check] Todos length:', todos.length)
 
             if (todos.length === 0) {
                 return {

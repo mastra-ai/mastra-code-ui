@@ -3,17 +3,17 @@
  */
 
 export { buildBasePrompt, type PromptContext } from "./base.js"
-export { buildModePrompt } from "./build.js"
+export { buildModePrompt, buildModePromptFn } from "./build.js"
 export { planModePrompt } from "./plan.js"
 export { fastModePrompt } from "./fast.js"
 
 import { buildBasePrompt, type PromptContext } from "./base.js"
-import { buildModePrompt } from "./build.js"
+import { buildModePromptFn } from "./build.js"
 import { planModePrompt } from "./plan.js"
 import { fastModePrompt } from "./fast.js"
 
-const modePrompts: Record<string, string> = {
-	build: buildModePrompt,
+const modePrompts: Record<string, string | ((ctx: PromptContext) => string)> = {
+	build: buildModePromptFn,
 	plan: planModePrompt,
 	fast: fastModePrompt,
 }
@@ -24,6 +24,7 @@ const modePrompts: Record<string, string> = {
  */
 export function buildFullPrompt(mode: string, ctx: PromptContext): string {
 	const base = buildBasePrompt(ctx)
-	const modeSpecific = modePrompts[mode] || modePrompts.build
+	const entry = modePrompts[mode] || modePrompts.build
+	const modeSpecific = typeof entry === "function" ? entry(ctx) : entry
 	return base + "\n" + modeSpecific
 }

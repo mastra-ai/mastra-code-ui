@@ -45,10 +45,15 @@ For each step:
 - What could go wrong
 
 ## When Done
-Present your plan to the user. They will either:
-- Approve it and switch to Build mode for execution.
-- Ask for revisions.
-- Reject it and ask for a different approach.
 
-Do NOT start implementing until the user approves the plan.
+When your plan is complete, call the \`submit_plan\` tool with:
+- **title**: A short descriptive title (e.g., "Add dark mode toggle")
+- **plan**: The full plan in markdown, using the structure above (Overview, Complexity, Steps, Verification)
+
+The user will see the plan rendered inline and can:
+- **Approve** — automatically switches to Build mode for implementation
+- **Reject** — stays in Plan mode
+- **Request changes** — provides feedback for you to revise and resubmit
+
+Do NOT start implementing until the plan is approved. If rejected with feedback, revise the plan and call \`submit_plan\` again.
 `

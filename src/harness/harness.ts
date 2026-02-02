@@ -98,8 +98,13 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private workspace: Workspace | undefined = undefined
 	private workspaceInitialized = false
 	private hookManager: import("../hooks/index.js").HookManager | undefined
+	private mcpManager: import("../mcp/index.js").MCPManager | undefined
 	private pendingDeclineToolCallId: string | null = null
 	private pendingQuestions = new Map<string, (answer: string) => void>()
+	private pendingPlanApprovals = new Map<
+		string,
+		(result: { action: "approved" | "rejected"; feedback?: string }) => void
+	>()
 	private tokenUsage: {
 		promptTokens: number
 		completionTokens: number
@@ -131,8 +136,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			this.workspace = config.workspace
 		}
 
-		// Store hook manager
+		// Store hook manager and MCP manager
 		this.hookManager = config.hookManager
+		this.mcpManager = config.mcpManager
 
 		// Seed model from mode default or global last model if not set
 		const currentModel = (this.state as any).currentModelId
@@ -328,6 +334,13 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	}
 
 	/**
+	 * Get the MCP manager (if configured).
+	 */
+	getMcpManager(): import("../mcp/index.js").MCPManager | undefined {
+		return this.mcpManager
+	}
+
+	/**
 	 * Register a pending question resolver.
 	 * Called by the ask_user tool to register a promise resolver
 	 * that will be resolved when the user answers in the TUI.
@@ -346,6 +359,38 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			this.pendingQuestions.delete(questionId)
 			resolve(answer)
 		}
+	}
+
+	/**
+	 * Register a pending plan approval resolver.
+	 * Called by the submit_plan tool to register a promise resolver.
+	 */
+	registerPlanApproval(
+		planId: string,
+		resolve: (result: { action: "approved" | "rejected"; feedback?: string }) => void,
+	): void {
+		this.pendingPlanApprovals.set(planId, resolve)
+	}
+
+	/**
+	 * Respond to a pending plan approval.
+	 * On approval: switches to Build mode, then resolves the promise.
+	 * On rejection: resolves with feedback (stays in Plan mode).
+	 */
+	async respondToPlanApproval(
+		planId: string,
+		response: { action: "approved" | "rejected"; feedback?: string },
+	): Promise<void> {
+		const resolve = this.pendingPlanApprovals.get(planId)
+		if (!resolve) return
+
+		this.pendingPlanApprovals.delete(planId)
+
+		if (response.action === "approved") {
+			await this.switchMode("build")
+		}
+
+		resolve(response)
 	}
 
 	/**
@@ -1271,7 +1316,23 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				}
 			}
 
-            const response = await agent.stream(content, streamOptions as any)
+            // Build message input: multimodal if images present, string otherwise
+            let messageInput: string | Record<string, unknown> = content
+            if (options?.images?.length) {
+                messageInput = {
+                    role: "user",
+                    content: [
+                        { type: "text", text: content },
+                        ...options.images.map(img => ({
+                            type: "file",
+                            data: img.data,
+                            mediaType: img.mimeType,
+                        })),
+                    ],
+                }
+            }
+
+            const response = await agent.stream(messageInput as any, streamOptions as any)
             // Process the stream
             const lastMessage = await this.processStream(response)
 
@@ -2138,6 +2199,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
             workspace: this.workspace,
             emitEvent: (event) => this.emit(event),
             registerQuestion: (questionId, resolve) => this.registerQuestion(questionId, resolve),
+            registerPlanApproval: (planId, resolve) => this.registerPlanApproval(planId, resolve),
         }
         return new RequestContext([["harness", harnessContext]])
     }

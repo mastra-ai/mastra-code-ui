@@ -27,6 +27,9 @@ export type ThemeColor =
   | "toolBorderPending"
   | "toolBorderSuccess"
   | "toolBorderError"
+  | "function"
+  | "path"
+  | "number"
 
 export type ThemeBg =
   | "selectedBg"
@@ -35,6 +38,7 @@ export type ThemeBg =
   | "toolSuccessBg"
   | "toolErrorBg"
   | "overlayBg"
+  | "errorBg"
 
 export interface ThemeColors {
   // Core UI
@@ -65,6 +69,11 @@ export interface ThemeColors {
   selectedBg: string
   // Overlays
   overlayBg: string
+  // Error display
+  errorBg: string
+  path: string
+  number: string
+  function: string
 }
 
 // =============================================================================
@@ -96,6 +105,11 @@ const darkTheme: ThemeColors = {
   toolBorderError: "#ef4444",    // Red for error
   toolTitle: "#a78bfa",
   toolOutput: "#d4d4d8",
+  // Error display
+  errorBg: "#291415",      // Slightly lighter than toolErrorBg for contrast
+  path: "#9ca3af",         // Gray for file paths
+  number: "#fbbf24",       // Yellow for line numbers
+  function: "#60a5fa",     // Light blue for function names
   // Selection
   selectedBg: "#3f3f46",
   // Overlays

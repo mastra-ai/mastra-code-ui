@@ -25,6 +25,7 @@ import {
 } from "./providers/openai-codex.js"
 import { AuthStorage } from "./auth/storage.js"
 import { HookManager } from "./hooks/index.js"
+import { MCPManager } from "./mcp/index.js"
 import { detectProject, getDatabasePath } from "./utils/project.js"
 import { startGatewaySync } from "./utils/gateway-sync.js"
 import {
@@ -40,6 +41,7 @@ import {
     todoWriteTool,
     todoCheckTool,
     askUserTool,
+    submitPlanTool,
 } from "./tools/index.js"
 import { buildFullPrompt, type PromptContext } from "./prompts/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
@@ -102,6 +104,15 @@ const stateSchema = z.object({
 			}),
 		)
 		.default([]),
+	// Active plan (set when a plan is approved in Plan mode)
+	activePlan: z
+		.object({
+			title: z.string(),
+			plan: z.string(),
+			approvedAt: z.string(),
+		})
+		.nullable()
+		.default(null),
 })
 
 // =============================================================================
@@ -363,6 +374,7 @@ const codeAgent = new Agent({
 			platform: process.platform,
 			date: new Date().toISOString().split("T")[0],
 			mode: modeId,
+			activePlan: state?.activePlan ?? null,
 		}
 
 		return buildFullPrompt(modeId, promptCtx)
@@ -408,6 +420,11 @@ const codeAgent = new Agent({
 			tools.execute_command = executeCommandTool
 		}
 
+		// Plan submission — only available in plan mode
+		if (modeId === "plan") {
+			tools.submit_plan = submitPlanTool
+		}
+
 		// Web tools — conditional on model/API keys
 		if (!isAnthropicModel && webSearchTool) {
 			tools.web_search = webSearchTool
@@ -415,6 +432,10 @@ const codeAgent = new Agent({
 		if (webExtractTool) {
 			tools.web_extract = webExtractTool
 		}
+
+		// MCP server tools — injected from connected servers
+		const mcpTools = mcpManager.getTools()
+		Object.assign(tools, mcpTools)
 
 		return tools
 	},
@@ -454,6 +475,11 @@ if (hookManager.hasHooks()) {
 }
 
 // =============================================================================
+// Create MCP Manager
+// =============================================================================
+const mcpManager = new MCPManager(project.rootPath)
+
+// =============================================================================
 // Create Harness
 // =============================================================================
 const harness = new Harness({
@@ -469,6 +495,7 @@ const harness = new Harness({
 	getToolsets,
 	workspace,
 	hookManager,
+	mcpManager,
 	modes: [
 		{
 			id: "build",
@@ -522,10 +549,32 @@ const tui = new MastraTUI({
 	harness,
 	appName: "Mastra Code",
 	version: "0.1.0",
+	inlineQuestions: true,
 })
 
-// Run the TUI
-tui.run().catch((error) => {
-	console.error("Fatal error:", error)
-	process.exit(1)
+// Initialize MCP connections, then run the TUI
+;(async () => {
+	if (mcpManager.hasServers()) {
+		await mcpManager.init()
+		const statuses = mcpManager.getServerStatuses()
+		const connected = statuses.filter((s) => s.connected)
+		const failed = statuses.filter((s) => !s.connected)
+		const totalTools = connected.reduce((sum, s) => sum + s.toolCount, 0)
+		console.log(
+			`MCP: ${connected.length} server(s) connected, ${totalTools} tool(s)`,
+		)
+		for (const s of failed) {
+			console.log(`MCP: Failed to connect to "${s.name}": ${s.error}`)
+		}
+	}
+
+	tui.run().catch((error) => {
+		console.error("Fatal error:", error)
+		process.exit(1)
+	})
+})()
+
+// Clean up MCP connections on exit
+process.on("beforeExit", async () => {
+	await mcpManager.disconnect()
 })

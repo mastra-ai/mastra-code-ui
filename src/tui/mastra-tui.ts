@@ -52,6 +52,8 @@ import {
 	formatReflectionStatus,
 } from "./components/om-progress.js"
 import { AskQuestionDialogComponent } from "./components/ask-question-dialog.js"
+import { AskQuestionInlineComponent } from "./components/ask-question-inline.js"
+import { PlanApprovalInlineComponent } from "./components/plan-approval-inline.js"
 import { ToolApprovalDialogComponent } from "./components/tool-approval-dialog.js"
 import { ToolExecutionComponentEnhanced, type ToolResult } from "./components/tool-execution-enhanced.js"
 import type { IToolExecutionComponent } from "./components/tool-execution-interface.js"
@@ -91,8 +93,11 @@ export interface MastraTUIOptions {
 	/** App name for header */
 	appName?: string
 
-	/** App version for header */
-	version?: string
+    /** App version for header */
+    version?: string
+    
+    /** Use inline questions instead of dialog overlays */
+    inlineQuestions?: boolean
 }
 
 // =============================================================================
@@ -111,18 +116,19 @@ export class MastraTUI {
 	private editor: CustomEditor
 	private footer: Container
 
-	// State tracking
-	private isInitialized = false
-	private loadingAnimation?: Loader
-	private streamingComponent?: AssistantMessageComponent
-	private streamingMessage?: HarnessMessage
+    // State tracking
+    private isInitialized = false
+    private loadingAnimation?: Loader
+    private streamingComponent?: AssistantMessageComponent
+    private streamingMessage?: HarnessMessage
     private pendingTools = new Map<string, IToolExecutionComponent>()
     private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
     private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
     private pendingSubagents = new Map<string, SubagentExecutionComponent>() // Track active subagent tasks
-	private toolOutputExpanded = false
-	private hideThinkingBlock = true
-	private pendingNewThread = false // True when we want a new thread but haven't created it yet
+    private toolOutputExpanded = false
+    private hideThinkingBlock = true
+    private pendingNewThread = false // True when we want a new thread but haven't created it yet
+    private lastAskUserComponent?: IToolExecutionComponent // Track the most recent ask_user tool for inline question placement
 
 	// Status line state
 	private projectInfo: ProjectInfo
@@ -153,14 +159,24 @@ export class MastraTUI {
 	// Autocomplete
 	private autocompleteProvider?: CombinedAutocompleteProvider
 
-	// Custom slash commands
-	private customSlashCommands: SlashCommandMetadata[] = []
+    // Custom slash commands
+    private customSlashCommands: SlashCommandMetadata[] = []
 
-	// Workspace (for skills)
-	private workspace?: Workspace
+    // Pending images from clipboard paste
+    private pendingImages: Array<{ data: string; mimeType: string }> = []
 
-	// Ctrl+C double-tap tracking
-	private lastCtrlCTime = 0
+    // Workspace (for skills)
+    private workspace?: Workspace
+    
+    // Active inline question component
+    private activeInlineQuestion?: AskQuestionInlineComponent
+
+    // Active inline plan approval component
+    private activeInlinePlanApproval?: PlanApprovalInlineComponent
+    private lastSubmitPlanComponent?: IToolExecutionComponent
+
+    // Ctrl+C double-tap tracking
+    private lastCtrlCTime = 0
 	private static readonly DOUBLE_CTRL_C_MS = 500
 
 	// Event handling
@@ -186,9 +202,34 @@ export class MastraTUI {
 		this.editorContainer = new Container()
 		this.footer = new Container()
 
-		// Create editor with custom keybindings
-		this.editor = new CustomEditor(this.ui, getEditorTheme())
-		this.setupKeyboardShortcuts()
+        // Create editor with custom keybindings
+        this.editor = new CustomEditor(this.ui, getEditorTheme())
+        
+        // Override editor input handling to check for active inline components
+        const originalHandleInput = this.editor.handleInput.bind(this.editor)
+        this.editor.handleInput = (data: string) => {
+            // If there's an active plan approval, route input to it
+            if (this.activeInlinePlanApproval) {
+                this.activeInlinePlanApproval.handleInput(data)
+                return
+            }
+            // If there's an active inline question, route input to it
+            if (this.activeInlineQuestion) {
+                this.activeInlineQuestion.handleInput(data)
+                return
+            }
+            // Otherwise, handle normally
+            originalHandleInput(data)
+        }
+        
+        // Wire clipboard image paste
+        this.editor.onImagePaste = (image) => {
+            this.pendingImages.push(image)
+            this.editor.insertTextAtCursor?.("[image] ")
+            this.ui.requestRender()
+        }
+
+        this.setupKeyboardShortcuts()
 	}
 
 	/**
@@ -206,6 +247,9 @@ export class MastraTUI {
 			this.lastCtrlCTime = now
 
 			if (this.harness.isRunning()) {
+				// Clean up active inline components on abort
+				this.activeInlinePlanApproval = undefined
+				this.activeInlineQuestion = undefined
 				this.harness.abort()
 			} else {
 				this.editor.setText("")
@@ -228,7 +272,6 @@ export class MastraTUI {
         // Ctrl+E - expand/collapse tool outputs
         this.editor.onAction("expandTools", () => {
             this.toolOutputExpanded = !this.toolOutputExpanded
-            console.error(`[DEBUG] Ctrl+E toggled. Expanded: ${this.toolOutputExpanded}, Tool count: ${this.allToolComponents.length}`)
             for (const tool of this.allToolComponents) {
                 tool.setExpanded(this.toolOutputExpanded)
             }
@@ -237,6 +280,12 @@ export class MastraTUI {
 
 		// Shift+Tab - cycle harness modes
 		this.editor.onAction("cycleMode", async () => {
+			// Block mode switching while plan approval is active
+			if (this.activeInlinePlanApproval) {
+				this.showInfo("Resolve the plan approval first")
+				return
+			}
+
 			const modes = this.harness.getModes()
 			if (modes.length <= 1) return
 
@@ -323,11 +372,22 @@ export class MastraTUI {
 					continue
 				}
 
+				// Collect any pending images from clipboard paste
+				const images = this.pendingImages.length > 0 ? [...this.pendingImages] : undefined
+				this.pendingImages = []
+
 				// Add user message to chat immediately
 				this.addUserMessage({
 					id: `user-${Date.now()}`,
 					role: "user",
-					content: [{ type: "text", text: userInput }],
+					content: [
+						{ type: "text", text: userInput },
+						...(images?.map(img => ({
+							type: "image" as const,
+							data: img.data,
+							mimeType: img.mimeType,
+						})) ?? []),
+					],
 					createdAt: new Date(),
 				})
 				this.ui.requestRender()
@@ -341,7 +401,7 @@ export class MastraTUI {
 					})
 				} else {
 					// Normal send — fire and forget; events handle the rest
-					this.fireMessage(userInput)
+					this.fireMessage(userInput, images)
 				}
 			} catch (error) {
 				this.showError(error instanceof Error ? error.message : "Unknown error")
@@ -353,8 +413,8 @@ export class MastraTUI {
 	 * Fire off a message without blocking the main loop.
 	 * Errors are handled via harness events.
 	 */
-	private fireMessage(content: string): void {
-		this.harness.sendMessage(content).catch((error) => {
+	private fireMessage(content: string, images?: Array<{ data: string; mimeType: string }>): void {
+		this.harness.sendMessage(content, images ? { images } : undefined).catch((error) => {
 			this.showError(error instanceof Error ? error.message : "Unknown error")
 		})
 	}
@@ -439,15 +499,13 @@ export class MastraTUI {
             const state = this.harness.getState() as { todos?: TodoItem[] }
             const todos = state.todos || []
             
-            if (todos.length > 0) {
-                // Create and display the todo progress component
-                this.todoProgress = new TodoProgressComponent()
+            if (todos.length > 0 && this.todoProgress) {
+                // Update the existing todo progress component
                 this.todoProgress.updateTodos(todos)
-                this.chatContainer.addChild(this.todoProgress)
                 this.ui.requestRender()
             }
         } catch (error) {
-            console.error('[TUI] Failed to render existing todos:', error)
+            // Silently ignore todo rendering errors
         }
     }
 
@@ -692,24 +750,32 @@ ${instructions}`,
 			}
 		}
 
-		// Full model ID (provider/model) with auth warning
-		const modelId = this.harness.getFullModelId()
-		if (!this.modelAuthStatus.hasAuth) {
-			const envVar = this.modelAuthStatus.apiKeyEnvVar
-			agentParts.push(
-				modelId +
-					fg("error", " ✗") +
-					fg("muted", envVar ? ` (${envVar})` : " (no key)"),
-			)
-		} else {
-			agentParts.push(modelId)
-		}
+        // Full model ID (provider/model) with auth warning
+        const modelId = this.harness.getFullModelId()
+        if (!this.modelAuthStatus.hasAuth) {
+            const envVar = this.modelAuthStatus.apiKeyEnvVar
+            agentParts.push(
+                modelId +
+                    fg("error", " ✗") +
+                    fg("muted", envVar ? ` (${envVar})` : " (no key)"),
+            )
+        } else {
+            agentParts.push(modelId)
+        }
 
-		// Thinking level (only show for Anthropic models when not "off")
-		const thinkingLevel = this.harness.getThinkingLevel()
-		if (thinkingLevel !== "off" && modelId.startsWith("anthropic/")) {
-			agentParts.push(`think: ${thinkingLevel}`)
-		}
+        // Token usage (only show if > 0)
+        if (this.tokenUsage.totalTokens > 0) {
+            const formatNumber = (n: number) => n.toLocaleString()
+            agentParts.push(
+                `[${formatNumber(this.tokenUsage.promptTokens)}/${formatNumber(this.tokenUsage.completionTokens)}]`
+            )
+        }
+
+        // Thinking level (only show for Anthropic models when not "off")
+        const thinkingLevel = this.harness.getThinkingLevel()
+        if (thinkingLevel !== "off" && modelId.startsWith("anthropic/")) {
+            agentParts.push(`think: ${thinkingLevel}`)
+        }
 
 		this.statusLine.setText(modeBadge + fg("dim", agentParts.join(" │ ")))
 
@@ -741,6 +807,7 @@ ${instructions}`,
             { name: "cost", description: "Show token usage and estimated costs" },
             { name: "logout", description: "Logout from OAuth provider" },
             { name: "hooks", description: "Show/reload configured hooks" },
+            { name: "mcp", description: "Show/reload MCP server connections" },
             { name: "exit", description: "Exit the TUI" },
             { name: "help", description: "Show available commands" },
         ]
@@ -809,11 +876,11 @@ ${instructions}`,
 			this.harness.abort()
 		})
 
-		// Use onDebug callback for Shift+Ctrl+D
-		this.ui.onDebug = () => {
-			// Toggle debug mode or show debug info
-			console.log("Debug mode triggered")
-		}
+        // Use onDebug callback for Shift+Ctrl+D
+        this.ui.onDebug = () => {
+            // Toggle debug mode or show debug info
+            // Currently unused - could add debug panel in future
+        }
 	}
 
 	private setupEditorSubmitHandler(): void {
@@ -1020,6 +1087,7 @@ ${instructions}`,
                     event.toolCallId,
                     event.isError,
                     event.durationMs,
+                    event.result,
                 )
                 break
 
@@ -1037,20 +1105,28 @@ ${instructions}`,
 					event.options,
 				)
 				break
+
+			case "plan_approval_required":
+				await this.handlePlanApproval(
+					event.planId,
+					event.title,
+					event.plan,
+				)
+				break
         }
     }
 
-	private handleUsageUpdate(usage: TokenUsage): void {
-		// Accumulate token usage
-		this.tokenUsage.promptTokens += usage.promptTokens
-		this.tokenUsage.completionTokens += usage.completionTokens
-		this.tokenUsage.totalTokens += usage.totalTokens
-		this.updateStatusLine()
-	}
+    private handleUsageUpdate(usage: TokenUsage): void {
+        // Accumulate token usage
+        this.tokenUsage.promptTokens += usage.promptTokens
+        this.tokenUsage.completionTokens += usage.completionTokens
+        this.tokenUsage.totalTokens += usage.totalTokens
+        this.updateStatusLine()
+    }
 
-	// ===========================================================================
-	// Status Line Reset
-	// ===========================================================================
+    // ===========================================================================
+    // Status Line Reset
+    // ===========================================================================
 
 	/**
 	 * Sync omProgress thresholds from harness state (thread metadata).
@@ -1359,6 +1435,10 @@ ${instructions}`,
 		if (message.role === "user") {
 			this.addUserMessage(message)
 		} else if (message.role === "assistant") {
+			// Clear tool component references when starting a new assistant message
+			this.lastAskUserComponent = undefined
+			this.lastSubmitPlanComponent = undefined
+			
 			if (!this.streamingComponent) {
 				this.streamingComponent = new AssistantMessageComponent(
 					undefined,
@@ -1500,6 +1580,19 @@ ${instructions}`,
             this.chatContainer.addChild(component)
             this.pendingTools.set(toolCallId, component)
             this.allToolComponents.push(component)
+            
+            // Track ask_user tool components for inline question placement
+            if (toolName === "ask_user") {
+                this.lastAskUserComponent = component
+                if (this.options.verbose) {
+                    console.error(`[DEBUG] Tracking ask_user tool component`)
+                }
+            }
+
+            // Track submit_plan tool components for inline plan approval placement
+            if (toolName === "submit_plan") {
+                this.lastSubmitPlanComponent = component
+            }
 
             // Create a new post-tool AssistantMessageComponent so pre-tool text is preserved
             this.streamingComponent = new AssistantMessageComponent(
@@ -1572,6 +1665,186 @@ ${instructions}`,
 		})
 	}
 
+	/**
+	 * Handle an ask_question event from the ask_user tool.
+	 * Shows a dialog overlay and resolves the tool's pending promise.
+	 */
+    private async handleAskQuestion(
+        questionId: string,
+        question: string,
+        options?: Array<{ label: string; description?: string }>,
+    ): Promise<void> {
+        return new Promise((resolve) => {
+            if (this.options.inlineQuestions) {
+                // Inline mode: Add question component to chat
+                const questionComponent = new AskQuestionInlineComponent({
+                    question,
+                    options,
+                    onSubmit: (answer) => {
+                        this.activeInlineQuestion = undefined
+                        this.harness.respondToQuestion(questionId, answer)
+                        resolve()
+                    },
+                    onCancel: () => {
+                        this.activeInlineQuestion = undefined
+                        this.harness.respondToQuestion(questionId, "(skipped)")
+                        resolve()
+                    },
+                }, this.ui)
+                
+                // Store as active question
+                this.activeInlineQuestion = questionComponent
+                
+                // Insert the question right after the ask_user tool component
+                if (this.lastAskUserComponent) {
+                    // Find the position of the ask_user component
+                    const children = [...this.chatContainer.children]
+                    // Since lastAskUserComponent extends Container, it should be in children
+                    const askUserIndex = children.indexOf(this.lastAskUserComponent as any)
+                    
+                    if (askUserIndex >= 0) {
+                        // Debug: Log the positioning
+                        if (this.options.verbose) {
+                            console.error(`[DEBUG] Found ask_user tool at index ${askUserIndex} out of ${children.length} components`)
+                        }
+                        
+                        // Clear and rebuild with question in the right place
+                        this.chatContainer.clear()
+                        
+                        // Add all children up to and including the ask_user tool
+                        for (let i = 0; i <= askUserIndex; i++) {
+                            this.chatContainer.addChild(children[i])
+                        }
+                        
+                        // Add the question component with spacing
+                        this.chatContainer.addChild(new Spacer(1))
+                        this.chatContainer.addChild(questionComponent)
+                        this.chatContainer.addChild(new Spacer(1))
+                        
+                        // Add remaining children
+                        for (let i = askUserIndex + 1; i < children.length; i++) {
+                            this.chatContainer.addChild(children[i])
+                        }
+                    } else {
+                        // Debug: Log when not found
+                        if (this.options.verbose) {
+                            console.error(`[DEBUG] Could not find ask_user tool component in chat container (${children.length} total components)`)
+                        }
+                        // Fallback: add at the end
+                        this.chatContainer.addChild(new Spacer(1))
+                        this.chatContainer.addChild(questionComponent)
+                        this.chatContainer.addChild(new Spacer(1))
+                    }
+                } else {
+                    // Fallback: add at the end if no ask_user component tracked
+                    this.chatContainer.addChild(new Spacer(1))
+                    this.chatContainer.addChild(questionComponent)
+                    this.chatContainer.addChild(new Spacer(1))
+                }
+                
+                this.ui.requestRender()
+                
+                // Ensure the chat scrolls to show the question
+                this.chatContainer.invalidate()
+                
+                // Focus the question component
+                questionComponent.focused = true
+            } else {
+                // Dialog mode: Show overlay
+                const dialog = new AskQuestionDialogComponent({
+                    question,
+                    options,
+                    onSubmit: (answer) => {
+                        this.ui.hideOverlay()
+                        this.harness.respondToQuestion(questionId, answer)
+                        resolve()
+                    },
+                    onCancel: () => {
+                        this.ui.hideOverlay()
+                        this.harness.respondToQuestion(questionId, "(skipped)")
+                        resolve()
+                    },
+                })
+                this.ui.showOverlay(dialog, { width: "70%", anchor: "center" })
+                dialog.focused = true
+            }
+        })
+    }
+
+    /**
+     * Handle a plan_approval_required event from the submit_plan tool.
+     * Shows the plan inline with Approve/Reject/Request Changes options.
+     */
+    private async handlePlanApproval(
+        planId: string,
+        title: string,
+        plan: string,
+    ): Promise<void> {
+        return new Promise((resolve) => {
+            const approvalComponent = new PlanApprovalInlineComponent({
+                planId,
+                title,
+                plan,
+                onApprove: async () => {
+                    this.activeInlinePlanApproval = undefined
+                    // Store the approved plan in harness state
+                    await this.harness.setState({
+                        activePlan: {
+                            title,
+                            plan,
+                            approvedAt: new Date().toISOString(),
+                        },
+                    })
+                    this.harness.respondToPlanApproval(planId, { action: "approved" })
+                    this.updateStatusLine()
+                    resolve()
+                },
+                onReject: async (feedback?: string) => {
+                    this.activeInlinePlanApproval = undefined
+                    this.harness.respondToPlanApproval(planId, {
+                        action: "rejected",
+                        feedback,
+                    })
+                    resolve()
+                },
+            }, this.ui)
+
+            // Store as active plan approval
+            this.activeInlinePlanApproval = approvalComponent
+
+            // Insert after the submit_plan tool component (same pattern as ask_user)
+            if (this.lastSubmitPlanComponent) {
+                const children = [...this.chatContainer.children]
+                const submitPlanIndex = children.indexOf(this.lastSubmitPlanComponent as any)
+
+                if (submitPlanIndex >= 0) {
+                    this.chatContainer.clear()
+                    for (let i = 0; i <= submitPlanIndex; i++) {
+                        this.chatContainer.addChild(children[i])
+                    }
+                    this.chatContainer.addChild(new Spacer(1))
+                    this.chatContainer.addChild(approvalComponent)
+                    this.chatContainer.addChild(new Spacer(1))
+                    for (let i = submitPlanIndex + 1; i < children.length; i++) {
+                        this.chatContainer.addChild(children[i])
+                    }
+                } else {
+                    this.chatContainer.addChild(new Spacer(1))
+                    this.chatContainer.addChild(approvalComponent)
+                    this.chatContainer.addChild(new Spacer(1))
+                }
+            } else {
+                this.chatContainer.addChild(new Spacer(1))
+                this.chatContainer.addChild(approvalComponent)
+                this.chatContainer.addChild(new Spacer(1))
+            }
+
+            this.ui.requestRender()
+            this.chatContainer.invalidate()
+            approvalComponent.focused = true
+        })
+    }
+
     private handleToolEnd(
         toolCallId: string,
         result: unknown,
@@ -1594,31 +1867,52 @@ ${instructions}`,
                 isError,
             }
             component.updateResult(toolResult, false)
+            
+            // Check if this was a todo_write tool and update the todo display
+            const toolName = (component as any).toolName || ""
+            if (toolName === "todo_write" && !isError) {
+                this.handleTodoUpdate(result)
+            }
+            
             this.pendingTools.delete(toolCallId)
             this.ui.requestRender()
         }
     }
 
-	/**
-	 * Format a tool result for display.
-	 * Handles objects, strings, and other types.
-	 */
-	private formatToolResult(result: unknown): string {
-		if (result === null || result === undefined) {
-			return ""
-		}
-		if (typeof result === "string") {
-			return result
-		}
-		if (typeof result === "object") {
-			try {
-				return JSON.stringify(result, null, 2)
-			} catch {
-				return String(result)
-			}
-		}
-		return String(result)
-	}
+    /**
+     * Format a tool result for display.
+     * Handles objects, strings, and other types.
+     */
+    private formatToolResult(result: unknown): string {
+        if (result === null || result === undefined) {
+            return ""
+        }
+        if (typeof result === "string") {
+            return result
+        }
+        if (typeof result === "object") {
+            try {
+                return JSON.stringify(result, null, 2)
+            } catch {
+                return String(result)
+            }
+        }
+        return String(result)
+    }
+
+    /**
+     * Handle todo updates from todo_write tool
+     */
+    private handleTodoUpdate(result: unknown): void {
+        // Parse the result to extract todos
+        if (result && typeof result === 'object' && 'todos' in result) {
+            const todoResult = result as { todos: TodoItem[] }
+            if (this.todoProgress) {
+                this.todoProgress.updateTodos(todoResult.todos)
+                this.ui.requestRender()
+            }
+        }
+    }
 
     // ===========================================================================
     // Subagent Events
@@ -1673,11 +1967,10 @@ ${instructions}`,
         toolCallId: string,
         isError: boolean,
         durationMs: number,
+        result?: string,
     ): void {
         const component = this.pendingSubagents.get(toolCallId)
         if (component) {
-            // Get the stored result from tool_end
-            const result = (component as any)._pendingResult
             component.finish(isError, durationMs, result)
             this.pendingSubagents.delete(toolCallId)
             this.allToolComponents.push(component as any)  // Add to tool components for keyboard nav
@@ -2266,6 +2559,7 @@ ${modeList}`)
   /yolo     - Toggle YOLO mode (auto-approve tools)
   /cost     - Show token usage and estimated costs
   /hooks    - Show/reload configured hooks
+  /mcp      - Show/reload MCP server connections
   /login    - Login with OAuth provider
   /logout   - Logout from OAuth provider${modeHelp}
   /exit     - Exit the TUI
@@ -2355,6 +2649,85 @@ Keyboard shortcuts:
 				return true
 			}
 
+			case "mcp": {
+				const mm = this.harness.getMcpManager?.()
+				if (!mm) {
+					this.showInfo("MCP system not initialized.")
+					return true
+				}
+
+				const subcommand = args[0]
+				if (subcommand === "reload") {
+					this.showInfo("MCP: Reconnecting to servers...")
+					try {
+						await mm.reload()
+						const statuses = mm.getServerStatuses()
+						const connected = statuses.filter((s) => s.connected)
+						const totalTools = connected.reduce(
+							(sum, s) => sum + s.toolCount,
+							0,
+						)
+						this.showInfo(
+							`MCP: Reloaded. ${connected.length} server(s) connected, ${totalTools} tool(s).`,
+						)
+					} catch (error) {
+						this.showError(
+							`MCP reload failed: ${error instanceof Error ? error.message : String(error)}`,
+						)
+					}
+					return true
+				}
+
+				const paths = mm.getConfigPaths()
+
+				if (!mm.hasServers()) {
+					this.showInfo(
+						`No MCP servers configured.\n\n` +
+							`Add servers to:\n` +
+							`  ${paths.project} (project)\n` +
+							`  ${paths.global} (global)\n` +
+							`  ${paths.claude} (Claude Code compat)\n\n` +
+							`Example mcp.json:\n` +
+							`  {\n` +
+							`    "mcpServers": {\n` +
+							`      "filesystem": {\n` +
+							`        "command": "npx",\n` +
+							`        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"],\n` +
+							`        "env": {}\n` +
+							`      }\n` +
+							`    }\n` +
+							`  }`,
+					)
+					return true
+				}
+
+				const statuses = mm.getServerStatuses()
+				const lines: string[] = [`MCP Servers:`]
+				lines.push(`  Project: ${paths.project}`)
+				lines.push(`  Global:  ${paths.global}`)
+				lines.push(`  Claude:  ${paths.claude}`)
+				lines.push("")
+
+				for (const status of statuses) {
+					const icon = status.connected ? "\u2713" : "\u2717"
+					const state = status.connected
+						? "connected"
+						: `error: ${status.error}`
+					lines.push(`  ${icon} ${status.name} (${state})`)
+					if (status.toolNames.length > 0) {
+						for (const toolName of status.toolNames) {
+							lines.push(`      - ${toolName}`)
+						}
+					}
+				}
+
+				lines.push("")
+				lines.push(`  /mcp reload - Disconnect and reconnect all servers`)
+
+				this.showInfo(lines.join("\n"))
+				return true
+			}
+
 			default:
 				this.showError(`Unknown command: ${command}`)
 				return true
@@ -2404,8 +2777,18 @@ Keyboard shortcuts:
 			.map((c) => (c as { type: "text"; text: string }).text)
 			.join("\n")
 
-		if (textContent.trim()) {
-			this.chatContainer.addChild(new UserMessageComponent(textContent))
+		const imageCount = message.content.filter((c) => c.type === "image").length
+
+		// Strip [image] markers from text since we show count separately
+		const displayText = imageCount > 0
+			? textContent.replace(/\[image\]\s*/g, "").trim()
+			: textContent.trim()
+		const prefix = imageCount > 0
+			? `[${imageCount} image${imageCount > 1 ? "s" : ""}] `
+			: ""
+
+		if (displayText || prefix) {
+			this.chatContainer.addChild(new UserMessageComponent(prefix + displayText))
 		}
 	}
 

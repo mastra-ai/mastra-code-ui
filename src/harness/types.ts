@@ -9,6 +9,7 @@ import type {
 import type { z } from "zod"
 import type { AuthStorage } from "../auth/storage.js"
 import type { HookManager } from "../hooks/index.js"
+import type { MCPManager } from "../mcp/index.js"
 
 // =============================================================================
 // Harness Configuration
@@ -139,6 +140,12 @@ export interface HarnessConfig<
 	 * If provided, hooks fire at tool use, message send, stop, and session events.
 	 */
 	hookManager?: HookManager
+
+	/**
+	 * MCP manager for external tool server connections.
+	 * If provided, MCP-provided tools are available to agents.
+	 */
+	mcpManager?: MCPManager
 }
 
 // =============================================================================
@@ -331,6 +338,13 @@ export type HarnessEvent =
             question: string
             options?: Array<{ label: string; description?: string }>
       }
+    // Plan approval events
+    | {
+            type: "plan_approval_required"
+            planId: string
+            title: string
+            plan: string
+      }
 
 /**
  * Listener function for harness events.
@@ -464,4 +478,10 @@ export interface HarnessRuntimeContext<
 
     /** Register a pending question resolver (used by ask_user tool) */
     registerQuestion?: (questionId: string, resolve: (answer: string) => void) => void
+
+    /** Register a pending plan approval resolver (used by submit_plan tool) */
+    registerPlanApproval?: (
+        planId: string,
+        resolve: (result: { action: "approved" | "rejected"; feedback?: string }) => void,
+    ) => void
 }
