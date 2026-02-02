@@ -24,10 +24,10 @@ export class TodoProgressComponent extends Container {
 	/**
 	 * Replace the entire todo list and re-render.
 	 */
-	updateTodos(todos: TodoItem[]): void {
-		this.todos = todos
-		this.rebuildDisplay()
-	}
+    updateTodos(todos: TodoItem[]): void {
+        this.todos = todos
+        this.rebuildDisplay()
+    }
 
 	/**
 	 * Get the current todo list (read-only copy).
