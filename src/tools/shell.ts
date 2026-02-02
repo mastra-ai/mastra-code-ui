@@ -108,9 +108,7 @@ const ExecuteCommandSchema = z.object({
 	tail: z
 		.number()
 		.optional()
-		.describe(
-			"Number of lines to return from the end of the output. Use this instead of piping to tail.",
-		),
+		.describe("Number of lines to return from the end of the output."),
 })
 
 // Function to create the execute command tool with optional project root
@@ -123,44 +121,31 @@ Usage notes:
 - Use for: git commands, npm/pnpm, docker, build tools, test runners, linters, and other terminal operations.
 - Do NOT use for: reading files (use view tool), searching file contents (use grep tool), finding files (use glob tool), editing files (use string_replace_lsp tool).
 - Commands run with a 30-second default timeout. Use the timeout parameter for longer commands.
-- Output is stripped of ANSI codes and truncated if too long. Use the tail parameter instead of piping to tail.
+- Output is stripped of ANSI codes and truncated if too long. Use the tail parameter or pipe to tail.
 - Be careful with destructive commands. Never run git push --force, git reset --hard, or rm -rf without explicit user request.
 - For interactive commands that need user input, they will fail. Set CI=true is already forced.`,
 		inputSchema: ExecuteCommandSchema,
 		// requireApproval: true, // TODO: re-enable when Mastra workflow suspension is stable
-        execute: async (context, toolContext) => {
-            const { command } = context
-            // Use provided cwd, fall back to project root, then process.cwd()
-            const cwd = context.cwd || projectRoot || process.cwd()
-            const root = projectRoot || process.cwd()
+		execute: async (context, toolContext) => {
+			const { command } = context
+			// Use provided cwd, fall back to project root, then process.cwd()
+			const cwd = context.cwd || projectRoot || process.cwd()
+			const root = projectRoot || process.cwd()
 
-            // Security: if a custom cwd was provided, ensure it's within the project root or allowed paths
-            if (context.cwd) {
-                const allowedPaths = getAllowedPathsFromContext(toolContext)
-                const resolvedCwd = path.resolve(context.cwd)
-                if (!isPathAllowed(resolvedCwd, root, allowedPaths)) {
-                    return {
-                        content: [
-                            {
-                                type: "text" as const,
-                                text: `Error: cwd "${resolvedCwd}" is outside the project root "${root}". Use /sandbox to add additional allowed paths.`,
-                            },
-                        ],
-                        isError: true,
-                    }
-                }
-            }
-
-			// Reject commands that pipe to tail - use the tail parameter instead
-			if (/\|\s*tail\s*(-\d+|-n\s*\d+)?\s*$/.test(command)) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: "Error: Do not pipe to `tail` - use the `tail` parameter instead. Piping loses the exit code and can hide errors.",
-						},
-					],
-					isError: true,
+			// Security: if a custom cwd was provided, ensure it's within the project root or allowed paths
+			if (context.cwd) {
+				const allowedPaths = getAllowedPathsFromContext(toolContext)
+				const resolvedCwd = path.resolve(context.cwd)
+				if (!isPathAllowed(resolvedCwd, root, allowedPaths)) {
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: `Error: cwd "${resolvedCwd}" is outside the project root "${root}". Use /sandbox to add additional allowed paths.`,
+							},
+						],
+						isError: true,
+					}
 				}
 			}
 
