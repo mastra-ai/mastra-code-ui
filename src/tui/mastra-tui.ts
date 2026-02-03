@@ -1428,6 +1428,12 @@ ${instructions}`,
 					} else if (todos && todos.length > 0) {
 						// Show inline status of what changed
 						this.renderTodoUpdateInline(todos, this.previousTodos, insertIndex)
+					} else if (
+						this.previousTodos.length > 0 &&
+						(!todos || todos.length === 0)
+					) {
+						// Tasks were cleared
+						this.renderClearedTodosInline(this.previousTodos, insertIndex)
 					}
 
 					// Track for next diff
@@ -2328,6 +2334,33 @@ ${instructions}`,
 			this.chatContainer.invalidate()
 		} else {
 			// Fallback: append at end
+			this.chatContainer.addChild(container)
+		}
+	}
+
+	/**
+	 * Render inline display when tasks are cleared.
+	 * Shows what was cleared with strikethrough.
+	 */
+	private renderClearedTodosInline(
+		clearedTodos: TodoItem[],
+		insertIndex = -1,
+	): void {
+		const container = new Container()
+		container.addChild(new Spacer(1))
+		const count = clearedTodos.length
+		const label = count === 1 ? "Task" : "Tasks"
+		container.addChild(new Text(fg("accent", `${label} cleared`), 0, 0))
+		for (const todo of clearedTodos) {
+			const icon =
+				todo.status === "completed" ? chalk.green("✓") : chalk.dim("○")
+			const text = chalk.dim.strikethrough(todo.content)
+			container.addChild(new Text(`  ${icon} ${text}`, 0, 0))
+		}
+		if (insertIndex >= 0) {
+			this.chatContainer.children.splice(insertIndex, 0, container)
+			this.chatContainer.invalidate()
+		} else {
 			this.chatContainer.addChild(container)
 		}
 	}
@@ -3627,7 +3660,7 @@ Keyboard shortcuts:
 							)
 						}
 
-						// If this was todo_write with all completed, show inline list instead of the tool component
+						// If this was todo_write with all completed or cleared, show inline instead of tool component
 						let replacedWithInline = false
 						if (
 							content.name === "todo_write" &&
@@ -3643,6 +3676,16 @@ Keyboard shortcuts:
 							) {
 								this.renderCompletedTodosInline(todos)
 								replacedWithInline = true
+							} else if (!todos || todos.length === 0) {
+								// Tasks were cleared - show with previous todos if we have them
+								if (this.previousTodos.length > 0) {
+									this.renderClearedTodosInline(this.previousTodos)
+									this.previousTodos = []
+									replacedWithInline = true
+								}
+							} else {
+								// Track for detecting clears
+								this.previousTodos = [...todos]
 							}
 						}
 
