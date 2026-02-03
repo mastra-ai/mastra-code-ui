@@ -34,7 +34,6 @@ import {
 	type SlashCommandMetadata,
 } from "../utils/slash-command-loader.js"
 import { processSlashCommand } from "../utils/slash-command-processor.js"
-import { extractSlashCommand } from "../utils/slash-command-extractor.js"
 import { AssistantMessageComponent } from "./components/assistant-message.js"
 import {
 	GradientAnimator,
@@ -2259,6 +2258,7 @@ ${instructions}`,
 	/**
 	 * Format a tool result for display.
 	 * Handles objects, strings, and other types.
+	 * Extracts content from common tool return structures like { content: "...", isError: false }
 	 */
 	private formatToolResult(result: unknown): string {
 		if (result === null || result === undefined) {
@@ -2268,6 +2268,25 @@ ${instructions}`,
 			return result
 		}
 		if (typeof result === "object") {
+			const obj = result as Record<string, unknown>
+			// Handle common tool return format: { content: "...", isError: boolean }
+			if ("content" in obj && typeof obj.content === "string") {
+				return obj.content
+			}
+			// Handle content array format: { content: [{ type: "text", text: "..." }] }
+			if ("content" in obj && Array.isArray(obj.content)) {
+				const textParts = obj.content
+					.filter(
+						(part: unknown) =>
+							typeof part === "object" &&
+							part !== null &&
+							(part as Record<string, unknown>).type === "text",
+					)
+					.map((part: unknown) => (part as Record<string, unknown>).text || "")
+				if (textParts.length > 0) {
+					return textParts.join("\n")
+				}
+			}
 			try {
 				return JSON.stringify(result, null, 2)
 			} catch {

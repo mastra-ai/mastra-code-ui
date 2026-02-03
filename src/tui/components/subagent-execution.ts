@@ -193,9 +193,13 @@ export class SubagentExecutionComponent
 	private rebuildContent(): void {
 		const lines: string[] = []
 
-		// Task description
-		const taskPreview = truncate(this.task, 80)
-		lines.push(theme.fg("muted", `   ${taskPreview}`))
+		// Task description - show full task, wrapped
+		const taskLines = this.task.split("\n")
+		for (const line of taskLines) {
+			lines.push(theme.fg("muted", `   ${line}`))
+		}
+		// Blank line after task (braille blank pattern renders as empty but takes space)
+		lines.push("\u2800")
 
 		// Tool calls
 		for (const tc of this.toolCalls) {

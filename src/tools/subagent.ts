@@ -85,11 +85,12 @@ Use this tool when:
 				}
 			}
 
-			// Get emit function from harness context (if available)
+			// Get emit function and abort signal from harness context (if available)
 			const harnessCtx = context?.requestContext?.get("harness") as
 				| HarnessRuntimeContext
 				| undefined
 			const emitEvent = harnessCtx?.emitEvent
+			const abortSignal = harnessCtx?.abortSignal
 			// toolCallId from the parent agent's tool invocation
 			const toolCallId = context?.agent?.toolCallId ?? "unknown"
 
@@ -136,14 +137,17 @@ Use this tool when:
 				task,
 			})
 
+			// Track partial output in case of abort
+			let partialText = ""
+
 			try {
 				const response = await subagent.stream(task, {
 					maxSteps: 50,
+					abortSignal,
 				})
 
 				// Consume the fullStream to forward events to the TUI
 				const reader = response.fullStream.getReader()
-				let finalText = ""
 
 				while (true) {
 					const { done, value: chunk } = await reader.read()
@@ -151,7 +155,7 @@ Use this tool when:
 
 					switch (chunk.type) {
 						case "text-delta":
-							finalText += chunk.payload.text
+							partialText += chunk.payload.text
 							emitEvent?.({
 								type: "subagent_text_delta",
 								toolCallId,
@@ -183,9 +187,31 @@ Use this tool when:
 					}
 				}
 
+				// Check if we were aborted
+				if (abortSignal?.aborted) {
+					const durationMs = Date.now() - startTime
+					const abortResult = partialText
+						? `[Aborted by user]\n\nPartial output:\n${partialText}`
+						: "[Aborted by user]"
+
+					emitEvent?.({
+						type: "subagent_end",
+						toolCallId,
+						agentType,
+						result: abortResult,
+						isError: false,
+						durationMs,
+					})
+
+					return {
+						content: abortResult,
+						isError: false,
+					}
+				}
+
 				// Use getFullOutput to get the authoritative final text
 				const fullOutput = await response.getFullOutput()
-				const resultText = fullOutput.text || finalText
+				const resultText = fullOutput.text || partialText
 
 				const durationMs = Date.now() - startTime
 				emitEvent?.({
@@ -202,8 +228,35 @@ Use this tool when:
 					isError: false,
 				}
 			} catch (err) {
-				const message = err instanceof Error ? err.message : String(err)
+				const isAbort =
+					err instanceof Error &&
+					(err.name === "AbortError" ||
+						err.message?.includes("abort") ||
+						err.message?.includes("cancel"))
 				const durationMs = Date.now() - startTime
+
+				if (isAbort) {
+					// Return partial output on abort
+					const abortResult = partialText
+						? `[Aborted by user]\n\nPartial output:\n${partialText}`
+						: "[Aborted by user]"
+
+					emitEvent?.({
+						type: "subagent_end",
+						toolCallId,
+						agentType,
+						result: abortResult,
+						isError: false, // Not an error, just aborted
+						durationMs,
+					})
+
+					return {
+						content: abortResult,
+						isError: false,
+					}
+				}
+
+				const message = err instanceof Error ? err.message : String(err)
 
 				emitEvent?.({
 					type: "subagent_end",
