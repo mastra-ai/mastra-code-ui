@@ -783,7 +783,7 @@ ${instructions}`,
 	private updateStatusLine(): void {
 		if (!this.statusLine) return
 
-		const termWidth = process.stdout.columns || 80
+		const termWidth = (process.stdout.columns || 80) - 2 // buffer to prevent jitter
 		const SEP = "  " // double-space separator between parts
 
 		// --- Mode badge ---
