@@ -206,12 +206,25 @@ export class SubagentExecutionComponent
 			lines.push(formatToolCallLine(tc))
 		}
 
-		// Final result (if available)
+		// Final result (if available) - show last 10 lines
 		if (this.done && this.finalResult) {
 			lines.push("") // blank line
 			lines.push(theme.fg("muted", "   ───"))
 			const resultLines = this.finalResult.split("\n")
-			for (const line of resultLines) {
+			const maxLines = 10
+			const truncated = resultLines.length > maxLines
+			const displayLines = truncated
+				? resultLines.slice(-maxLines)
+				: resultLines
+			if (truncated) {
+				lines.push(
+					theme.fg(
+						"muted",
+						`   ... ${resultLines.length - maxLines} more lines above`,
+					),
+				)
+			}
+			for (const line of displayLines) {
 				lines.push(`   ${line}`)
 			}
 		}
