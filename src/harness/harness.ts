@@ -4,6 +4,7 @@ import { RequestContext } from "@mastra/core/request-context"
 import { Workspace } from "@mastra/core/workspace"
 import type { WorkspaceConfig } from "@mastra/core/workspace"
 import type { z } from "zod"
+
 import type {
 	HarnessConfig,
 	HarnessEvent,
@@ -91,6 +92,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private resourceId: string
 	private listeners: HarnessEventListener[] = []
 	private abortController: AbortController | null = null
+	private abortRequested: boolean = false
 	private currentRunId: string | null = null
 	private currentOperationId: number = 0
 	private followUpQueue: string[] = []
@@ -1469,7 +1471,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 			// Only emit completion if not superseded by steer
 			if (this.currentOperationId === operationId) {
-				this.emit({ type: "agent_end", reason: "complete" })
+				// Check if abort was requested - stream may complete gracefully even after abort
+				const reason = this.abortRequested ? "aborted" : "complete"
+				this.emit({ type: "agent_end", reason })
 			}
 		} catch (error) {
 			// If superseded by steer, silently exit
@@ -1516,6 +1520,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			// Only clean up if this is still the current operation
 			if (this.currentOperationId === operationId) {
 				this.abortController = null
+				this.abortRequested = false
 			}
 
 			// Process follow-up queue after this operation completes
@@ -1744,6 +1749,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	abort(): void {
 		if (this.abortController) {
+			this.abortRequested = true
 			try {
 				this.abortController.abort()
 			} catch {}
