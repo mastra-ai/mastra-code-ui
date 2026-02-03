@@ -135,15 +135,12 @@ export class AssistantMessageComponent extends Container {
 		const hasToolCalls = message.content.some((c) => c.type === "tool_call")
 		if (!hasToolCalls) {
 			if (message.stopReason === "aborted") {
+				const abortMessage = message.errorMessage || "Operation aborted"
 				if (hasVisibleContent) {
 					this.contentContainer.addChild(new Spacer(1))
 				}
 				this.contentContainer.addChild(
-					new Text(
-						theme.fg("muted", "Interrupted · What should Claude do instead?"),
-						1,
-						0,
-					),
+					new Text(theme.fg("error", abortMessage), 1, 0),
 				)
 			} else if (message.stopReason === "error") {
 				const errorMsg = message.errorMessage || "Unknown error"
