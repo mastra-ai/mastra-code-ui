@@ -4,10 +4,9 @@
  */
 
 import {
-	CombinedAutocompleteProvider,
-	Container,
-	Loader,
-	Markdown,
+    CombinedAutocompleteProvider,
+    Container,
+    Markdown,
 	Spacer,
 	Text,
 	TUI,
@@ -36,6 +35,7 @@ import {
 import { processSlashCommand } from "../utils/slash-command-processor.js"
 import { extractSlashCommand } from "../utils/slash-command-extractor.js"
 import { AssistantMessageComponent } from "./components/assistant-message.js"
+import { ObiLoader } from "./components/obi-loader.js"
 import { CustomEditor } from "./components/custom-editor.js"
 import { LoginDialogComponent } from "./components/login-dialog.js"
 
@@ -126,7 +126,7 @@ export class MastraTUI {
 
 	// State tracking
 	private isInitialized = false
-	private loadingAnimation?: Loader
+    private loadingAnimation?: ObiLoader
 	private streamingComponent?: AssistantMessageComponent
 	private streamingMessage?: HarnessMessage
 	private pendingTools = new Map<string, IToolExecutionComponent>()
@@ -208,6 +208,9 @@ export class MastraTUI {
 		// Create containers
 		this.chatContainer = new Container()
 		this.statusContainer = new Container()
+		const idleSpacer = new Text(" ", 1, 0)
+		idleSpacer.render = (_width: number) => [" ", " "]
+		this.statusContainer.addChild(idleSpacer)
 		this.editorContainer = new Container()
 		this.footer = new Container()
 
@@ -1402,20 +1405,16 @@ ${instructions}`,
 		this.updateStatusLine()
 	}
 
-	/** Update the loading animation text (e.g., "Working..." → "Observing...") */
-	private updateLoaderText(text: string): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-		}
-		this.statusContainer.clear()
-		this.loadingAnimation = new Loader(
-			this.ui,
-			(spinner) => fg("accent", spinner),
-			(text) => fg("muted", text),
-			text,
-		)
-		this.statusContainer.addChild(this.loadingAnimation)
-	}
+    /** Update the loading animation text (e.g., "Working..." → "Observing...") */
+    private updateLoaderText(text: string): void {
+        if (this.loadingAnimation) {
+            this.loadingAnimation.setMessage(text)
+            return
+        }
+        this.statusContainer.clear()
+        this.loadingAnimation = new ObiLoader(this.ui, text)
+        this.statusContainer.addChild(this.loadingAnimation)
+    }
 
 	private handleAgentStart(): void {
 		// Clear any existing loader or done message
@@ -1424,14 +1423,17 @@ ${instructions}`,
 		}
 		this.statusContainer.clear()
 
-		// Show loading animation
-		this.loadingAnimation = new Loader(
-			this.ui,
-			(spinner) => fg("accent", spinner),
-			(text) => fg("muted", text),
-			"Working...",
-		)
-		this.statusContainer.addChild(this.loadingAnimation)
+        // Show loading animation
+        this.loadingAnimation = new ObiLoader(this.ui, "Working...")
+        this.statusContainer.addChild(this.loadingAnimation)
+		this.ui.requestRender()
+	}
+
+	private setStatusIdle(): void {
+		this.statusContainer.clear()
+		const spacer = new Text(" ", 1, 0)
+		spacer.render = (width: number) => [" ", " "]
+		this.statusContainer.addChild(spacer)
 		this.ui.requestRender()
 	}
 
@@ -1440,8 +1442,7 @@ ${instructions}`,
 			this.loadingAnimation.stop()
 			this.loadingAnimation = undefined
 		}
-		this.statusContainer.clear()
-		this.ui.requestRender()
+		this.setStatusIdle()
 
 		if (this.streamingComponent) {
 			this.streamingComponent = undefined
