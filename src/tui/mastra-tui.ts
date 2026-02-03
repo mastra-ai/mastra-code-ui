@@ -823,6 +823,18 @@ ${instructions}`,
             }
         }
 
+        // --- Update editor border to match mode color ---
+        if (modeColor) {
+            const [br, bg, bb] = [
+                parseInt(modeColor.slice(1, 3), 16),
+                parseInt(modeColor.slice(3, 5), 16),
+                parseInt(modeColor.slice(5, 7), 16),
+            ]
+            const dim = 0.35
+            this.editor.borderColor = (text: string) =>
+                chalk.rgb(Math.floor(br * dim), Math.floor(bg * dim), Math.floor(bb * dim))(text)
+        }
+
         // --- Collect raw data ---
         const fullModelId = this.harness.getFullModelId()
         // e.g. "anthropic/claude-sonnet-4-20250514" → "claude-sonnet-4-20250514"
