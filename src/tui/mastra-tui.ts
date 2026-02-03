@@ -35,7 +35,10 @@ import {
 import { processSlashCommand } from "../utils/slash-command-processor.js"
 import { extractSlashCommand } from "../utils/slash-command-extractor.js"
 import { AssistantMessageComponent } from "./components/assistant-message.js"
-import { ObiLoader } from "./components/obi-loader.js"
+import {
+    GradientAnimator,
+    applyGradientSweep,
+} from "./components/obi-loader.js"
 import { CustomEditor } from "./components/custom-editor.js"
 import { LoginDialogComponent } from "./components/login-dialog.js"
 
@@ -119,14 +122,14 @@ export class MastraTUI {
 	// TUI components
 	private ui: TUI
 	private chatContainer: Container
-	private statusContainer: Container
-	private editorContainer: Container
+    private editorContainer: Container
 	private editor: CustomEditor
 	private footer: Container
 
 	// State tracking
 	private isInitialized = false
-    private loadingAnimation?: ObiLoader
+    private gradientAnimator?: GradientAnimator
+    private isAgentActive = false
 	private streamingComponent?: AssistantMessageComponent
 	private streamingMessage?: HarnessMessage
 	private pendingTools = new Map<string, IToolExecutionComponent>()
@@ -205,14 +208,10 @@ export class MastraTUI {
 		this.terminal = new ProcessTerminal()
 		this.ui = new TUI(this.terminal)
 
-		// Create containers
-		this.chatContainer = new Container()
-		this.statusContainer = new Container()
-		const idleSpacer = new Text(" ", 1, 0)
-		idleSpacer.render = (_width: number) => [" ", " "]
-		this.statusContainer.addChild(idleSpacer)
-		this.editorContainer = new Container()
-		this.footer = new Container()
+        // Create containers
+        this.chatContainer = new Container()
+        this.editorContainer = new Container()
+        this.footer = new Container()
 
 		// Create editor with custom keybindings
 		this.editor = new CustomEditor(this.ui, getEditorTheme())
@@ -750,10 +749,9 @@ ${instructions}`,
 		)
 		this.ui.addChild(new Spacer(1))
 
-		// Add main containers
-		this.ui.addChild(this.chatContainer)
-		this.ui.addChild(this.statusContainer)
-		// Todo progress (between status and editor, visible only when todos exist)
+        // Add main containers
+        this.ui.addChild(this.chatContainer)
+        // Todo progress (between chat and editor, visible only when todos exist)
 		this.todoProgress = new TodoProgressComponent()
 		this.ui.addChild(this.todoProgress)
 		this.ui.addChild(this.editorContainer)
@@ -814,42 +812,53 @@ ${instructions}`,
 			}
 		}
 
-		// Full model ID (provider/model) with auth warning
-		const modelId = this.harness.getFullModelId()
-		if (!this.modelAuthStatus.hasAuth) {
-			const envVar = this.modelAuthStatus.apiKeyEnvVar
-			agentParts.push(
-				modelId +
-					fg("error", " ✗") +
-					fg("muted", envVar ? ` (${envVar})` : " (no key)"),
-			)
-		} else {
-			agentParts.push(modelId)
-		}
+        // Full model ID (provider/model) with auth warning
+        const modelId = this.harness.getFullModelId()
+        let modelIdDisplay: string
+        if (!this.modelAuthStatus.hasAuth) {
+            const envVar = this.modelAuthStatus.apiKeyEnvVar
+            modelIdDisplay =
+                fg("dim", modelId) +
+                fg("error", " ✗") +
+                fg("muted", envVar ? ` (${envVar})` : " (no key)")
+        } else if (this.isAgentActive && this.gradientAnimator?.isRunning()) {
+            modelIdDisplay = applyGradientSweep(
+                modelId,
+                this.gradientAnimator.getOffset(),
+            )
+        } else {
+            modelIdDisplay = fg("dim", modelId)
+        }
 
-		// Token usage (only show if > 0)
-		if (this.tokenUsage.totalTokens > 0) {
-			const formatNumber = (n: number) => n.toLocaleString()
-			agentParts.push(
-				`[${formatNumber(this.tokenUsage.promptTokens)}/${formatNumber(this.tokenUsage.completionTokens)}]`,
-			)
-		}
+        // Build the rest of the parts (after path, before joining)
+        const afterParts: string[] = []
 
-		// Thinking level (only show for Anthropic models when not "off")
-		const thinkingLevel = this.harness.getThinkingLevel()
-		if (thinkingLevel !== "off" && modelId.startsWith("anthropic/")) {
-			agentParts.push(`think: ${thinkingLevel}`)
-		}
+        // Token usage (only show if > 0)
+        if (this.tokenUsage.totalTokens > 0) {
+            const formatNumber = (n: number) => n.toLocaleString()
+            afterParts.push(
+                `[${formatNumber(this.tokenUsage.promptTokens)}/${formatNumber(this.tokenUsage.completionTokens)}]`,
+            )
+        }
 
-		this.statusLine.setText(modeBadge + fg("dim", agentParts.join(" │ ")))
+        // Thinking level (only show for Anthropic models when not "off")
+        const thinkingLevel = this.harness.getThinkingLevel()
+        if (thinkingLevel !== "off" && modelId.startsWith("anthropic/")) {
+            afterParts.push(`think: ${thinkingLevel}`)
+        }
 
-		// --- Line 2: Memory ---
-		if (this.memoryStatusLine) {
-			const memParts: string[] = []
-			memParts.push(formatObservationStatus(this.omProgress))
-			memParts.push(formatReflectionStatus(this.omProgress))
-			this.memoryStatusLine.setText(fg("dim", memParts.join(" │ ")))
-		}
+        const sep = fg("dim", " │ ")
+        const beforeText = agentParts.length > 0 ? fg("dim", agentParts.join(" │ ")) + sep : ""
+        const afterText = afterParts.length > 0 ? sep + fg("dim", afterParts.join(" │ ")) : ""
+        this.statusLine.setText(modeBadge + beforeText + modelIdDisplay + afterText)
+
+        // --- Line 2: Memory ---
+        if (this.memoryStatusLine) {
+            const memParts: string[] = []
+            memParts.push(formatObservationStatus(this.omProgress))
+            memParts.push(formatReflectionStatus(this.omProgress))
+            this.memoryStatusLine.setText(fg("dim", memParts.join(" │ ")))
+        }
 
 		this.ui.requestRender()
 	}
@@ -1406,94 +1415,69 @@ ${instructions}`,
 	}
 
     /** Update the loading animation text (e.g., "Working..." → "Observing...") */
-    private updateLoaderText(text: string): void {
-        if (this.loadingAnimation) {
-            this.loadingAnimation.setMessage(text)
-            return
-        }
-        this.statusContainer.clear()
-        this.loadingAnimation = new ObiLoader(this.ui, text)
-        this.statusContainer.addChild(this.loadingAnimation)
+    private updateLoaderText(_text: string): void {
+        // Status text changes are now reflected via updateStatusLine gradient
+        this.updateStatusLine()
     }
 
-	private handleAgentStart(): void {
-		// Clear any existing loader or done message
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-		}
-		this.statusContainer.clear()
+    private handleAgentStart(): void {
+        this.isAgentActive = true
+        if (!this.gradientAnimator) {
+            this.gradientAnimator = new GradientAnimator(() => {
+                this.updateStatusLine()
+            })
+        }
+        this.gradientAnimator.start()
+        this.updateStatusLine()
+    }
 
-        // Show loading animation
-        this.loadingAnimation = new ObiLoader(this.ui, "Working...")
-        this.statusContainer.addChild(this.loadingAnimation)
-		this.ui.requestRender()
-	}
+    private handleAgentEnd(): void {
+        this.isAgentActive = false
+        if (this.gradientAnimator) {
+            this.gradientAnimator.stop()
+        }
+        this.updateStatusLine()
 
-	private setStatusIdle(): void {
-		this.statusContainer.clear()
-		const spacer = new Text(" ", 1, 0)
-		spacer.render = (width: number) => [" ", " "]
-		this.statusContainer.addChild(spacer)
-		this.ui.requestRender()
-	}
+        if (this.streamingComponent) {
+            this.streamingComponent = undefined
+            this.streamingMessage = undefined
+        }
 
-	private handleAgentEnd(): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-			this.loadingAnimation = undefined
-		}
-		this.setStatusIdle()
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after agent completes
+    }
 
-		if (this.streamingComponent) {
-			this.streamingComponent = undefined
-			this.streamingMessage = undefined
-		}
+    private handleAgentAborted(): void {
+        this.isAgentActive = false
+        if (this.gradientAnimator) {
+            this.gradientAnimator.stop()
+        }
+        this.updateStatusLine()
 
-		this.pendingTools.clear()
-		// Keep allToolComponents so Ctrl+E continues to work after agent completes
-	}
+        if (this.streamingComponent) {
+            this.streamingComponent = undefined
+            this.streamingMessage = undefined
+        }
 
-	private handleAgentAborted(): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-			this.loadingAnimation = undefined
-		}
-		this.statusContainer.clear()
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after interruption
+    }
 
-		// Show "Interrupted" indicator
-		this.statusContainer.addChild(
-			new Text(fg("warning", "⚠ Interrupted"), 0, 0),
-		)
-		this.ui.requestRender()
+    private handleAgentError(): void {
+        this.isAgentActive = false
+        if (this.gradientAnimator) {
+            this.gradientAnimator.stop()
+        }
+        this.updateStatusLine()
 
-		if (this.streamingComponent) {
-			this.streamingComponent = undefined
-			this.streamingMessage = undefined
-		}
+        if (this.streamingComponent) {
+            this.streamingComponent = undefined
+            this.streamingMessage = undefined
+        }
 
-		this.pendingTools.clear()
-		// Keep allToolComponents so Ctrl+E continues to work after interruption
-	}
-
-	private handleAgentError(): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-			this.loadingAnimation = undefined
-		}
-		this.statusContainer.clear()
-
-		// Show "Error" indicator
-		this.statusContainer.addChild(new Text(fg("error", "✗ Error"), 0, 0))
-		this.ui.requestRender()
-
-		if (this.streamingComponent) {
-			this.streamingComponent = undefined
-			this.streamingMessage = undefined
-		}
-
-		this.pendingTools.clear()
-		// Keep allToolComponents so Ctrl+E continues to work after errors
-	}
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after errors
+    }
 
 	private handleMessageStart(message: HarnessMessage): void {
 		if (message.role === "user") {

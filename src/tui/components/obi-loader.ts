@@ -1,58 +1,73 @@
-import { Text } from "@mariozechner/pi-tui"
-import type { TUI } from "@mariozechner/pi-tui"
 import chalk from "chalk"
 
-const SPIN = ["☲", "☴"]
+const GRADIENT_WIDTH = 30 // Width of the bright spot as percentage of total text
+const BASE_COLOR = [124, 58, 237] // #7c3aed purple accent
+const MIN_BRIGHTNESS = 0.45 // Dimmest characters (0-1)
 
-// Gradient colors from dim to bright purple
-const GRADIENT = [
-    "#2d1854",
-    "#3b1d70",
-    "#4c2590",
-    "#5e2db0",
-    "#7c3aed",
-    "#9b5bf5",
-    "#b88dff",
-    "#9b5bf5",
-    "#7c3aed",
-    "#5e2db0",
-    "#4c2590",
-    "#3b1d70",
-]
+/**
+ * Applies a sweeping gradient animation to a plain text string.
+ * A bright purple spot moves left-to-right across the text.
+ *
+ * @param text - Plain text to colorize (no ANSI codes)
+ * @param offset - Current animation offset (0-1, wraps around)
+ * @returns Chalk-colored string
+ */
+export function applyGradientSweep(text: string, offset: number): string {
+    const chars = [...text]
+    const totalChars = chars.length
+    if (totalChars === 0) return text
 
-const WAVE_WIDTH = GRADIENT.length
+    const gradientCenter = (offset % 1) * 100
 
-export class ObiLoader extends Text {
-    private message: string
-    private currentFrame = 0
-    private waveOffset = 0
+    return chars
+        .map((char, i) => {
+            if (char === " ") return " "
+
+            const charPosition = (i / totalChars) * 100
+            let distance = Math.abs(charPosition - gradientCenter)
+
+            // Wrap-around for smooth cycling
+            if (distance > 50) {
+                distance = 100 - distance
+            }
+
+            const normalizedDistance = Math.min(
+                distance / (GRADIENT_WIDTH / 2),
+                1,
+            )
+            const brightness =
+                MIN_BRIGHTNESS + (1 - MIN_BRIGHTNESS) * (1 - normalizedDistance)
+
+            const r = Math.floor(BASE_COLOR[0]! * brightness)
+            const g = Math.floor(BASE_COLOR[1]! * brightness)
+            const b = Math.floor(BASE_COLOR[2]! * brightness)
+
+            return chalk.rgb(r, g, b)(char)
+        })
+        .join("")
+}
+
+/**
+ * Manages the gradient sweep animation state.
+ * Call `start()` when agent begins working, `stop()` when idle.
+ * On each tick, call `getOffset()` to get the current sweep position.
+ */
+export class GradientAnimator {
+    private offset = 0
     private intervalId: ReturnType<typeof setInterval> | null = null
-    private waveIntervalId: ReturnType<typeof setInterval> | null = null
-    private ui: TUI
+    private onTick: () => void
 
-    constructor(ui: TUI, message = "Working...") {
-        super("", 1, 0)
-        this.ui = ui
-        this.message = message
-        this.start()
-    }
-
-    render(width: number): string[] {
-        return ["", ...super.render(width)]
+    constructor(onTick: () => void) {
+        this.onTick = onTick
     }
 
     start(): void {
-        this.currentFrame = 0
-        this.waveOffset = 0
-        this.updateDisplay()
+        if (this.intervalId) return
+        this.offset = 0
         this.intervalId = setInterval(() => {
-            this.currentFrame = (this.currentFrame + 1) % SPIN.length
-            this.updateDisplay()
-        }, 100)
-        this.waveIntervalId = setInterval(() => {
-            this.waveOffset++
-            this.updateDisplay()
-        }, 60)
+            this.offset += 0.02 // Speed: full sweep in ~83 ticks
+            this.onTick()
+        }, 80)
     }
 
     stop(): void {
@@ -60,31 +75,14 @@ export class ObiLoader extends Text {
             clearInterval(this.intervalId)
             this.intervalId = null
         }
-        if (this.waveIntervalId) {
-            clearInterval(this.waveIntervalId)
-            this.waveIntervalId = null
-        }
+        this.offset = 0
     }
 
-    setMessage(message: string): void {
-        this.message = message
-        this.updateDisplay()
+    getOffset(): number {
+        return this.offset
     }
 
-    private colorizeChar(char: string, position: number): string {
-        const gradientIndex =
-            ((position + this.waveOffset) % WAVE_WIDTH + WAVE_WIDTH) % WAVE_WIDTH
-        const color = GRADIENT[gradientIndex] as string
-        return chalk.hex(color)(char)
-    }
-
-    private updateDisplay(): void {
-        const frame = SPIN[this.currentFrame] as string
-        const fullText = `${frame} ${this.message}`
-        const colored = [...fullText]
-            .map((char, i) => this.colorizeChar(char, i))
-            .join("")
-        this.setText(colored)
-        this.ui.requestRender()
+    isRunning(): boolean {
+        return this.intervalId !== null
     }
 }
