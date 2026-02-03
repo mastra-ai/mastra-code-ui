@@ -1742,9 +1742,7 @@ ${instructions}`,
 		} else {
 			// No streaming message (e.g., interrupted during tool execution)
 			// Add a standalone "Interrupted" message
-			const interruptedText = new Text(
-				fg("muted", "Interrupted · What should Mastra do instead?"),
-			)
+			const interruptedText = new Text(fg("muted", "Interrupted"))
 			this.chatContainer.addChild(interruptedText)
 		}
 
