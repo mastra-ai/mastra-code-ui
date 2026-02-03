@@ -47,6 +47,7 @@ import {
 	todoCheckTool,
 	askUserTool,
 	submitPlanTool,
+	requestSandboxAccessTool,
 } from "./tools/index.js"
 import { buildFullPrompt, type PromptContext } from "./prompts/index.js"
 import { createAnthropic } from "@ai-sdk/anthropic"
@@ -473,6 +474,7 @@ const codeAgent = new Agent({
 			todo_check: todoCheckTool,
 			// User interaction — always available
 			ask_user: askUserTool,
+			request_sandbox_access: requestSandboxAccessTool,
 		}
 
 		// Write tools — NOT available in plan mode
@@ -564,7 +566,7 @@ const harness = new Harness({
 			name: "Build",
 			default: true,
 			defaultModelId: "anthropic/claude-opus-4-5",
-            color: "#7f45e0",
+			color: "#7f45e0",
 			agent: codeAgent,
 		},
 		{

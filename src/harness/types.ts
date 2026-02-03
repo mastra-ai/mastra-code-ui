@@ -340,6 +340,13 @@ export type HarnessEvent =
 			question: string
 			options?: Array<{ label: string; description?: string }>
 	  }
+	// Sandbox access request events
+	| {
+			type: "sandbox_access_request"
+			questionId: string
+			path: string
+			reason: string
+	  }
 	// Plan approval events
 	| {
 			type: "plan_approval_required"
