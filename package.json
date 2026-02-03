@@ -10,7 +10,8 @@
 		"build": "tsc",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"prepare": "husky"
 	},
 	"keywords": [],
 	"author": "",
@@ -22,10 +23,10 @@
 		"@ai-sdk/google-vertex": "^4.0.33",
 		"@ai-sdk/openai": "^3.0.21",
 		"@mariozechner/pi-tui": "^0.50.1",
-		"@mastra/core": "0.0.0-om-20260130230833",
-		"@mastra/libsql": "0.0.0-om-20260130230833",
-		"@mastra/mcp": "0.0.0-om-20260130230833",
-		"@mastra/memory": "0.0.0-om-20260130230833",
+		"@mastra/core": "om-core",
+		"@mastra/libsql": "om-core",
+		"@mastra/mcp": "om-core",
+		"@mastra/memory": "om-core",
 		"@tavily/core": "^0.7.1",
 		"ai": "^6.0.50",
 		"chalk": "^5.5.0",
@@ -40,11 +41,16 @@
 		"vscode-languageserver-protocol": "^3.17.5",
 		"zod": "^3.24.0"
 	},
+	"lint-staged": {
+		"*.{ts,js,json,md}": "prettier --write"
+	},
 	"devDependencies": {
 		"@ast-grep/napi": "^0.40.5",
 		"@types/chalk": "^2.2.4",
 		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^25.0.10",
+		"husky": "^9.1.7",
+		"lint-staged": "^16.2.7",
 		"prettier": "^3.8.1",
 		"tsx": "^4.21.0",
 		"typescript": "^5.8.0",
