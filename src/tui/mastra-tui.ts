@@ -59,7 +59,10 @@ import {
 } from "./components/om-progress.js"
 import { AskQuestionDialogComponent } from "./components/ask-question-dialog.js"
 import { AskQuestionInlineComponent } from "./components/ask-question-inline.js"
-import { PlanApprovalInlineComponent } from "./components/plan-approval-inline.js"
+import {
+	PlanApprovalInlineComponent,
+	PlanResultComponent,
+} from "./components/plan-approval-inline.js"
 import { ToolApprovalDialogComponent } from "./components/tool-approval-dialog.js"
 import {
 	ToolExecutionComponentEnhanced,
@@ -3604,6 +3607,46 @@ Keyboard shortcuts:
 								todos.every((t) => t.status === "completed")
 							) {
 								this.renderCompletedTodosInline(todos)
+								replacedWithInline = true
+							}
+						}
+
+						// If this was submit_plan, show the plan with approval status
+						if (
+							content.name === "submit_plan" &&
+							toolResult?.type === "tool_result"
+						) {
+							const args = content.args as
+								| { title?: string; plan?: string }
+								| undefined
+							// Result could be a string or an object with content property
+							let resultText = ""
+							if (typeof toolResult.result === "string") {
+								resultText = toolResult.result
+							} else if (
+								typeof toolResult.result === "object" &&
+								toolResult.result !== null &&
+								"content" in toolResult.result &&
+								typeof (toolResult.result as any).content === "string"
+							) {
+								resultText = (toolResult.result as any).content
+							}
+							const isApproved = resultText.toLowerCase().includes("approved")
+							// Extract feedback if rejected with feedback
+							let feedback: string | undefined
+							if (!isApproved && resultText.includes("Feedback:")) {
+								const feedbackMatch = resultText.match(/Feedback:\s*(.+)/)
+								feedback = feedbackMatch?.[1]
+							}
+
+							if (args?.title && args?.plan) {
+								const planResult = new PlanResultComponent({
+									title: args.title,
+									plan: args.plan,
+									isApproved,
+									feedback,
+								})
+								this.chatContainer.addChild(planResult)
 								replacedWithInline = true
 							}
 						}
