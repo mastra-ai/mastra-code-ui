@@ -770,49 +770,35 @@ ${instructions}`,
 		this.ui.setFocus(this.editor)
 	}
 
-	/**
-	 * Update the two-line status bar.
-	 * Line 1: Agent/model info — mode │ model │ thinking
-	 * Line 2: Memory info — msg threshold │ obs threshold
-	 */
-	private updateStatusLine(): void {
-		if (!this.statusLine) return
+    /**
+     * Update the two-line status bar.
+     * Line 1: [MODE] provider/model  memory  tokens  think:level
+     * Line 2:        ~/path/to/project (branch)
+     */
+    private updateStatusLine(): void {
+        if (!this.statusLine) return
 
-		// --- Line 1: Agent / Model ---
-		const agentParts: string[] = []
-		const termWidth = process.stdout.columns || 80
+        // --- Mode badge ---
+        let modeBadge = ""
+        let modeBadgeWidth = 0
+        const modes = this.harness.getModes()
+        const currentMode = modes.length > 1 ? this.harness.getCurrentMode() : undefined
+        const modeColor = currentMode?.color
+        if (currentMode) {
+            const modeName = currentMode.name || currentMode.id || "unknown"
+            if (modeColor) {
+                const textColor = getContrastText(modeColor)
+                modeBadge =
+                    chalk.bgHex(modeColor).hex(textColor).bold(` ${modeName} `) +
+                    " "
+                modeBadgeWidth = modeName.length + 3 // " name " + trailing space
+            } else {
+                modeBadge = fg("dim", modeName) + " "
+                modeBadgeWidth = modeName.length + 1
+            }
+        }
 
-		// Project path with git branch (only on wider terminals)
-		if (termWidth >= 80) {
-			const homedir = process.env.HOME || process.env.USERPROFILE || ""
-			let displayPath = this.projectInfo.rootPath
-			if (homedir && displayPath.startsWith(homedir)) {
-				displayPath = "~" + displayPath.slice(homedir.length)
-			}
-			if (this.projectInfo.gitBranch) {
-				agentParts.push(`${displayPath} (${this.projectInfo.gitBranch})`)
-			} else {
-				agentParts.push(displayPath)
-			}
-		}
-
-		// Current mode badge (only show when >1 mode)
-		let modeBadge = ""
-		const modes = this.harness.getModes()
-		if (modes.length > 1) {
-			const currentMode = this.harness.getCurrentMode()
-			const modeName = currentMode?.name || currentMode?.id || "unknown"
-			if (currentMode?.color) {
-				const textColor = getContrastText(currentMode.color)
-				modeBadge =
-					chalk.bgHex(currentMode.color).hex(textColor).bold(` ${modeName} `) +
-					" "
-			} else {
-				agentParts.push(modeName)
-			}
-		}
-
-        // Full model ID (provider/model) with auth warning
+        // --- Model ID ---
         const modelId = this.harness.getFullModelId()
         let modelIdDisplay: string
         if (!this.modelAuthStatus.hasAuth) {
@@ -825,43 +811,58 @@ ${instructions}`,
             modelIdDisplay = applyGradientSweep(
                 modelId,
                 this.gradientAnimator.getOffset(),
+                modeColor,
             )
+        } else if (modeColor) {
+            modelIdDisplay = chalk.hex(modeColor).bold(modelId)
         } else {
-            modelIdDisplay = fg("dim", modelId)
+            modelIdDisplay = chalk.hex("#a1a1aa").bold(modelId)
         }
 
-        // Build the rest of the parts (after path, before joining)
-        const afterParts: string[] = []
+        // --- Line 1 trailing parts: memory, tokens, thinking ---
+        const line1Parts: string[] = []
 
-        // Token usage (only show if > 0)
+        // Memory info
+        const obsStatus = formatObservationStatus(this.omProgress)
+        const refStatus = formatReflectionStatus(this.omProgress)
+        if (obsStatus || refStatus) {
+            line1Parts.push([obsStatus, refStatus].filter(Boolean).join("  "))
+        }
+
+        // Token usage
         if (this.tokenUsage.totalTokens > 0) {
-            const formatNumber = (n: number) => n.toLocaleString()
-            afterParts.push(
-                `[${formatNumber(this.tokenUsage.promptTokens)}/${formatNumber(this.tokenUsage.completionTokens)}]`,
+            const fmt = (n: number) => n.toLocaleString()
+            line1Parts.push(
+                `[${fmt(this.tokenUsage.promptTokens)}/${fmt(this.tokenUsage.completionTokens)}]`,
             )
         }
 
-        // Thinking level (only show for Anthropic models when not "off")
+        // Thinking level
         const thinkingLevel = this.harness.getThinkingLevel()
         if (thinkingLevel !== "off" && modelId.startsWith("anthropic/")) {
-            afterParts.push(`think: ${thinkingLevel}`)
+            line1Parts.push(`think: ${thinkingLevel}`)
         }
 
-        const sep = fg("dim", " │ ")
-        const beforeText = agentParts.length > 0 ? fg("dim", agentParts.join(" │ ")) + sep : ""
-        const afterText = afterParts.length > 0 ? sep + fg("dim", afterParts.join(" │ ")) : ""
-        this.statusLine.setText(modeBadge + beforeText + modelIdDisplay + afterText)
+        const trailing =
+            line1Parts.length > 0 ? "  " + fg("muted", line1Parts.join("  ")) : ""
+        this.statusLine.setText(modeBadge + modelIdDisplay + trailing)
 
-        // --- Line 2: Memory ---
+        // --- Line 2: directory path, left-padded past mode badge ---
         if (this.memoryStatusLine) {
-            const memParts: string[] = []
-            memParts.push(formatObservationStatus(this.omProgress))
-            memParts.push(formatReflectionStatus(this.omProgress))
-            this.memoryStatusLine.setText(fg("dim", memParts.join(" │ ")))
+            const homedir = process.env.HOME || process.env.USERPROFILE || ""
+            let displayPath = this.projectInfo.rootPath
+            if (homedir && displayPath.startsWith(homedir)) {
+                displayPath = "~" + displayPath.slice(homedir.length)
+            }
+            if (this.projectInfo.gitBranch) {
+                displayPath = `${displayPath} (${this.projectInfo.gitBranch})`
+            }
+            const padding = " ".repeat(modeBadgeWidth)
+            this.memoryStatusLine.setText(padding + fg("dim", displayPath))
         }
 
-		this.ui.requestRender()
-	}
+        this.ui.requestRender()
+    }
 
 	private async refreshModelAuthStatus(): Promise<void> {
 		this.modelAuthStatus = await this.harness.getCurrentModelAuthStatus()

@@ -5,18 +5,32 @@ const BASE_COLOR = [124, 58, 237] // #7c3aed purple accent
 const MIN_BRIGHTNESS = 0.45 // Dimmest characters (0-1)
 
 /**
+ * Parse a hex color string to [r, g, b].
+ */
+function hexToRgb(hex: string): [number, number, number] {
+    const h = hex.replace("#", "")
+    return [
+        parseInt(h.slice(0, 2), 16),
+        parseInt(h.slice(2, 4), 16),
+        parseInt(h.slice(4, 6), 16),
+    ]
+}
+
+/**
  * Applies a sweeping gradient animation to a plain text string.
- * A bright purple spot moves left-to-right across the text.
+ * A bright spot moves left-to-right across the text.
  *
  * @param text - Plain text to colorize (no ANSI codes)
  * @param offset - Current animation offset (0-1, wraps around)
+ * @param color - Optional hex color override (defaults to purple accent)
  * @returns Chalk-colored string
  */
-export function applyGradientSweep(text: string, offset: number): string {
+export function applyGradientSweep(text: string, offset: number, color?: string): string {
     const chars = [...text]
     const totalChars = chars.length
     if (totalChars === 0) return text
 
+    const baseColor = color ? hexToRgb(color) : BASE_COLOR
     const gradientCenter = (offset % 1) * 100
 
     return chars
@@ -38,9 +52,9 @@ export function applyGradientSweep(text: string, offset: number): string {
             const brightness =
                 MIN_BRIGHTNESS + (1 - MIN_BRIGHTNESS) * (1 - normalizedDistance)
 
-            const r = Math.floor(BASE_COLOR[0]! * brightness)
-            const g = Math.floor(BASE_COLOR[1]! * brightness)
-            const b = Math.floor(BASE_COLOR[2]! * brightness)
+            const r = Math.floor(baseColor[0]! * brightness)
+            const g = Math.floor(baseColor[1]! * brightness)
+            const b = Math.floor(baseColor[2]! * brightness)
 
             return chalk.rgb(r, g, b)(char)
         })
