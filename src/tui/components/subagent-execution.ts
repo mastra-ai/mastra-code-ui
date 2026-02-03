@@ -102,10 +102,7 @@ export class SubagentExecutionComponent
 		this.durationMs = durationMs
 		this.finalResult = result
 
-		// Auto-collapse on success, stay expanded on error
-		if (!isError) {
-			this.collapsible.setExpanded(false)
-		}
+		// Stay expanded so user can see what the subagent did
 		this.refresh()
 	}
 
@@ -246,19 +243,49 @@ function formatDuration(ms: number): string {
 	return `${s}s`
 }
 
-function summarizeArgs(args: unknown): string {
+function summarizeArgs(args: unknown, toolName?: string): string {
 	if (!args || typeof args !== "object") return ""
 	const obj = args as Record<string, unknown>
 	const parts: string[] = []
 
-	if (obj.path) parts.push(String(obj.path))
-	else if (obj.pattern) parts.push(String(obj.pattern))
-	else if (obj.command) parts.push(String(obj.command))
-	else {
+	// Special handling for todo_write tool
+	if (obj.todos && Array.isArray(obj.todos)) {
+		const todos = obj.todos as Array<{
+			content?: string
+			status?: string
+			activeForm?: string
+		}>
+
+		// Show task contents with status icons
+		const taskSummaries = todos.map((t) => {
+			const icon =
+				t.status === "completed" ? "✓" : t.status === "in_progress" ? "→" : "○"
+			const content = t.content || t.activeForm || "task"
+			return `${icon} ${content}`
+		})
+
+		// Join tasks, truncate if too long
+		const summary = taskSummaries.join(", ")
+		parts.push(summary.length > 80 ? `${summary.slice(0, 77)}…` : summary)
+	} else if (obj.path) {
+		parts.push(String(obj.path))
+	} else if (obj.pattern) {
+		parts.push(String(obj.pattern))
+	} else if (obj.command) {
+		parts.push(String(obj.command))
+	} else {
 		const firstKey = Object.keys(obj)[0]
 		if (firstKey) {
-			const val = String(obj[firstKey])
-			parts.push(val.length > 60 ? `${val.slice(0, 59)}…` : val)
+			const val = obj[firstKey]
+			// Avoid [object Object] for arrays/objects
+			if (Array.isArray(val)) {
+				parts.push(`${val.length} items`)
+			} else if (typeof val === "object" && val !== null) {
+				parts.push(`{...}`)
+			} else {
+				const strVal = String(val)
+				parts.push(strVal.length > 60 ? `${strVal.slice(0, 59)}…` : strVal)
+			}
 		}
 	}
 
