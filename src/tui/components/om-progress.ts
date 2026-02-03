@@ -168,28 +168,47 @@ function colorByPercent(text: string, percent: number): string {
 
 /**
  * Format OM observation threshold for status bar.
- * Shows: msg 12.5k/30.0k (42%)
+ * full:        history 12.5k/30.0k 42%
+ * default:     msg 12.5k/30.0k 42%
+ * percentOnly: msg 42%
  */
-export function formatObservationStatus(state: OMProgressState): string {
-	if (state.status === "observing") {
-		return chalk.yellow("⚡ observing")
-	}
-	const percent = Math.min(100, Math.round(state.thresholdPercent))
-	const text = `msg ${formatTokens(state.pendingTokens)}/${formatTokens(state.threshold)} (${percent}%)`
-	return colorByPercent(text, percent)
+export function formatObservationStatus(
+    state: OMProgressState,
+    compact?: "percentOnly" | "full",
+): string {
+    if (state.status === "observing") {
+        return chalk.yellow("⚡ observing")
+    }
+    const percent = Math.min(100, Math.round(state.thresholdPercent))
+    const pct = colorByPercent(`${percent}%`, percent)
+    if (compact === "percentOnly") {
+        return chalk.hex("#a1a1aa")("msg ") + pct
+    }
+    const label = compact === "full" ? "messages" : "msg"
+    const current = colorByPercent(formatTokens(state.pendingTokens), percent)
+    return chalk.hex("#a1a1aa")(`${label} `) + colorByPercent(`${formatTokens(state.pendingTokens)}/${formatTokens(state.threshold)}`, percent) + " " + pct
 }
 
 /**
  * Format OM reflection threshold for status bar.
- * Shows: obs 8.2k/40.0k (21%)
+ * full:        observations 8.2k/40.0k 21%
+ * default:     obs 8.2k/40.0k 21%
+ * percentOnly: obs 21%
  */
-export function formatReflectionStatus(state: OMProgressState): string {
-	if (state.status === "reflecting") {
-		return chalk.magenta("🔮 reflecting")
-	}
-	const percent = Math.min(100, Math.round(state.reflectionThresholdPercent))
-	const text = `obs ${formatTokens(state.observationTokens)}/${formatTokens(state.reflectionThreshold)} (${percent}%)`
-	return colorByPercent(text, percent)
+export function formatReflectionStatus(
+    state: OMProgressState,
+    compact?: "percentOnly" | "full",
+): string {
+    if (state.status === "reflecting") {
+        return chalk.magenta("🔮 reflecting")
+    }
+    const percent = Math.min(100, Math.round(state.reflectionThresholdPercent))
+    const pct = colorByPercent(`${percent}%`, percent)
+    if (compact === "percentOnly") {
+        return chalk.hex("#a1a1aa")("obs ") + pct
+    }
+    const label = compact === "full" ? "observations" : "obs"
+    return chalk.hex("#a1a1aa")(`${label} `) + colorByPercent(`${formatTokens(state.observationTokens)}/${formatTokens(state.reflectionThreshold)}`, percent) + " " + pct
 }
 
 /**

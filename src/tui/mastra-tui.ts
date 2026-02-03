@@ -4,16 +4,16 @@
  */
 
 import {
-	CombinedAutocompleteProvider,
-	Container,
-	Loader,
-	Markdown,
-	Spacer,
-	Text,
-	TUI,
-	ProcessTerminal,
-	type EditorTheme,
-	type SlashCommand,
+    CombinedAutocompleteProvider,
+    Container,
+    Markdown,
+    Spacer,
+    Text,
+    TUI,
+    ProcessTerminal,
+    visibleWidth,
+    type EditorTheme,
+    type SlashCommand,
 } from "@mariozechner/pi-tui"
 import chalk from "chalk"
 import path from "path"
@@ -36,6 +36,10 @@ import {
 import { processSlashCommand } from "../utils/slash-command-processor.js"
 import { extractSlashCommand } from "../utils/slash-command-extractor.js"
 import { AssistantMessageComponent } from "./components/assistant-message.js"
+import {
+    GradientAnimator,
+    applyGradientSweep,
+} from "./components/obi-loader.js"
 import { CustomEditor } from "./components/custom-editor.js"
 import { LoginDialogComponent } from "./components/login-dialog.js"
 
@@ -44,7 +48,7 @@ import {
 	type ModelItem,
 } from "./components/model-selector.js"
 import { ThreadSelectorComponent } from "./components/thread-selector.js"
-import { OMMarkerComponent } from "./components/om-marker.js"
+import { OMMarkerComponent, type OMMarkerData } from "./components/om-marker.js"
 import { OMSettingsComponent } from "./components/om-settings.js"
 
 import {
@@ -119,14 +123,14 @@ export class MastraTUI {
 	// TUI components
 	private ui: TUI
 	private chatContainer: Container
-	private statusContainer: Container
-	private editorContainer: Container
+    private editorContainer: Container
 	private editor: CustomEditor
 	private footer: Container
 
 	// State tracking
 	private isInitialized = false
-	private loadingAnimation?: Loader
+    private gradientAnimator?: GradientAnimator
+    private isAgentActive = false
 	private streamingComponent?: AssistantMessageComponent
 	private streamingMessage?: HarnessMessage
 	private pendingTools = new Map<string, IToolExecutionComponent>()
@@ -163,6 +167,7 @@ export class MastraTUI {
 		reflectionThresholdPercent: 0,
 	}
 	private omProgressComponent?: OMProgressComponent
+	private activeOMMarker?: OMMarkerComponent
 	private todoProgress?: TodoProgressComponent
 
 	// Autocomplete
@@ -205,11 +210,10 @@ export class MastraTUI {
 		this.terminal = new ProcessTerminal()
 		this.ui = new TUI(this.terminal)
 
-		// Create containers
-		this.chatContainer = new Container()
-		this.statusContainer = new Container()
-		this.editorContainer = new Container()
-		this.footer = new Container()
+        // Create containers
+        this.chatContainer = new Container()
+        this.editorContainer = new Container()
+        this.footer = new Container()
 
 		// Create editor with custom keybindings
 		this.editor = new CustomEditor(this.ui, getEditorTheme())
@@ -747,18 +751,17 @@ ${instructions}`,
 		)
 		this.ui.addChild(new Spacer(1))
 
-		// Add main containers
-		this.ui.addChild(this.chatContainer)
-		this.ui.addChild(this.statusContainer)
-		// Todo progress (between status and editor, visible only when todos exist)
+        // Add main containers
+        this.ui.addChild(this.chatContainer)
+        // Todo progress (between chat and editor, visible only when todos exist)
 		this.todoProgress = new TodoProgressComponent()
 		this.ui.addChild(this.todoProgress)
 		this.ui.addChild(this.editorContainer)
 		this.editorContainer.addChild(this.editor)
 
 		// Add footer with two-line status
-		this.statusLine = new Text("", 1, 0)
-		this.memoryStatusLine = new Text("", 1, 0)
+		this.statusLine = new Text("", 0, 0)
+		this.memoryStatusLine = new Text("", 0, 0)
 		this.footer.addChild(this.statusLine)
 		this.footer.addChild(this.memoryStatusLine)
 		this.ui.addChild(this.footer)
@@ -769,87 +772,317 @@ ${instructions}`,
 		this.ui.setFocus(this.editor)
 	}
 
-	/**
-	 * Update the two-line status bar.
-	 * Line 1: Agent/model info — mode │ model │ thinking
-	 * Line 2: Memory info — msg threshold │ obs threshold
-	 */
-	private updateStatusLine(): void {
-		if (!this.statusLine) return
+    /**
+     * Update the two-line status bar.
+     * Line 1: [MODE] provider/model  memory  tokens  think:level
+     * Line 2:        ~/path/to/project (branch)
+     */
+    private updateStatusLine(): void {
+        if (!this.statusLine) return
 
-		// --- Line 1: Agent / Model ---
-		const agentParts: string[] = []
-		const termWidth = process.stdout.columns || 80
+        const termWidth = process.stdout.columns || 80
+        const SEP = "  " // double-space separator between parts
 
-		// Project path with git branch (only on wider terminals)
-		if (termWidth >= 80) {
-			const homedir = process.env.HOME || process.env.USERPROFILE || ""
-			let displayPath = this.projectInfo.rootPath
-			if (homedir && displayPath.startsWith(homedir)) {
-				displayPath = "~" + displayPath.slice(homedir.length)
-			}
-			if (this.projectInfo.gitBranch) {
-				agentParts.push(`${displayPath} (${this.projectInfo.gitBranch})`)
-			} else {
-				agentParts.push(displayPath)
-			}
-		}
+        // --- Mode badge ---
+        let modeBadge = ""
+        let modeBadgeWidth = 0
+        const modes = this.harness.getModes()
+        const currentMode =
+            modes.length > 1 ? this.harness.getCurrentMode() : undefined
+        const modeColor = currentMode?.color
+        if (currentMode) {
+            const modeName = currentMode.name || currentMode.id || "unknown"
+            if (modeColor) {
+                const [mcr, mcg, mcb] = [
+                    parseInt(modeColor.slice(1, 3), 16),
+                    parseInt(modeColor.slice(3, 5), 16),
+                    parseInt(modeColor.slice(5, 7), 16),
+                ]
+                // Pulse the badge bg brightness opposite to the gradient sweep
+                let badgeBrightness = 0.9
+                if (this.gradientAnimator?.isRunning()) {
+                    const fade = this.gradientAnimator.getFadeProgress()
+                    if (fade < 1) {
+                        const offset = this.gradientAnimator.getOffset() % 1
+                        // Inverted phase (+ PI), range 0.65-0.95
+                        const animBrightness = 0.65 + 0.3 * (0.5 + 0.5 * Math.sin(offset * Math.PI * 2 + Math.PI))
+                        // Interpolate toward idle (0.9) as fade progresses
+                        badgeBrightness = animBrightness + (0.9 - animBrightness) * fade
+                    }
+                }
+                const [mr, mg, mb] = [
+                    Math.floor(mcr * badgeBrightness),
+                    Math.floor(mcg * badgeBrightness),
+                    Math.floor(mcb * badgeBrightness),
+                ]
+                modeBadge =
+                    chalk.bgRgb(mr, mg, mb).hex("#0a0a0a").bold(` ${modeName.toLowerCase()} `)
+                modeBadgeWidth = modeName.length + 2
+            } else {
+                modeBadge = fg("dim", modeName) + " "
+                modeBadgeWidth = modeName.length + 1
+            }
+        }
 
-		// Current mode badge (only show when >1 mode)
-		let modeBadge = ""
-		const modes = this.harness.getModes()
-		if (modes.length > 1) {
-			const currentMode = this.harness.getCurrentMode()
-			const modeName = currentMode?.name || currentMode?.id || "unknown"
-			if (currentMode?.color) {
-				const textColor = getContrastText(currentMode.color)
-				modeBadge =
-					chalk.bgHex(currentMode.color).hex(textColor).bold(` ${modeName} `) +
-					" "
-			} else {
-				agentParts.push(modeName)
-			}
-		}
+        // --- Update editor border to match mode color ---
+        if (modeColor) {
+            const [br, bg, bb] = [
+                parseInt(modeColor.slice(1, 3), 16),
+                parseInt(modeColor.slice(3, 5), 16),
+                parseInt(modeColor.slice(5, 7), 16),
+            ]
+            const dim = 0.35
+            this.editor.borderColor = (text: string) =>
+                chalk.rgb(Math.floor(br * dim), Math.floor(bg * dim), Math.floor(bb * dim))(text)
+        }
 
-		// Full model ID (provider/model) with auth warning
-		const modelId = this.harness.getFullModelId()
-		if (!this.modelAuthStatus.hasAuth) {
-			const envVar = this.modelAuthStatus.apiKeyEnvVar
-			agentParts.push(
-				modelId +
-					fg("error", " ✗") +
-					fg("muted", envVar ? ` (${envVar})` : " (no key)"),
-			)
-		} else {
-			agentParts.push(modelId)
-		}
+        // --- Collect raw data ---
+        const fullModelId = this.harness.getFullModelId()
+        // e.g. "anthropic/claude-sonnet-4-20250514" → "claude-sonnet-4-20250514"
+        const shortModelId = fullModelId.includes("/")
+            ? fullModelId.slice(fullModelId.indexOf("/") + 1)
+            : fullModelId
 
-		// Token usage (only show if > 0)
-		if (this.tokenUsage.totalTokens > 0) {
-			const formatNumber = (n: number) => n.toLocaleString()
-			agentParts.push(
-				`[${formatNumber(this.tokenUsage.promptTokens)}/${formatNumber(this.tokenUsage.completionTokens)}]`,
-			)
-		}
+        const thinkingLevel = this.harness.getThinkingLevel()
+        const showThinking =
+            thinkingLevel !== "off" && fullModelId.startsWith("anthropic/")
 
-		// Thinking level (only show for Anthropic models when not "off")
-		const thinkingLevel = this.harness.getThinkingLevel()
-		if (thinkingLevel !== "off" && modelId.startsWith("anthropic/")) {
-			agentParts.push(`think: ${thinkingLevel}`)
-		}
+        const fmt = (n: number) => n.toLocaleString()
+        const hasTokens = this.tokenUsage.totalTokens > 0
+        const tokenStr = hasTokens
+            ? `[${fmt(this.tokenUsage.promptTokens)}/${fmt(this.tokenUsage.completionTokens)}]`
+            : ""
 
-		this.statusLine.setText(modeBadge + fg("dim", agentParts.join(" │ ")))
+        const homedir = process.env.HOME || process.env.USERPROFILE || ""
+        let displayPath = this.projectInfo.rootPath
+        if (homedir && displayPath.startsWith(homedir)) {
+            displayPath = "~" + displayPath.slice(homedir.length)
+        }
+        if (this.projectInfo.gitBranch) {
+            displayPath = `${displayPath} (${this.projectInfo.gitBranch})`
+        }
 
-		// --- Line 2: Memory ---
-		if (this.memoryStatusLine) {
-			const memParts: string[] = []
-			memParts.push(formatObservationStatus(this.omProgress))
-			memParts.push(formatReflectionStatus(this.omProgress))
-			this.memoryStatusLine.setText(fg("dim", memParts.join(" │ ")))
-		}
+        // --- Helper to style the model ID ---
+        const styleModelId = (id: string): string => {
+            if (!this.modelAuthStatus.hasAuth) {
+                const envVar = this.modelAuthStatus.apiKeyEnvVar
+                return (
+                    fg("dim", id) +
+                    fg("error", " ✗") +
+                    fg("muted", envVar ? ` (${envVar})` : " (no key)")
+                )
+            }
+            // Tinted near-black background from mode color
+            const tintBg = modeColor
+                ? `#${Math.floor(parseInt(modeColor.slice(1, 3), 16) * 0.15).toString(16).padStart(2, "0")}${Math.floor(parseInt(modeColor.slice(3, 5), 16) * 0.15).toString(16).padStart(2, "0")}${Math.floor(parseInt(modeColor.slice(5, 7), 16) * 0.15).toString(16).padStart(2, "0")}`
+                : undefined
 
-		this.ui.requestRender()
-	}
+            if (this.gradientAnimator?.isRunning() && modeColor) {
+                const fade = this.gradientAnimator.getFadeProgress()
+                if (fade < 1) {
+                    // During active or fade-out: interpolate gradient toward idle color
+                    const text = applyGradientSweep(
+                        ` ${id} `,
+                        this.gradientAnimator.getOffset(),
+                        modeColor,
+                        fade, // pass fade progress to flatten the gradient
+                    )
+                    return tintBg ? chalk.bgHex(tintBg)(text) : text
+                }
+            }
+            if (modeColor) {
+                // Idle state
+                const [r, g, b] = [
+                    parseInt(modeColor.slice(1, 3), 16),
+                    parseInt(modeColor.slice(3, 5), 16),
+                    parseInt(modeColor.slice(5, 7), 16),
+                ]
+                const dim = 0.8
+                const fg = chalk.rgb(
+                    Math.floor(r * dim),
+                    Math.floor(g * dim),
+                    Math.floor(b * dim),
+                ).bold(` ${id} `)
+                return tintBg ? chalk.bgHex(tintBg)(fg) : fg
+            }
+            return chalk.hex("#a1a1aa").bold(id)
+        }
+
+        // --- Build line with progressive reduction ---
+        // Strategy: try full → drop dir → percentOnly mem → drop provider
+        // Each attempt assembles plain-text parts, measures, and if it fits, styles and renders.
+
+        const buildLine = (opts: {
+            modelId: string
+            memCompact?: "percentOnly" | "full"
+            showDir: boolean
+            showTokens: boolean
+            showThinking: boolean
+        }): { plain: string; styled: string } | null => {
+            const parts: Array<{ plain: string; styled: string }> = []
+
+            // Model ID (always present) — styleModelId adds padding spaces
+            parts.push({
+                plain: ` ${opts.modelId} `,
+                styled: styleModelId(opts.modelId),
+            })
+
+            // Memory info
+            const obs = formatObservationStatus(
+                this.omProgress,
+                opts.memCompact,
+            )
+            const ref = formatReflectionStatus(
+                this.omProgress,
+                opts.memCompact,
+            )
+            if (obs) {
+                parts.push({ plain: obs, styled: obs })
+            }
+            if (ref) {
+                parts.push({ plain: ref, styled: ref })
+            }
+
+            // Tokens
+            if (opts.showTokens && hasTokens) {
+                parts.push({
+                    plain: tokenStr,
+                    styled: fg("muted", tokenStr),
+                })
+            }
+
+            // Thinking
+            if (opts.showThinking && showThinking) {
+                const s = `think: ${thinkingLevel}`
+                parts.push({ plain: s, styled: fg("muted", s) })
+            }
+
+            // Directory (lowest priority on line 1)
+            if (opts.showDir) {
+                parts.push({
+                    plain: displayPath,
+                    styled: fg("dim", displayPath),
+                })
+            }
+
+            const totalPlain =
+                modeBadgeWidth +
+                parts.reduce(
+                    (sum, p, i) =>
+                        sum +
+                        visibleWidth(p.plain) +
+                        (i > 0 ? SEP.length : 0),
+                    0,
+                )
+
+            if (totalPlain > termWidth) return null
+
+            let styledLine: string
+            if (opts.showDir && parts.length >= 3) {
+                // Three groups: left (model), center (mem/tokens/thinking), right (dir)
+                const leftPart = parts[0]! // model
+                const centerParts = parts.slice(1, -1) // mem, tokens, thinking
+                const dirPart = parts[parts.length - 1]! // dir
+
+                const leftWidth = modeBadgeWidth + visibleWidth(leftPart.plain)
+                const centerWidth = centerParts.reduce(
+                    (sum, p, i) => sum + visibleWidth(p.plain) + (i > 0 ? SEP.length : 0), 0,
+                )
+                const rightWidth = visibleWidth(dirPart.plain)
+                const totalContent = leftWidth + centerWidth + rightWidth
+                const freeSpace = termWidth - totalContent
+                const gapLeft = Math.floor(freeSpace / 2)
+                const gapRight = freeSpace - gapLeft
+
+                styledLine =
+                    modeBadge +
+                    leftPart.styled +
+                    " ".repeat(Math.max(gapLeft, 1)) +
+                    centerParts.map((p) => p.styled).join(SEP) +
+                    " ".repeat(Math.max(gapRight, 1)) +
+                    dirPart.styled
+            } else if (opts.showDir && parts.length === 2) {
+                // Just model + dir, right-align dir
+                const mainStr = modeBadge + parts[0]!.styled
+                const dirPart = parts[parts.length - 1]!
+                const gap = termWidth - totalPlain
+                styledLine = mainStr + " ".repeat(gap + SEP.length) + dirPart.styled
+            } else {
+                styledLine =
+                    modeBadge + parts.map((p) => p.styled).join(SEP)
+            }
+            return { plain: "", styled: styledLine }
+        }
+
+        // Try progressively more compact layouts
+        const result =
+            // Full: long labels ("history"/"observations"), dir, everything
+            buildLine({
+                modelId: fullModelId,
+                memCompact: "full",
+                showDir: true,
+                showTokens: true,
+                showThinking: true,
+            }) ??
+            // Drop directory, keep long labels
+            buildLine({
+                modelId: fullModelId,
+                memCompact: "full",
+                showDir: false,
+                showTokens: true,
+                showThinking: true,
+            }) ??
+            // Short labels ("msg"/"obs")
+            buildLine({
+                modelId: fullModelId,
+                showDir: false,
+                showTokens: true,
+                showThinking: true,
+            }) ??
+            // Percent only ("msg 42%  obs 21%")
+            buildLine({
+                modelId: fullModelId,
+                memCompact: "percentOnly",
+                showDir: false,
+                showTokens: true,
+                showThinking: true,
+            }) ??
+            // Drop tokens too
+            buildLine({
+                modelId: fullModelId,
+                memCompact: "percentOnly",
+                showDir: false,
+                showTokens: false,
+                showThinking: true,
+            }) ??
+            // Drop provider prefix
+            buildLine({
+                modelId: shortModelId,
+                memCompact: "percentOnly",
+                showDir: false,
+                showTokens: false,
+                showThinking: true,
+            }) ??
+            // Last resort: short model, no tokens, no thinking
+            buildLine({
+                modelId: shortModelId,
+                memCompact: "percentOnly",
+                showDir: false,
+                showTokens: false,
+                showThinking: false,
+            })
+
+        this.statusLine.setText(
+            result?.styled ?? modeBadge + styleModelId(shortModelId),
+        )
+
+        // Line 2: hidden — dir only shows on line 1 when it fits
+        if (this.memoryStatusLine) {
+            this.memoryStatusLine.setText("")
+        }
+
+        this.ui.requestRender()
+    }
 
 	private async refreshModelAuthStatus(): Promise<void> {
 		this.modelAuthStatus = await this.harness.getCurrentModelAuthStatus()
@@ -1282,71 +1515,72 @@ ${instructions}`,
 		this.updateStatusLine()
 	}
 
-	private formatTokensShort(tokens: number): string {
-		if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`
-		return String(tokens)
-	}
+    private handleOMObservationStart(
+        cycleId: string,
+        tokensToObserve: number,
+    ): void {
+        this.omProgress.status = "observing"
+        this.omProgress.cycleId = cycleId
+        this.omProgress.startTime = Date.now()
+        // Show in-progress marker in chat
+        this.activeOMMarker = new OMMarkerComponent({
+            type: "om_observation_start",
+            tokensToObserve,
+            operationType: "observation",
+        })
+        this.addOMMarkerToChat(this.activeOMMarker)
+        this.updateStatusLine()
+        this.ui.requestRender()
+    }
 
-	private handleOMObservationStart(
-		cycleId: string,
-		tokensToObserve: number,
-	): void {
-		this.omProgress.status = "observing"
-		this.omProgress.cycleId = cycleId
-		this.omProgress.startTime = Date.now()
-		const tokens =
-			tokensToObserve > 0
-				? ` ~${this.formatTokensShort(tokensToObserve)} tokens`
-				: ""
-		this.updateLoaderText(`Observing${tokens}...`)
-		this.ui.requestRender()
-		this.updateStatusLine()
-	}
+    private handleOMObservationEnd(
+        _cycleId: string,
+        durationMs: number,
+        tokensObserved: number,
+        observationTokens: number,
+    ): void {
+        this.omProgress.status = "idle"
+        this.omProgress.cycleId = undefined
+        this.omProgress.startTime = undefined
+        this.omProgress.observationTokens = observationTokens
+        // Messages have been observed — reset pending tokens
+        this.omProgress.pendingTokens = 0
+        this.omProgress.thresholdPercent = 0
+        // Update existing marker in-place, or create new one
+        const endData: OMMarkerData = {
+            type: "om_observation_end",
+            tokensObserved,
+            observationTokens,
+            durationMs,
+            operationType: "observation",
+        }
+        if (this.activeOMMarker) {
+            this.activeOMMarker.update(endData)
+            this.activeOMMarker = undefined
+        } else {
+            this.addOMMarkerToChat(new OMMarkerComponent(endData))
+        }
+        this.updateStatusLine()
+        this.ui.requestRender()
+    }
 
-	private handleOMObservationEnd(
-		_cycleId: string,
-		durationMs: number,
-		tokensObserved: number,
-		observationTokens: number,
-	): void {
-		this.omProgress.status = "idle"
-		this.omProgress.cycleId = undefined
-		this.omProgress.startTime = undefined
-		this.omProgress.observationTokens = observationTokens
-		// Messages have been observed — reset pending tokens
-		this.omProgress.pendingTokens = 0
-		this.omProgress.thresholdPercent = 0
-		// Show success marker in chat history
-		this.addOMMarkerToChat(
-			new OMMarkerComponent({
-				type: "om_observation_end",
-				tokensObserved,
-				observationTokens,
-				durationMs,
-				operationType: "observation",
-			}),
-		)
-		// Revert spinner to "Working..."
-		this.updateLoaderText("Working...")
-		this.ui.requestRender()
-		this.updateStatusLine()
-	}
-
-	private handleOMReflectionStart(
-		cycleId: string,
-		tokensToReflect: number,
-	): void {
-		this.omProgress.status = "reflecting"
-		this.omProgress.cycleId = cycleId
-		this.omProgress.startTime = Date.now()
-		const tokens =
-			tokensToReflect > 0
-				? ` ~${this.formatTokensShort(tokensToReflect)} tokens`
-				: ""
-		this.updateLoaderText(`Reflecting${tokens}...`)
-		this.ui.requestRender()
-		this.updateStatusLine()
-	}
+    private handleOMReflectionStart(
+        cycleId: string,
+        tokensToReflect: number,
+    ): void {
+        this.omProgress.status = "reflecting"
+        this.omProgress.cycleId = cycleId
+        this.omProgress.startTime = Date.now()
+        // Show in-progress marker in chat
+        this.activeOMMarker = new OMMarkerComponent({
+            type: "om_observation_start",
+            tokensToObserve: tokensToReflect,
+            operationType: "reflection",
+        })
+        this.addOMMarkerToChat(this.activeOMMarker)
+        this.updateStatusLine()
+        this.ui.requestRender()
+    }
 
 	private handleOMReflectionEnd(
 		_cycleId: string,
@@ -1380,119 +1614,94 @@ ${instructions}`,
 		this.updateStatusLine()
 	}
 
-	private handleOMFailed(
-		_cycleId: string,
-		error: string,
-		operation: "observation" | "reflection",
-	): void {
-		this.omProgress.status = "idle"
-		this.omProgress.cycleId = undefined
-		this.omProgress.startTime = undefined
-		// Show failure marker in chat history
-		this.addOMMarkerToChat(
-			new OMMarkerComponent({
-				type: "om_observation_failed",
-				error,
-				operationType: operation,
-			}),
-		)
-		// Revert spinner to "Working..."
-		this.updateLoaderText("Working...")
-		this.ui.requestRender()
-		this.updateStatusLine()
-	}
+    private handleOMFailed(
+        _cycleId: string,
+        error: string,
+        operation: "observation" | "reflection",
+    ): void {
+        this.omProgress.status = "idle"
+        this.omProgress.cycleId = undefined
+        this.omProgress.startTime = undefined
+        // Update existing marker in-place, or create new one
+        const failData: OMMarkerData = {
+            type: "om_observation_failed",
+            error,
+            operationType: operation,
+        }
+        if (this.activeOMMarker) {
+            this.activeOMMarker.update(failData)
+            this.activeOMMarker = undefined
+        } else {
+            this.addOMMarkerToChat(new OMMarkerComponent(failData))
+        }
+        this.updateStatusLine()
+        this.ui.requestRender()
+    }
 
-	/** Update the loading animation text (e.g., "Working..." → "Observing...") */
-	private updateLoaderText(text: string): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-		}
-		this.statusContainer.clear()
-		this.loadingAnimation = new Loader(
-			this.ui,
-			(spinner) => fg("accent", spinner),
-			(text) => fg("muted", text),
-			text,
-		)
-		this.statusContainer.addChild(this.loadingAnimation)
-	}
+    /** Update the loading animation text (e.g., "Working..." → "Observing...") */
+    private updateLoaderText(_text: string): void {
+        // Status text changes are now reflected via updateStatusLine gradient
+        this.updateStatusLine()
+    }
 
-	private handleAgentStart(): void {
-		// Clear any existing loader or done message
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-		}
-		this.statusContainer.clear()
+    private handleAgentStart(): void {
+        this.isAgentActive = true
+        if (!this.gradientAnimator) {
+            this.gradientAnimator = new GradientAnimator(() => {
+                this.updateStatusLine()
+            })
+        }
+        this.gradientAnimator.start()
+        this.updateStatusLine()
+    }
 
-		// Show loading animation
-		this.loadingAnimation = new Loader(
-			this.ui,
-			(spinner) => fg("accent", spinner),
-			(text) => fg("muted", text),
-			"Working...",
-		)
-		this.statusContainer.addChild(this.loadingAnimation)
-		this.ui.requestRender()
-	}
+    private handleAgentEnd(): void {
+        this.isAgentActive = false
+        if (this.gradientAnimator) {
+            this.gradientAnimator.fadeOut()
+        }
+        this.updateStatusLine()
 
-	private handleAgentEnd(): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-			this.loadingAnimation = undefined
-		}
-		this.statusContainer.clear()
-		this.ui.requestRender()
+        if (this.streamingComponent) {
+            this.streamingComponent = undefined
+            this.streamingMessage = undefined
+        }
 
-		if (this.streamingComponent) {
-			this.streamingComponent = undefined
-			this.streamingMessage = undefined
-		}
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after agent completes
+    }
 
-		this.pendingTools.clear()
-		// Keep allToolComponents so Ctrl+E continues to work after agent completes
-	}
+    private handleAgentAborted(): void {
+        this.isAgentActive = false
+        if (this.gradientAnimator) {
+            this.gradientAnimator.fadeOut()
+        }
+        this.updateStatusLine()
 
-	private handleAgentAborted(): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-			this.loadingAnimation = undefined
-		}
-		this.statusContainer.clear()
+        if (this.streamingComponent) {
+            this.streamingComponent = undefined
+            this.streamingMessage = undefined
+        }
 
-		// Show "Interrupted" indicator
-		this.statusContainer.addChild(
-			new Text(fg("warning", "⚠ Interrupted"), 0, 0),
-		)
-		this.ui.requestRender()
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after interruption
+    }
 
-		if (this.streamingComponent) {
-			this.streamingComponent = undefined
-			this.streamingMessage = undefined
-		}
+    private handleAgentError(): void {
+        this.isAgentActive = false
+        if (this.gradientAnimator) {
+            this.gradientAnimator.fadeOut()
+        }
+        this.updateStatusLine()
 
-		this.pendingTools.clear()
-		// Keep allToolComponents so Ctrl+E continues to work after interruption
-	}
+        if (this.streamingComponent) {
+            this.streamingComponent = undefined
+            this.streamingMessage = undefined
+        }
 
-	private handleAgentError(): void {
-		if (this.loadingAnimation) {
-			this.loadingAnimation.stop()
-			this.loadingAnimation = undefined
-		}
-		this.statusContainer.clear()
-
-		// Show "Error" indicator
-		this.statusContainer.addChild(new Text(fg("error", "✗ Error"), 0, 0))
-		this.ui.requestRender()
-
-		if (this.streamingComponent) {
-			this.streamingComponent = undefined
-			this.streamingMessage = undefined
-		}
-
-		this.pendingTools.clear()
-		// Keep allToolComponents so Ctrl+E continues to work after errors
-	}
+        this.pendingTools.clear()
+        // Keep allToolComponents so Ctrl+E continues to work after errors
+    }
 
 	private handleMessageStart(message: HarnessMessage): void {
 		if (message.role === "user") {

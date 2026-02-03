@@ -564,7 +564,7 @@ const harness = new Harness({
 			name: "Build",
 			default: true,
 			defaultModelId: "anthropic/claude-opus-4-5",
-			color: "#7c3aed",
+            color: "#7f45e0",
 			agent: codeAgent,
 		},
 		{
