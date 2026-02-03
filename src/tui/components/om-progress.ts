@@ -186,7 +186,7 @@ export function formatObservationStatus(
     }
     const label = compact === "full" ? "messages" : "msg"
     const current = colorByPercent(formatTokens(state.pendingTokens), percent)
-    return chalk.hex("#a1a1aa")(`${label} `) + current + chalk.hex("#a1a1aa")(`/${formatTokens(state.threshold)} `) + pct
+    return chalk.hex("#a1a1aa")(`${label} `) + colorByPercent(`${formatTokens(state.pendingTokens)}/${formatTokens(state.threshold)}`, percent) + " " + pct
 }
 
 /**
@@ -208,8 +208,7 @@ export function formatReflectionStatus(
         return chalk.hex("#a1a1aa")("obs ") + pct
     }
     const label = compact === "full" ? "observations" : "obs"
-    const current = colorByPercent(formatTokens(state.observationTokens), percent)
-    return chalk.hex("#a1a1aa")(`${label} `) + current + chalk.hex("#a1a1aa")(`/${formatTokens(state.reflectionThreshold)} `) + pct
+    return chalk.hex("#a1a1aa")(`${label} `) + colorByPercent(`${formatTokens(state.observationTokens)}/${formatTokens(state.reflectionThreshold)}`, percent) + " " + pct
 }
 
 /**
