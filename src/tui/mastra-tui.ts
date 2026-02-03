@@ -48,7 +48,7 @@ import {
 	type ModelItem,
 } from "./components/model-selector.js"
 import { ThreadSelectorComponent } from "./components/thread-selector.js"
-import { OMMarkerComponent } from "./components/om-marker.js"
+import { OMMarkerComponent, type OMMarkerData } from "./components/om-marker.js"
 import { OMSettingsComponent } from "./components/om-settings.js"
 
 import {
@@ -167,6 +167,7 @@ export class MastraTUI {
 		reflectionThresholdPercent: 0,
 	}
 	private omProgressComponent?: OMProgressComponent
+	private activeOMMarker?: OMMarkerComponent
 	private todoProgress?: TodoProgressComponent
 
 	// Autocomplete
@@ -1514,71 +1515,72 @@ ${instructions}`,
 		this.updateStatusLine()
 	}
 
-	private formatTokensShort(tokens: number): string {
-		if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`
-		return String(tokens)
-	}
+    private handleOMObservationStart(
+        cycleId: string,
+        tokensToObserve: number,
+    ): void {
+        this.omProgress.status = "observing"
+        this.omProgress.cycleId = cycleId
+        this.omProgress.startTime = Date.now()
+        // Show in-progress marker in chat
+        this.activeOMMarker = new OMMarkerComponent({
+            type: "om_observation_start",
+            tokensToObserve,
+            operationType: "observation",
+        })
+        this.addOMMarkerToChat(this.activeOMMarker)
+        this.updateStatusLine()
+        this.ui.requestRender()
+    }
 
-	private handleOMObservationStart(
-		cycleId: string,
-		tokensToObserve: number,
-	): void {
-		this.omProgress.status = "observing"
-		this.omProgress.cycleId = cycleId
-		this.omProgress.startTime = Date.now()
-		const tokens =
-			tokensToObserve > 0
-				? ` ~${this.formatTokensShort(tokensToObserve)} tokens`
-				: ""
-		this.updateLoaderText(`Observing${tokens}...`)
-		this.ui.requestRender()
-		this.updateStatusLine()
-	}
+    private handleOMObservationEnd(
+        _cycleId: string,
+        durationMs: number,
+        tokensObserved: number,
+        observationTokens: number,
+    ): void {
+        this.omProgress.status = "idle"
+        this.omProgress.cycleId = undefined
+        this.omProgress.startTime = undefined
+        this.omProgress.observationTokens = observationTokens
+        // Messages have been observed — reset pending tokens
+        this.omProgress.pendingTokens = 0
+        this.omProgress.thresholdPercent = 0
+        // Update existing marker in-place, or create new one
+        const endData: OMMarkerData = {
+            type: "om_observation_end",
+            tokensObserved,
+            observationTokens,
+            durationMs,
+            operationType: "observation",
+        }
+        if (this.activeOMMarker) {
+            this.activeOMMarker.update(endData)
+            this.activeOMMarker = undefined
+        } else {
+            this.addOMMarkerToChat(new OMMarkerComponent(endData))
+        }
+        this.updateStatusLine()
+        this.ui.requestRender()
+    }
 
-	private handleOMObservationEnd(
-		_cycleId: string,
-		durationMs: number,
-		tokensObserved: number,
-		observationTokens: number,
-	): void {
-		this.omProgress.status = "idle"
-		this.omProgress.cycleId = undefined
-		this.omProgress.startTime = undefined
-		this.omProgress.observationTokens = observationTokens
-		// Messages have been observed — reset pending tokens
-		this.omProgress.pendingTokens = 0
-		this.omProgress.thresholdPercent = 0
-		// Show success marker in chat history
-		this.addOMMarkerToChat(
-			new OMMarkerComponent({
-				type: "om_observation_end",
-				tokensObserved,
-				observationTokens,
-				durationMs,
-				operationType: "observation",
-			}),
-		)
-		// Revert spinner to "Working..."
-		this.updateLoaderText("Working...")
-		this.ui.requestRender()
-		this.updateStatusLine()
-	}
-
-	private handleOMReflectionStart(
-		cycleId: string,
-		tokensToReflect: number,
-	): void {
-		this.omProgress.status = "reflecting"
-		this.omProgress.cycleId = cycleId
-		this.omProgress.startTime = Date.now()
-		const tokens =
-			tokensToReflect > 0
-				? ` ~${this.formatTokensShort(tokensToReflect)} tokens`
-				: ""
-		this.updateLoaderText(`Reflecting${tokens}...`)
-		this.ui.requestRender()
-		this.updateStatusLine()
-	}
+    private handleOMReflectionStart(
+        cycleId: string,
+        tokensToReflect: number,
+    ): void {
+        this.omProgress.status = "reflecting"
+        this.omProgress.cycleId = cycleId
+        this.omProgress.startTime = Date.now()
+        // Show in-progress marker in chat
+        this.activeOMMarker = new OMMarkerComponent({
+            type: "om_observation_start",
+            tokensToObserve: tokensToReflect,
+            operationType: "reflection",
+        })
+        this.addOMMarkerToChat(this.activeOMMarker)
+        this.updateStatusLine()
+        this.ui.requestRender()
+    }
 
 	private handleOMReflectionEnd(
 		_cycleId: string,
@@ -1612,27 +1614,29 @@ ${instructions}`,
 		this.updateStatusLine()
 	}
 
-	private handleOMFailed(
-		_cycleId: string,
-		error: string,
-		operation: "observation" | "reflection",
-	): void {
-		this.omProgress.status = "idle"
-		this.omProgress.cycleId = undefined
-		this.omProgress.startTime = undefined
-		// Show failure marker in chat history
-		this.addOMMarkerToChat(
-			new OMMarkerComponent({
-				type: "om_observation_failed",
-				error,
-				operationType: operation,
-			}),
-		)
-		// Revert spinner to "Working..."
-		this.updateLoaderText("Working...")
-		this.ui.requestRender()
-		this.updateStatusLine()
-	}
+    private handleOMFailed(
+        _cycleId: string,
+        error: string,
+        operation: "observation" | "reflection",
+    ): void {
+        this.omProgress.status = "idle"
+        this.omProgress.cycleId = undefined
+        this.omProgress.startTime = undefined
+        // Update existing marker in-place, or create new one
+        const failData: OMMarkerData = {
+            type: "om_observation_failed",
+            error,
+            operationType: operation,
+        }
+        if (this.activeOMMarker) {
+            this.activeOMMarker.update(failData)
+            this.activeOMMarker = undefined
+        } else {
+            this.addOMMarkerToChat(new OMMarkerComponent(failData))
+        }
+        this.updateStatusLine()
+        this.ui.requestRender()
+    }
 
     /** Update the loading animation text (e.g., "Working..." → "Observing...") */
     private updateLoaderText(_text: string): void {
