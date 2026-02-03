@@ -2086,6 +2086,7 @@ ${instructions}`,
 							? `Granted access to ${requestedPath}`
 							: `Denied access to ${requestedPath}`
 					},
+					isNegativeAnswer: (answer) => !answer.toLowerCase().startsWith("y"),
 				},
 				this.ui,
 			)
