@@ -468,7 +468,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 	/**
 	 * Load the stored model ID for a specific mode.
-	 * Falls back to: mode's defaultModelId → global last model → current model.
+	 * Falls back to: thread metadata → global per-mode → mode's defaultModelId → global last model → current model.
 	 */
 	private async loadModeModelId(modeId: string): Promise<string | null> {
 		// 1. Check thread metadata for per-mode model
@@ -486,15 +486,19 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			}
 		}
 
-		// 2. Fall back to mode's defaultModelId
+		// 2. Check global per-mode model from auth storage
+		const globalModeModel = this.config.authStorage?.getModeModelId(modeId)
+		if (globalModeModel) return globalModeModel
+
+		// 3. Fall back to mode's defaultModelId
 		const mode = this.config.modes.find((m) => m.id === modeId)
 		if (mode?.defaultModelId) return mode.defaultModelId
 
-		// 3. Fall back to global last model
+		// 4. Fall back to global last model
 		const lastModelId = this.config.authStorage?.getLastModelId()
 		if (lastModelId) return lastModelId
 
-		// 4. Keep current model
+		// 5. Keep current model
 		return null
 	}
 	/**
@@ -654,26 +658,42 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 * Also saves per-mode and as global "last model" for new threads.
 	 * @param modelId Full model ID (e.g., "anthropic/claude-sonnet-4-20250514")
 	 */
-	async switchModel(modelId: string): Promise<void> {
-		// Update state with new model ID
-		// The dynamic model function in the agent will read this on next request
-		this.setState({ currentModelId: modelId } as Partial<z.infer<TState>>)
+	/**
+	 * Switch the main agent model for a specific mode.
+	 * @param modelId Full model ID (e.g., "anthropic/claude-sonnet-4-20250514")
+	 * @param scope "global" for global default, "thread" for thread-specific setting
+	 * @param modeId Mode ID (defaults to current mode)
+	 */
+	async switchModel(
+		modelId: string,
+		scope: "global" | "thread" = "thread",
+		modeId?: string,
+	): Promise<void> {
+		const targetModeId = modeId ?? this.currentModeId
 
-		// Persist to thread metadata (both global and per-mode)
-		await this.persistModelId(modelId)
-		await this.persistThreadSetting(
-			`modeModelId_${this.currentModeId}`,
-			modelId,
-		)
+		// Update current state for immediate effect if this is the current mode
+		if (targetModeId === this.currentModeId) {
+			this.setState({ currentModelId: modelId } as Partial<z.infer<TState>>)
+		}
 
-		// Save as global "last model" for new threads and bump ranking
-		this.config.authStorage?.setLastModelId(modelId)
+		// Persist based on scope
+		if (scope === "global") {
+			// Global default for this mode - save to auth storage
+			this.config.authStorage?.setModeModelId(targetModeId, modelId)
+		} else {
+			// Thread-specific setting for this mode - save to thread metadata
+			await this.persistThreadSetting(`modeModelId_${targetModeId}`, modelId)
+		}
+
+		// Always bump use count for ranking
 		this.config.authStorage?.incrementModelUseCount(modelId)
 
 		// Emit event so TUI can update status line
 		this.emit({
 			type: "model_changed",
 			modelId,
+			scope,
+			modeId: targetModeId,
 		} as HarnessEvent)
 	}
 	/**
@@ -740,6 +760,77 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			modelId,
 		} as HarnessEvent)
 	}
+
+	// =========================================================================
+	// Subagent Model Management
+	// =========================================================================
+
+	/**
+	 * Get the subagent model ID for a specific agent type.
+	 * Falls back to: per-type thread model → per-type global model → null.
+	 * @param agentType Optional agent type (explore, plan, execute)
+	 */
+	async getSubagentModelId(agentType?: string): Promise<string | null> {
+		// 1. Check thread metadata for per-type subagent model
+		if (agentType && this.currentThreadId) {
+			try {
+				const memoryStorage = await this.getMemoryStorage()
+				const thread = await memoryStorage.getThreadById({
+					threadId: this.currentThreadId,
+				})
+				const meta = thread?.metadata as Record<string, unknown> | undefined
+
+				const perTypeThread = meta?.[`subagentModelId_${agentType}`] as
+					| string
+					| undefined
+				if (perTypeThread) return perTypeThread
+			} catch {
+				// Fall through
+			}
+		}
+
+		// 2. Check global per-type subagent model from auth storage
+		if (agentType) {
+			const perTypeGlobal =
+				this.config.authStorage?.getSubagentModelId(agentType)
+			if (perTypeGlobal) return perTypeGlobal
+		}
+
+		// 3. No configured subagent model — caller should use defaults
+		return null
+	}
+
+	/**
+	 * Set the subagent model ID.
+	 * @param modelId Full model ID (e.g., "anthropic/claude-sonnet-4-20250514")
+	 * @param scope "global" for global default, "thread" for thread-level default
+	 * @param agentType Agent type (explore, plan, execute)
+	 */
+	async setSubagentModelId(
+		modelId: string,
+		scope: "global" | "thread" = "thread",
+		agentType?: string,
+	): Promise<void> {
+		if (!agentType) {
+			throw new Error("agentType is required for setSubagentModelId")
+		}
+
+		if (scope === "global") {
+			// Persist to auth storage (global preference per agent type)
+			this.config.authStorage?.setSubagentModelId(modelId, agentType)
+		} else {
+			// Persist thread-level subagent model per agent type
+			await this.persistThreadSetting(`subagentModelId_${agentType}`, modelId)
+		}
+
+		this.emit({
+			type: "subagent_model_changed",
+			modelId,
+			scope,
+			agentType,
+		} as HarnessEvent)
+	}
+
 	/**
 	 * Get YOLO mode state.
 	 */
@@ -1000,6 +1091,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			) {
 				updates.sandboxAllowedPaths = meta.sandboxAllowedPaths
 			}
+			// Load subagent model (thread-level)
+			if (meta?.subagentModelId) updates.subagentModelId = meta.subagentModelId
 			// Only load todos if they exist and have items
 			if (meta?.todos && Array.isArray(meta.todos) && meta.todos.length > 0) {
 				updates.todos = meta.todos
@@ -2328,6 +2421,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				this.registerQuestion(questionId, resolve),
 			registerPlanApproval: (planId, resolve) =>
 				this.registerPlanApproval(planId, resolve),
+			getSubagentModelId: (agentType?: string) =>
+				this.getSubagentModelId(agentType),
 		}
 		return new RequestContext([["harness", harnessContext]])
 	}

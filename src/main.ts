@@ -112,6 +112,8 @@ const stateSchema = z.object({
 	gitBranch: z.string().optional(),
 	lastCommand: z.string().optional(),
 	currentModelId: z.string().default(""),
+	// Subagent model settings (per-thread/per-mode)
+	subagentModelId: z.string().optional(), // Thread-level default for subagents
 	// Observational Memory model settings
 	observerModelId: z.string().default(DEFAULT_OM_MODEL_ID),
 	reflectorModelId: z.string().default(DEFAULT_OM_MODEL_ID),

@@ -1103,7 +1103,8 @@ ${instructions}`,
 		const slashCommands: SlashCommand[] = [
 			{ name: "new", description: "Start a new thread" },
 			{ name: "threads", description: "Switch between threads" },
-			{ name: "models", description: "Switch model" },
+			{ name: "models", description: "Configure model (global/thread/mode)" },
+			{ name: "subagents", description: "Configure subagent model defaults" },
 			{ name: "om", description: "Configure Observational Memory models" },
 			{ name: "think", description: "Set thinking level (Anthropic)" },
 			{ name: "login", description: "Login with OAuth provider" },
@@ -2865,8 +2866,126 @@ ${instructions}`,
 	// Model Selector
 	// ===========================================================================
 
-	private async showModelSelector(): Promise<void> {
-		// Get available models from harness
+	/**
+	 * Show mode selector first, then scope (global/thread), then model list.
+	 * Flow: Mode → Scope → Model
+	 */
+	private async showModelScopeSelector(): Promise<void> {
+		const modes = this.harness.getModes()
+		const currentMode = this.harness.getCurrentMode()
+
+		// Sort modes with active mode first
+		const sortedModes = [...modes].sort((a, b) => {
+			if (a.id === currentMode?.id) return -1
+			if (b.id === currentMode?.id) return 1
+			return 0
+		})
+
+		const modeOptions = sortedModes.map((mode) => ({
+			label: mode.name + (mode.id === currentMode?.id ? " (active)" : ""),
+			modeId: mode.id,
+			modeName: mode.name,
+		}))
+
+		return new Promise<void>((resolve) => {
+			const questionComponent = new AskQuestionInlineComponent(
+				{
+					question: "Select mode",
+					options: modeOptions.map((m) => ({ label: m.label })),
+					formatResult: (answer) => {
+						const mode = modeOptions.find((m) => m.label === answer)
+						return `Mode: ${mode?.modeName ?? answer}`
+					},
+					onSubmit: async (answer) => {
+						this.activeInlineQuestion = undefined
+						const selected = modeOptions.find((m) => m.label === answer)
+						if (selected?.modeId && selected?.modeName) {
+							await this.showModelScopeThenList(
+								selected.modeId,
+								selected.modeName,
+							)
+						}
+						resolve()
+					},
+					onCancel: () => {
+						this.activeInlineQuestion = undefined
+						resolve()
+					},
+				},
+				this.ui,
+			)
+
+			this.activeInlineQuestion = questionComponent
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(questionComponent)
+			this.chatContainer.addChild(new Spacer(1))
+			this.ui.requestRender()
+			this.chatContainer.invalidate()
+		})
+	}
+
+	/**
+	 * Show scope selector (global/thread) for a specific mode, then model list.
+	 */
+	private async showModelScopeThenList(
+		modeId: string,
+		modeName: string,
+	): Promise<void> {
+		const scopes = [
+			{
+				label: "Thread default",
+				description: `Default for ${modeName} mode in this thread`,
+				scope: "thread" as const,
+			},
+			{
+				label: "Global default",
+				description: `Default for ${modeName} mode in all threads`,
+				scope: "global" as const,
+			},
+		]
+
+		return new Promise<void>((resolve) => {
+			const questionComponent = new AskQuestionInlineComponent(
+				{
+					question: `Select scope for ${modeName}`,
+					options: scopes.map((s) => ({
+						label: s.label,
+						description: s.description,
+					})),
+					formatResult: (answer) => `${modeName} · ${answer}`,
+					onSubmit: async (answer) => {
+						this.activeInlineQuestion = undefined
+						const selected = scopes.find((s) => s.label === answer)
+						if (selected) {
+							await this.showModelListForScope(selected.scope, modeId, modeName)
+						}
+						resolve()
+					},
+					onCancel: () => {
+						this.activeInlineQuestion = undefined
+						resolve()
+					},
+				},
+				this.ui,
+			)
+
+			this.activeInlineQuestion = questionComponent
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(questionComponent)
+			this.chatContainer.addChild(new Spacer(1))
+			this.ui.requestRender()
+			this.chatContainer.invalidate()
+		})
+	}
+
+	/**
+	 * Show the model list for a specific mode and scope.
+	 */
+	private async showModelListForScope(
+		scope: "global" | "thread",
+		modeId: string,
+		modeName: string,
+	): Promise<void> {
 		const availableModels = await this.harness.getAvailableModels()
 
 		if (availableModels.length === 0) {
@@ -2874,22 +2993,20 @@ ${instructions}`,
 			return
 		}
 
-		// Get current model from harness state (not from agent config)
 		const currentModelId = this.harness.getCurrentModelId()
+		const scopeLabel =
+			scope === "global" ? `${modeName} · Global` : `${modeName} · Thread`
 
-		// Create model selector
 		return new Promise((resolve) => {
 			const selector = new ModelSelectorComponent({
 				tui: this.ui,
 				models: availableModels,
 				currentModelId,
+				title: `Select model (${scopeLabel})`,
 				onSelect: async (model: ModelItem) => {
 					this.ui.hideOverlay()
-
-					// Switch model via harness (updates state, which dynamic model function reads)
-					await this.harness.switchModel(model.id)
-
-					this.showInfo(`Switched to: ${model.id}`)
+					await this.harness.switchModel(model.id, scope, modeId)
+					this.showInfo(`Model set for ${scopeLabel}: ${model.id}`)
 					this.updateStatusLine()
 					resolve()
 				},
@@ -2899,7 +3016,171 @@ ${instructions}`,
 				},
 			})
 
-			// Show as overlay
+			this.ui.showOverlay(selector, {
+				width: "80%",
+				maxHeight: "60%",
+				anchor: "center",
+			})
+			selector.focused = true
+		})
+	}
+
+	/**
+	 * Show agent type selector first, then scope (global/thread), then model list.
+	 * Flow: Agent Type → Scope → Model
+	 */
+	private async showSubagentModelSelector(): Promise<void> {
+		const agentTypes = [
+			{
+				id: "explore",
+				label: "Explore",
+				description: "Read-only codebase exploration",
+			},
+			{
+				id: "plan",
+				label: "Plan",
+				description: "Read-only analysis and planning",
+			},
+			{
+				id: "execute",
+				label: "Execute",
+				description: "Task execution with write access",
+			},
+		]
+
+		return new Promise<void>((resolve) => {
+			const questionComponent = new AskQuestionInlineComponent(
+				{
+					question: "Select subagent type",
+					options: agentTypes.map((t) => ({
+						label: t.label,
+						description: t.description,
+					})),
+					formatResult: (answer) => `Subagent: ${answer}`,
+					onSubmit: async (answer) => {
+						this.activeInlineQuestion = undefined
+						const selected = agentTypes.find((t) => t.label === answer)
+						if (selected) {
+							await this.showSubagentScopeThenList(selected.id, selected.label)
+						}
+						resolve()
+					},
+					onCancel: () => {
+						this.activeInlineQuestion = undefined
+						resolve()
+					},
+				},
+				this.ui,
+			)
+
+			this.activeInlineQuestion = questionComponent
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(questionComponent)
+			this.chatContainer.addChild(new Spacer(1))
+			this.ui.requestRender()
+			this.chatContainer.invalidate()
+		})
+	}
+
+	/**
+	 * Show scope selector (global/thread) for a specific agent type, then model list.
+	 */
+	private async showSubagentScopeThenList(
+		agentType: string,
+		agentTypeLabel: string,
+	): Promise<void> {
+		const scopes = [
+			{
+				label: "Thread default",
+				description: `Default for ${agentTypeLabel} subagents in this thread`,
+				scope: "thread" as const,
+			},
+			{
+				label: "Global default",
+				description: `Default for ${agentTypeLabel} subagents in all threads`,
+				scope: "global" as const,
+			},
+		]
+
+		return new Promise<void>((resolve) => {
+			const questionComponent = new AskQuestionInlineComponent(
+				{
+					question: `Select scope for ${agentTypeLabel} subagents`,
+					options: scopes.map((s) => ({
+						label: s.label,
+						description: s.description,
+					})),
+					formatResult: (answer) => `${agentTypeLabel} · ${answer}`,
+					onSubmit: async (answer) => {
+						this.activeInlineQuestion = undefined
+						const selected = scopes.find((s) => s.label === answer)
+						if (selected) {
+							await this.showSubagentModelListForScope(
+								selected.scope,
+								agentType,
+								agentTypeLabel,
+							)
+						}
+						resolve()
+					},
+					onCancel: () => {
+						this.activeInlineQuestion = undefined
+						resolve()
+					},
+				},
+				this.ui,
+			)
+
+			this.activeInlineQuestion = questionComponent
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(questionComponent)
+			this.chatContainer.addChild(new Spacer(1))
+			this.ui.requestRender()
+			this.chatContainer.invalidate()
+		})
+	}
+
+	/**
+	 * Show the model list for subagent type and scope selection.
+	 */
+	private async showSubagentModelListForScope(
+		scope: "global" | "thread",
+		agentType: string,
+		agentTypeLabel: string,
+	): Promise<void> {
+		const availableModels = await this.harness.getAvailableModels()
+
+		if (availableModels.length === 0) {
+			this.showInfo("No models available. Check your Mastra configuration.")
+			return
+		}
+
+		// Get current subagent model if set
+		const currentSubagentModel =
+			await this.harness.getSubagentModelId(agentType)
+		const scopeLabel =
+			scope === "global"
+				? `${agentTypeLabel} · Global`
+				: `${agentTypeLabel} · Thread`
+
+		return new Promise((resolve) => {
+			const selector = new ModelSelectorComponent({
+				tui: this.ui,
+				models: availableModels,
+				currentModelId: currentSubagentModel ?? undefined,
+				title: `Select subagent model (${scopeLabel})`,
+				onSelect: async (model: ModelItem) => {
+					this.ui.hideOverlay()
+					await this.harness.setSubagentModelId(model.id, scope, agentType)
+					this.showInfo(`Subagent model set for ${scopeLabel}: ${model.id}`)
+					resolve()
+				},
+				onCancel: () => {
+					this.ui.hideOverlay()
+					resolve()
+				},
+			})
+
 			this.ui.showOverlay(selector, {
 				width: "80%",
 				maxHeight: "60%",
@@ -3275,7 +3556,12 @@ ${modeList}`)
 			}
 
 			case "models": {
-				await this.showModelSelector()
+				await this.showModelScopeSelector()
+				return true
+			}
+
+			case "subagents": {
+				await this.showSubagentModelSelector()
 				return true
 			}
 
@@ -3343,7 +3629,8 @@ ${modeList}`)
   /threads       - Switch between threads
   /thread:tag-dir - Tag thread with current directory
   /skills        - List available skills
-  /models    - Switch model
+  /models    - Configure model (global/thread/mode)
+  /subagents - Configure subagent model defaults
   /om       - Configure Observational Memory
   /think    - Set thinking level (Anthropic)
   /yolo     - Toggle YOLO mode (auto-approve tools)

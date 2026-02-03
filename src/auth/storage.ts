@@ -211,6 +211,49 @@ export class AuthStorage {
 	}
 
 	/**
+	 * Get the global model ID for a specific mode.
+	 * @param modeId Mode ID (e.g., "build", "plan", "explore")
+	 */
+	getModeModelId(modeId: string): string | undefined {
+		return (this.data as any)[`_modeModelId_${modeId}`]
+	}
+
+	/**
+	 * Set the global model ID for a specific mode.
+	 * @param modeId Mode ID (e.g., "build", "plan", "explore")
+	 * @param modelId Full model ID
+	 */
+	setModeModelId(modeId: string, modelId: string): void {
+		;(this.data as any)[`_modeModelId_${modeId}`] = modelId
+		this.save()
+	}
+
+	/**
+	 * Get the global subagent model ID for an agent type.
+	 * @param agentType Optional agent type (explore, plan, execute)
+	 */
+	getSubagentModelId(agentType?: string): string | undefined {
+		if (agentType) {
+			return (this.data as any)[`_subagentModelId_${agentType}`]
+		}
+		return (this.data as any)._subagentModelId
+	}
+
+	/**
+	 * Set the global subagent model ID for an agent type.
+	 * @param modelId Full model ID
+	 * @param agentType Optional agent type (explore, plan, execute)
+	 */
+	setSubagentModelId(modelId: string, agentType?: string): void {
+		if (agentType) {
+			;(this.data as any)[`_subagentModelId_${agentType}`] = modelId
+		} else {
+			;(this.data as any)._subagentModelId = modelId
+		}
+		this.save()
+	}
+
+	/**
 	 * Get the default model for a provider after login.
 	 */
 	getDefaultModelForProvider(providerId: OAuthProviderId): string | undefined {

@@ -102,12 +102,25 @@ Use this tool when:
 				}
 			}
 
-			// Resolve the model — explore subagents use Cerebras when available
+			// Resolve the model with the following precedence:
+			// 1. Explicit modelId from tool call
+			// 2. Configured subagent model for this agent type (thread or global)
+			// 3. Deps default model
+			// 4. Type-specific defaults (Cerebras for explore if available)
 			const defaultForType =
 				agentType === "explore"
 					? EXPLORE_SUBAGENT_MODEL
 					: DEFAULT_SUBAGENT_MODEL
-			const resolvedModelId = modelId ?? deps.defaultModelId ?? defaultForType
+
+			// Check for configured subagent model from harness (per-type)
+			const configuredSubagentModel =
+				await harnessCtx?.getSubagentModelId?.(agentType)
+
+			const resolvedModelId =
+				modelId ??
+				configuredSubagentModel ??
+				deps.defaultModelId ??
+				defaultForType
 			let model: any
 			try {
 				model = deps.resolveModel(resolvedModelId)

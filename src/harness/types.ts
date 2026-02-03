@@ -194,7 +194,12 @@ export interface TokenUsage {
  */
 export type HarnessEvent =
 	| { type: "mode_changed"; modeId: string; previousModeId: string }
-	| { type: "model_changed"; modelId: string }
+	| {
+			type: "model_changed"
+			modelId: string
+			scope?: "global" | "thread" | "mode"
+			modeId?: string
+	  }
 	| {
 			type: "thread_changed"
 			threadId: string
@@ -323,6 +328,13 @@ export type HarnessEvent =
 			result: string
 			isError: boolean
 			durationMs: number
+	  }
+	// Subagent model changed event
+	| {
+			type: "subagent_model_changed"
+			modelId: string
+			scope: "global" | "thread"
+			agentType: string
 	  }
 	// Todo list events
 	| {
@@ -499,4 +511,11 @@ export interface HarnessRuntimeContext<
 			feedback?: string
 		}) => void,
 	) => void
+
+	/**
+	 * Get the configured subagent model ID for a specific agent type.
+	 * @param agentType The agent type (explore, plan, execute)
+	 * Returns the model ID to use for subagents, or null to use defaults.
+	 */
+	getSubagentModelId?: (agentType?: string) => Promise<string | null>
 }
