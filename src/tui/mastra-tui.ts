@@ -792,10 +792,27 @@ ${instructions}`,
         if (currentMode) {
             const modeName = currentMode.name || currentMode.id || "unknown"
             if (modeColor) {
+                const [mcr, mcg, mcb] = [
+                    parseInt(modeColor.slice(1, 3), 16),
+                    parseInt(modeColor.slice(3, 5), 16),
+                    parseInt(modeColor.slice(5, 7), 16),
+                ]
+                // Pulse the badge bg brightness opposite to the gradient sweep
+                let badgeBrightness = 0.9
+                if (this.gradientAnimator?.isRunning()) {
+                    const fade = this.gradientAnimator.getFadeProgress()
+                    if (fade < 1) {
+                        const offset = this.gradientAnimator.getOffset() % 1
+                        // Inverted phase (+ PI), range 0.65-0.95
+                        const animBrightness = 0.65 + 0.3 * (0.5 + 0.5 * Math.sin(offset * Math.PI * 2 + Math.PI))
+                        // Interpolate toward idle (0.9) as fade progresses
+                        badgeBrightness = animBrightness + (0.9 - animBrightness) * fade
+                    }
+                }
                 const [mr, mg, mb] = [
-                    Math.floor(parseInt(modeColor.slice(1, 3), 16) * 0.9),
-                    Math.floor(parseInt(modeColor.slice(3, 5), 16) * 0.9),
-                    Math.floor(parseInt(modeColor.slice(5, 7), 16) * 0.9),
+                    Math.floor(mcr * badgeBrightness),
+                    Math.floor(mcg * badgeBrightness),
+                    Math.floor(mcb * badgeBrightness),
                 ]
                 modeBadge =
                     chalk.bgRgb(mr, mg, mb).hex("#0a0a0a").bold(` ${modeName.toLowerCase()} `)
@@ -847,16 +864,21 @@ ${instructions}`,
                 ? `#${Math.floor(parseInt(modeColor.slice(1, 3), 16) * 0.15).toString(16).padStart(2, "0")}${Math.floor(parseInt(modeColor.slice(3, 5), 16) * 0.15).toString(16).padStart(2, "0")}${Math.floor(parseInt(modeColor.slice(5, 7), 16) * 0.15).toString(16).padStart(2, "0")}`
                 : undefined
 
-            if (this.isAgentActive && this.gradientAnimator?.isRunning()) {
-                const text = applyGradientSweep(
-                    ` ${id} `,
-                    this.gradientAnimator.getOffset(),
-                    modeColor,
-                )
-                return tintBg ? chalk.bgHex(tintBg)(text) : text
+            if (this.gradientAnimator?.isRunning() && modeColor) {
+                const fade = this.gradientAnimator.getFadeProgress()
+                if (fade < 1) {
+                    // During active or fade-out: interpolate gradient toward idle color
+                    const text = applyGradientSweep(
+                        ` ${id} `,
+                        this.gradientAnimator.getOffset(),
+                        modeColor,
+                        fade, // pass fade progress to flatten the gradient
+                    )
+                    return tintBg ? chalk.bgHex(tintBg)(text) : text
+                }
             }
             if (modeColor) {
-                // Use the dim end of the gradient at idle
+                // Idle state
                 const [r, g, b] = [
                     parseInt(modeColor.slice(1, 3), 16),
                     parseInt(modeColor.slice(3, 5), 16),
@@ -901,9 +923,11 @@ ${instructions}`,
                 this.omProgress,
                 opts.memCompact,
             )
-            if (obs || ref) {
-                const memStr = [obs, ref].filter(Boolean).join(SEP)
-                parts.push({ plain: memStr, styled: memStr })
+            if (obs) {
+                parts.push({ plain: obs, styled: obs })
+            }
+            if (ref) {
+                parts.push({ plain: ref, styled: ref })
             }
 
             // Tokens
@@ -1635,7 +1659,7 @@ ${instructions}`,
     private handleAgentEnd(): void {
         this.isAgentActive = false
         if (this.gradientAnimator) {
-            this.gradientAnimator.stop()
+            this.gradientAnimator.fadeOut()
         }
         this.updateStatusLine()
 
@@ -1651,7 +1675,7 @@ ${instructions}`,
     private handleAgentAborted(): void {
         this.isAgentActive = false
         if (this.gradientAnimator) {
-            this.gradientAnimator.stop()
+            this.gradientAnimator.fadeOut()
         }
         this.updateStatusLine()
 
@@ -1667,7 +1691,7 @@ ${instructions}`,
     private handleAgentError(): void {
         this.isAgentActive = false
         if (this.gradientAnimator) {
-            this.gradientAnimator.stop()
+            this.gradientAnimator.fadeOut()
         }
         this.updateStatusLine()
 
