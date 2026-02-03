@@ -1075,26 +1075,9 @@ ${instructions}`,
             result?.styled ?? modeBadge + styleModelId(shortModelId),
         )
 
-        // Line 2: show dir here only if it was dropped from line 1
+        // Line 2: hidden — dir only shows on line 1 when it fits
         if (this.memoryStatusLine) {
-            const line1HasDir =
-                buildLine({
-                    modelId: fullModelId,
-                    memCompact: "full",
-                    showDir: true,
-                    showTokens: true,
-                    showThinking: true,
-                }) !== null
-
-            if (line1HasDir) {
-                // Dir is on line 1, line 2 is empty
-                this.memoryStatusLine.setText("")
-            } else {
-                const padding = " ".repeat(modeBadgeWidth)
-                this.memoryStatusLine.setText(
-                    padding + fg("dim", displayPath),
-                )
-            }
+            this.memoryStatusLine.setText("")
         }
 
         this.ui.requestRender()
