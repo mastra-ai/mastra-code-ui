@@ -169,6 +169,7 @@ export class MastraTUI {
 	private omProgressComponent?: OMProgressComponent
 	private activeOMMarker?: OMMarkerComponent
 	private todoProgress?: TodoProgressComponent
+	private previousTodos: TodoItem[] = [] // Track previous state for diff
 
 	// Autocomplete
 	private autocompleteProvider?: CombinedAutocompleteProvider
@@ -1400,6 +1401,36 @@ ${instructions}`,
 				const todos = event.todos as TodoItem[]
 				if (this.todoProgress) {
 					this.todoProgress.updateTodos(todos ?? [])
+
+					// Find the most recent todo_write tool component and get its position
+					let insertIndex = -1
+					for (let i = this.allToolComponents.length - 1; i >= 0; i--) {
+						const comp = this.allToolComponents[i]
+						if ((comp as any).toolName === "todo_write") {
+							insertIndex = this.chatContainer.children.indexOf(comp as any)
+							this.chatContainer.removeChild(comp as any)
+							this.allToolComponents.splice(i, 1)
+							break
+						}
+					}
+
+					// Check if all todos are completed
+					const allCompleted =
+						todos &&
+						todos.length > 0 &&
+						todos.every((t) => t.status === "completed")
+
+					if (allCompleted) {
+						// Show full completed list
+						this.renderCompletedTodosInline(todos, insertIndex)
+					} else if (todos && todos.length > 0) {
+						// Show inline status of what changed
+						this.renderTodoUpdateInline(todos, this.previousTodos, insertIndex)
+					}
+
+					// Track for next diff
+					this.previousTodos = todos ? [...todos] : []
+
 					this.ui.requestRender()
 				}
 				break
@@ -2205,12 +2236,6 @@ ${instructions}`,
 			}
 			component.updateResult(toolResult, false)
 
-			// Check if this was a todo_write tool and update the todo display
-			const toolName = (component as any).toolName || ""
-			if (toolName === "todo_write" && !isError) {
-				this.handleTodoUpdate(result, component)
-			}
-
 			this.pendingTools.delete(toolCallId)
 			this.ui.requestRender()
 		}
@@ -2238,46 +2263,18 @@ ${instructions}`,
 	}
 
 	/**
-	 * Handle todo updates from todo_write tool
-	 */
-	private handleTodoUpdate(
-		result: unknown,
-		toolComponent?: IToolExecutionComponent,
-	): void {
-		// Parse the result to extract todos
-		if (result && typeof result === "object" && "todos" in result) {
-			const todoResult = result as { todos: TodoItem[] }
-			if (this.todoProgress) {
-				this.todoProgress.updateTodos(todoResult.todos)
-
-				// When all todos are completed, replace the tool component with the full inline list
-				const todos = todoResult.todos
-				const allCompleted =
-					todos.length > 0 && todos.every((t) => t.status === "completed")
-				if (allCompleted) {
-					if (toolComponent) {
-						this.chatContainer.removeChild(toolComponent as any)
-						this.allToolComponents = this.allToolComponents.filter(
-							(c) => c !== toolComponent,
-						)
-					}
-					this.renderCompletedTodosInline(todos)
-				}
-
-				this.ui.requestRender()
-			}
-		}
-	}
-
-	/**
 	 * Render a completed todo list inline in the chat history.
 	 * This mirrors the pinned TodoProgressComponent format but shows
 	 * all items as completed, since the pinned component hides itself
 	 * when everything is done.
+	 * @param todos The completed todo items
+	 * @param insertIndex Optional index to insert at (replaces tool component position)
 	 */
-	private renderCompletedTodosInline(todos: TodoItem[]): void {
+	private renderCompletedTodosInline(
+		todos: TodoItem[],
+		insertIndex = -1,
+	): void {
 		const headerText =
-			"  " +
 			bold(fg("accent", "Tasks")) +
 			fg("dim", ` [${todos.length}/${todos.length} completed]`)
 
@@ -2287,11 +2284,93 @@ ${instructions}`,
 
 		for (const todo of todos) {
 			const icon = chalk.green("\u2713")
-			const text = chalk.green.strikethrough(todo.content)
-			container.addChild(new Text(`    ${icon} ${text}`, 0, 0))
+			const text = chalk.green(todo.content)
+			container.addChild(new Text(`  ${icon} ${text}`, 0, 0))
 		}
 
-		this.chatContainer.addChild(container)
+		if (insertIndex >= 0) {
+			// Insert at the position where the todo_write tool was
+			this.chatContainer.children.splice(insertIndex, 0, container)
+			this.chatContainer.invalidate()
+		} else {
+			// Fallback: append at end
+			this.chatContainer.addChild(container)
+		}
+	}
+
+	/**
+	 * Render an inline status showing what changed in the todo list.
+	 * Shows newly completed tasks, newly started tasks, or new tasks added.
+	 */
+	private renderTodoUpdateInline(
+		todos: TodoItem[],
+		previousTodos: TodoItem[],
+		insertIndex = -1,
+	): void {
+		const completed = todos.filter((t) => t.status === "completed").length
+		const total = todos.length
+		const inProgress = todos.find((t) => t.status === "in_progress")
+
+		// Find what changed
+		const prevByContent = new Map(
+			previousTodos.map((t) => [t.content, t.status]),
+		)
+		const newlyCompleted = todos.filter(
+			(t) =>
+				t.status === "completed" &&
+				prevByContent.get(t.content) !== "completed",
+		)
+		const newlyStarted = todos.filter(
+			(t) =>
+				t.status === "in_progress" &&
+				prevByContent.get(t.content) !== "in_progress",
+		)
+		const isNewList = previousTodos.length === 0 && todos.length > 0
+
+		// Build heading and detail line
+		let heading = ""
+		let detail = ""
+
+		if (isNewList) {
+			// New todo list created
+			const taskWord = total === 1 ? "Task" : "Tasks"
+			heading =
+				fg("accent", `${taskWord} created`) +
+				fg("dim", ` [${completed}/${total}]`)
+			if (inProgress) {
+				detail = fg("dim", "  → ") + fg("muted", inProgress.activeForm)
+			}
+		} else if (newlyCompleted.length > 0) {
+			// Task(s) completed
+			const task = newlyCompleted[0]
+			heading =
+				fg("accent", "Task completed") + fg("dim", ` [${completed}/${total}]`)
+			detail = "  " + chalk.green("✓") + " " + chalk.green(task.content)
+		} else if (newlyStarted.length > 0) {
+			// Task started
+			const task = newlyStarted[0]
+			heading =
+				fg("accent", "Task started") + fg("dim", ` [${completed}/${total}]`)
+			detail = fg("dim", "  → ") + fg("muted", task.activeForm)
+		} else {
+			// Generic update
+			heading =
+				fg("accent", "Tasks updated") + fg("dim", ` [${completed}/${total}]`)
+		}
+
+		// Build full text with heading and optional detail
+		const fullText = detail ? `${heading}\n${detail}` : heading
+		const textComponent = new Text(fullText, 0, 0)
+
+		// Insert spacer and text component
+		const spacer = new Spacer(1)
+		if (insertIndex >= 0) {
+			this.chatContainer.children.splice(insertIndex, 0, spacer, textComponent)
+			this.chatContainer.invalidate()
+		} else {
+			this.chatContainer.addChild(spacer)
+			this.chatContainer.addChild(textComponent)
+		}
 	}
 
 	// ===========================================================================
