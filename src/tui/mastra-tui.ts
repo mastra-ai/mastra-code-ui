@@ -1413,6 +1413,14 @@ ${instructions}`,
 				)
 				break
 
+			case "sandbox_access_request":
+				await this.handleSandboxAccessRequest(
+					event.questionId,
+					event.path,
+					event.reason,
+				)
+				break
+
 			case "plan_approval_required":
 				await this.handlePlanApproval(event.planId, event.title, event.plan)
 				break
@@ -2054,6 +2062,56 @@ ${instructions}`,
 				this.ui.showOverlay(dialog, { width: "70%", anchor: "center" })
 				dialog.focused = true
 			}
+		})
+	}
+
+	/**
+	 * Handle a sandbox_access_request event from the request_sandbox_access tool.
+	 * Shows an inline prompt for the user to approve or deny directory access.
+	 */
+	private async handleSandboxAccessRequest(
+		questionId: string,
+		requestedPath: string,
+		reason: string,
+	): Promise<void> {
+		return new Promise((resolve) => {
+			const questionComponent = new AskQuestionInlineComponent(
+				{
+					question: `Grant sandbox access to "${requestedPath}"?\n${fg("dim", `Reason: ${reason}`)}`,
+					options: [
+						{ label: "Yes", description: "Allow access to this directory" },
+						{ label: "No", description: "Deny access" },
+					],
+					onSubmit: (answer) => {
+						this.activeInlineQuestion = undefined
+						this.harness.respondToQuestion(questionId, answer)
+						resolve()
+					},
+					onCancel: () => {
+						this.activeInlineQuestion = undefined
+						this.harness.respondToQuestion(questionId, "No")
+						resolve()
+					},
+					formatResult: (answer) => {
+						const approved = answer.toLowerCase().startsWith("y")
+						return approved
+							? `Granted access to ${requestedPath}`
+							: `Denied access to ${requestedPath}`
+					},
+					isNegativeAnswer: (answer) => !answer.toLowerCase().startsWith("y"),
+				},
+				this.ui,
+			)
+
+			// Store as active question so input routing works
+			this.activeInlineQuestion = questionComponent
+
+			// Add to chat
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(questionComponent)
+			this.chatContainer.addChild(new Spacer(1))
+			this.ui.requestRender()
+			this.chatContainer.invalidate()
 		})
 	}
 
