@@ -17,7 +17,7 @@ const PASTE_START = "\x1b[200~"
 const PASTE_END = "\x1b[201~"
 
 export type AppAction =
-	| "clear" // Ctrl+C - interrupt
+	| "clear" // Ctrl+C or Escape - interrupt
 	| "exit" // Ctrl+D - exit when empty
 	| "suspend" // Ctrl+Z - suspend
 	| "toggleThinking" // Ctrl+T
@@ -85,6 +85,15 @@ export class CustomEditor extends Editor {
 
 		// Ctrl+C - interrupt
 		if (matchesKey(data, "ctrl+c")) {
+			const handler = this.actionHandlers.get("clear")
+			if (handler) {
+				handler()
+				return
+			}
+		}
+
+		// Escape - same as Ctrl+C (abort generation)
+		if (matchesKey(data, "escape")) {
 			const handler = this.actionHandlers.get("clear")
 			if (handler) {
 				handler()

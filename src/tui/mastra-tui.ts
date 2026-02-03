@@ -1727,13 +1727,25 @@ ${instructions}`,
 		}
 		this.updateStatusLine()
 
-		if (this.streamingComponent) {
+		// Update streaming message to show it was interrupted
+		if (this.streamingComponent && this.streamingMessage) {
+			this.streamingMessage.stopReason = "aborted"
+			this.streamingMessage.errorMessage = "Interrupted"
+			this.streamingComponent.updateContent(this.streamingMessage)
 			this.streamingComponent = undefined
 			this.streamingMessage = undefined
+		} else {
+			// No streaming message (e.g., interrupted during tool execution)
+			// Add a standalone "Interrupted" message
+			const interruptedText = new Text(
+				fg("muted", "Interrupted · What should Mastra do instead?"),
+			)
+			this.chatContainer.addChild(interruptedText)
 		}
 
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after interruption
+		this.ui.requestRender()
 	}
 
 	private handleAgentError(): void {
@@ -2443,6 +2455,10 @@ ${instructions}`,
 	private getUserInput(): Promise<string> {
 		return new Promise((resolve) => {
 			this.editor.onSubmit = (text: string) => {
+				// Add to history for arrow up/down navigation (skip empty)
+				if (text.trim()) {
+					this.editor.addToHistory(text)
+				}
 				this.editor.setText("")
 				resolve(text)
 			}
