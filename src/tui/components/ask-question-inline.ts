@@ -23,6 +23,8 @@ export interface AskQuestionInlineOptions {
 	options?: Array<{ label: string; description?: string }>
 	/** Format the text shown after an answer is selected. Defaults to `question → answer`. */
 	formatResult?: (answer: string) => string
+	/** If provided, determines whether an answer should be shown with error styling (red ✗). */
+	isNegativeAnswer?: (answer: string) => boolean
 	onSubmit: (answer: string) => void
 	onCancel: () => void
 }
@@ -34,6 +36,7 @@ export class AskQuestionInlineComponent extends Container implements Focusable {
 	private onSubmit: (answer: string) => void
 	private onCancel: () => void
 	private formatResult?: (answer: string) => string
+	private isNegativeAnswer?: (answer: string) => boolean
 	private answered = false
 	private questionText: string
 
@@ -54,6 +57,7 @@ export class AskQuestionInlineComponent extends Container implements Focusable {
 		this.onSubmit = options.onSubmit
 		this.onCancel = options.onCancel
 		this.formatResult = options.formatResult
+		this.isNegativeAnswer = options.isNegativeAnswer
 		this.questionText = options.question
 
 		// Add spacing above
@@ -138,19 +142,21 @@ export class AskQuestionInlineComponent extends Container implements Focusable {
 		if (this.answered) return
 		this.answered = true
 
+		const isNegative = this.isNegativeAnswer?.(answer) ?? false
+
 		this.contentBox.clear()
-		this.contentBox.setBgFn((text: string) => theme.bg("toolSuccessBg", text))
+		this.contentBox.setBgFn((text: string) =>
+			theme.bg(isNegative ? "toolErrorBg" : "toolSuccessBg", text),
+		)
 
 		const resultText = this.formatResult
 			? this.formatResult(answer)
 			: `${this.questionText} → ${answer}`
 
+		const icon = isNegative ? theme.fg("error", "✗") : theme.fg("success", "✓")
+
 		this.contentBox.addChild(
-			new Text(
-				theme.fg("text", `${theme.fg("success", "✓")} ${resultText}`),
-				0,
-				0,
-			),
+			new Text(theme.fg("text", `${icon} ${resultText}`), 0, 0),
 		)
 
 		this.onSubmit(answer)
