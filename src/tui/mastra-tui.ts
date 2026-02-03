@@ -7,12 +7,13 @@ import {
     CombinedAutocompleteProvider,
     Container,
     Markdown,
-	Spacer,
-	Text,
-	TUI,
-	ProcessTerminal,
-	type EditorTheme,
-	type SlashCommand,
+    Spacer,
+    Text,
+    TUI,
+    ProcessTerminal,
+    visibleWidth,
+    type EditorTheme,
+    type SlashCommand,
 } from "@mariozechner/pi-tui"
 import chalk from "chalk"
 import path from "path"
@@ -758,8 +759,8 @@ ${instructions}`,
 		this.editorContainer.addChild(this.editor)
 
 		// Add footer with two-line status
-		this.statusLine = new Text("", 1, 0)
-		this.memoryStatusLine = new Text("", 1, 0)
+		this.statusLine = new Text("", 0, 0)
+		this.memoryStatusLine = new Text("", 0, 0)
 		this.footer.addChild(this.statusLine)
 		this.footer.addChild(this.memoryStatusLine)
 		this.ui.addChild(this.footer)
@@ -778,87 +779,286 @@ ${instructions}`,
     private updateStatusLine(): void {
         if (!this.statusLine) return
 
+        const termWidth = process.stdout.columns || 80
+        const SEP = "  " // double-space separator between parts
+
         // --- Mode badge ---
         let modeBadge = ""
         let modeBadgeWidth = 0
         const modes = this.harness.getModes()
-        const currentMode = modes.length > 1 ? this.harness.getCurrentMode() : undefined
+        const currentMode =
+            modes.length > 1 ? this.harness.getCurrentMode() : undefined
         const modeColor = currentMode?.color
         if (currentMode) {
             const modeName = currentMode.name || currentMode.id || "unknown"
             if (modeColor) {
-                const textColor = getContrastText(modeColor)
+                const [mr, mg, mb] = [
+                    Math.floor(parseInt(modeColor.slice(1, 3), 16) * 0.9),
+                    Math.floor(parseInt(modeColor.slice(3, 5), 16) * 0.9),
+                    Math.floor(parseInt(modeColor.slice(5, 7), 16) * 0.9),
+                ]
                 modeBadge =
-                    chalk.bgHex(modeColor).hex(textColor).bold(` ${modeName} `) +
-                    " "
-                modeBadgeWidth = modeName.length + 3 // " name " + trailing space
+                    chalk.bgRgb(mr, mg, mb).hex("#0a0a0a").bold(` ${modeName.toLowerCase()} `)
+                modeBadgeWidth = modeName.length + 2
             } else {
                 modeBadge = fg("dim", modeName) + " "
                 modeBadgeWidth = modeName.length + 1
             }
         }
 
-        // --- Model ID ---
-        const modelId = this.harness.getFullModelId()
-        let modelIdDisplay: string
-        if (!this.modelAuthStatus.hasAuth) {
-            const envVar = this.modelAuthStatus.apiKeyEnvVar
-            modelIdDisplay =
-                fg("dim", modelId) +
-                fg("error", " ✗") +
-                fg("muted", envVar ? ` (${envVar})` : " (no key)")
-        } else if (this.isAgentActive && this.gradientAnimator?.isRunning()) {
-            modelIdDisplay = applyGradientSweep(
-                modelId,
-                this.gradientAnimator.getOffset(),
-                modeColor,
-            )
-        } else if (modeColor) {
-            modelIdDisplay = chalk.hex(modeColor).bold(modelId)
-        } else {
-            modelIdDisplay = chalk.hex("#a1a1aa").bold(modelId)
-        }
+        // --- Collect raw data ---
+        const fullModelId = this.harness.getFullModelId()
+        // e.g. "anthropic/claude-sonnet-4-20250514" → "claude-sonnet-4-20250514"
+        const shortModelId = fullModelId.includes("/")
+            ? fullModelId.slice(fullModelId.indexOf("/") + 1)
+            : fullModelId
 
-        // --- Line 1 trailing parts: memory, tokens, thinking ---
-        const line1Parts: string[] = []
-
-        // Memory info
-        const obsStatus = formatObservationStatus(this.omProgress)
-        const refStatus = formatReflectionStatus(this.omProgress)
-        if (obsStatus || refStatus) {
-            line1Parts.push([obsStatus, refStatus].filter(Boolean).join("  "))
-        }
-
-        // Token usage
-        if (this.tokenUsage.totalTokens > 0) {
-            const fmt = (n: number) => n.toLocaleString()
-            line1Parts.push(
-                `[${fmt(this.tokenUsage.promptTokens)}/${fmt(this.tokenUsage.completionTokens)}]`,
-            )
-        }
-
-        // Thinking level
         const thinkingLevel = this.harness.getThinkingLevel()
-        if (thinkingLevel !== "off" && modelId.startsWith("anthropic/")) {
-            line1Parts.push(`think: ${thinkingLevel}`)
+        const showThinking =
+            thinkingLevel !== "off" && fullModelId.startsWith("anthropic/")
+
+        const fmt = (n: number) => n.toLocaleString()
+        const hasTokens = this.tokenUsage.totalTokens > 0
+        const tokenStr = hasTokens
+            ? `[${fmt(this.tokenUsage.promptTokens)}/${fmt(this.tokenUsage.completionTokens)}]`
+            : ""
+
+        const homedir = process.env.HOME || process.env.USERPROFILE || ""
+        let displayPath = this.projectInfo.rootPath
+        if (homedir && displayPath.startsWith(homedir)) {
+            displayPath = "~" + displayPath.slice(homedir.length)
+        }
+        if (this.projectInfo.gitBranch) {
+            displayPath = `${displayPath} (${this.projectInfo.gitBranch})`
         }
 
-        const trailing =
-            line1Parts.length > 0 ? "  " + fg("muted", line1Parts.join("  ")) : ""
-        this.statusLine.setText(modeBadge + modelIdDisplay + trailing)
+        // --- Helper to style the model ID ---
+        const styleModelId = (id: string): string => {
+            if (!this.modelAuthStatus.hasAuth) {
+                const envVar = this.modelAuthStatus.apiKeyEnvVar
+                return (
+                    fg("dim", id) +
+                    fg("error", " ✗") +
+                    fg("muted", envVar ? ` (${envVar})` : " (no key)")
+                )
+            }
+            // Tinted near-black background from mode color
+            const tintBg = modeColor
+                ? `#${Math.floor(parseInt(modeColor.slice(1, 3), 16) * 0.15).toString(16).padStart(2, "0")}${Math.floor(parseInt(modeColor.slice(3, 5), 16) * 0.15).toString(16).padStart(2, "0")}${Math.floor(parseInt(modeColor.slice(5, 7), 16) * 0.15).toString(16).padStart(2, "0")}`
+                : undefined
 
-        // --- Line 2: directory path, left-padded past mode badge ---
+            if (this.isAgentActive && this.gradientAnimator?.isRunning()) {
+                const text = applyGradientSweep(
+                    ` ${id} `,
+                    this.gradientAnimator.getOffset(),
+                    modeColor,
+                )
+                return tintBg ? chalk.bgHex(tintBg)(text) : text
+            }
+            if (modeColor) {
+                // Use the dim end of the gradient at idle
+                const [r, g, b] = [
+                    parseInt(modeColor.slice(1, 3), 16),
+                    parseInt(modeColor.slice(3, 5), 16),
+                    parseInt(modeColor.slice(5, 7), 16),
+                ]
+                const dim = 0.8
+                const fg = chalk.rgb(
+                    Math.floor(r * dim),
+                    Math.floor(g * dim),
+                    Math.floor(b * dim),
+                ).bold(` ${id} `)
+                return tintBg ? chalk.bgHex(tintBg)(fg) : fg
+            }
+            return chalk.hex("#a1a1aa").bold(id)
+        }
+
+        // --- Build line with progressive reduction ---
+        // Strategy: try full → drop dir → percentOnly mem → drop provider
+        // Each attempt assembles plain-text parts, measures, and if it fits, styles and renders.
+
+        const buildLine = (opts: {
+            modelId: string
+            memCompact?: "percentOnly" | "full"
+            showDir: boolean
+            showTokens: boolean
+            showThinking: boolean
+        }): { plain: string; styled: string } | null => {
+            const parts: Array<{ plain: string; styled: string }> = []
+
+            // Model ID (always present) — styleModelId adds padding spaces
+            parts.push({
+                plain: ` ${opts.modelId} `,
+                styled: styleModelId(opts.modelId),
+            })
+
+            // Memory info
+            const obs = formatObservationStatus(
+                this.omProgress,
+                opts.memCompact,
+            )
+            const ref = formatReflectionStatus(
+                this.omProgress,
+                opts.memCompact,
+            )
+            if (obs || ref) {
+                const memStr = [obs, ref].filter(Boolean).join(SEP)
+                parts.push({ plain: memStr, styled: memStr })
+            }
+
+            // Tokens
+            if (opts.showTokens && hasTokens) {
+                parts.push({
+                    plain: tokenStr,
+                    styled: fg("muted", tokenStr),
+                })
+            }
+
+            // Thinking
+            if (opts.showThinking && showThinking) {
+                const s = `think: ${thinkingLevel}`
+                parts.push({ plain: s, styled: fg("muted", s) })
+            }
+
+            // Directory (lowest priority on line 1)
+            if (opts.showDir) {
+                parts.push({
+                    plain: displayPath,
+                    styled: fg("dim", displayPath),
+                })
+            }
+
+            const totalPlain =
+                modeBadgeWidth +
+                parts.reduce(
+                    (sum, p, i) =>
+                        sum +
+                        visibleWidth(p.plain) +
+                        (i > 0 ? SEP.length : 0),
+                    0,
+                )
+
+            if (totalPlain > termWidth) return null
+
+            let styledLine: string
+            if (opts.showDir && parts.length >= 3) {
+                // Three groups: left (model), center (mem/tokens/thinking), right (dir)
+                const leftPart = parts[0]! // model
+                const centerParts = parts.slice(1, -1) // mem, tokens, thinking
+                const dirPart = parts[parts.length - 1]! // dir
+
+                const leftWidth = modeBadgeWidth + visibleWidth(leftPart.plain)
+                const centerWidth = centerParts.reduce(
+                    (sum, p, i) => sum + visibleWidth(p.plain) + (i > 0 ? SEP.length : 0), 0,
+                )
+                const rightWidth = visibleWidth(dirPart.plain)
+                const totalContent = leftWidth + centerWidth + rightWidth
+                const freeSpace = termWidth - totalContent
+                const gapLeft = Math.floor(freeSpace / 2)
+                const gapRight = freeSpace - gapLeft
+
+                styledLine =
+                    modeBadge +
+                    leftPart.styled +
+                    " ".repeat(Math.max(gapLeft, 1)) +
+                    centerParts.map((p) => p.styled).join(SEP) +
+                    " ".repeat(Math.max(gapRight, 1)) +
+                    dirPart.styled
+            } else if (opts.showDir && parts.length === 2) {
+                // Just model + dir, right-align dir
+                const mainStr = modeBadge + parts[0]!.styled
+                const dirPart = parts[parts.length - 1]!
+                const gap = termWidth - totalPlain
+                styledLine = mainStr + " ".repeat(gap + SEP.length) + dirPart.styled
+            } else {
+                styledLine =
+                    modeBadge + parts.map((p) => p.styled).join(SEP)
+            }
+            return { plain: "", styled: styledLine }
+        }
+
+        // Try progressively more compact layouts
+        const result =
+            // Full: long labels ("history"/"observations"), dir, everything
+            buildLine({
+                modelId: fullModelId,
+                memCompact: "full",
+                showDir: true,
+                showTokens: true,
+                showThinking: true,
+            }) ??
+            // Drop directory, keep long labels
+            buildLine({
+                modelId: fullModelId,
+                memCompact: "full",
+                showDir: false,
+                showTokens: true,
+                showThinking: true,
+            }) ??
+            // Short labels ("msg"/"obs")
+            buildLine({
+                modelId: fullModelId,
+                showDir: false,
+                showTokens: true,
+                showThinking: true,
+            }) ??
+            // Percent only ("msg 42%  obs 21%")
+            buildLine({
+                modelId: fullModelId,
+                memCompact: "percentOnly",
+                showDir: false,
+                showTokens: true,
+                showThinking: true,
+            }) ??
+            // Drop tokens too
+            buildLine({
+                modelId: fullModelId,
+                memCompact: "percentOnly",
+                showDir: false,
+                showTokens: false,
+                showThinking: true,
+            }) ??
+            // Drop provider prefix
+            buildLine({
+                modelId: shortModelId,
+                memCompact: "percentOnly",
+                showDir: false,
+                showTokens: false,
+                showThinking: true,
+            }) ??
+            // Last resort: short model, no tokens, no thinking
+            buildLine({
+                modelId: shortModelId,
+                memCompact: "percentOnly",
+                showDir: false,
+                showTokens: false,
+                showThinking: false,
+            })
+
+        this.statusLine.setText(
+            result?.styled ?? modeBadge + styleModelId(shortModelId),
+        )
+
+        // Line 2: show dir here only if it was dropped from line 1
         if (this.memoryStatusLine) {
-            const homedir = process.env.HOME || process.env.USERPROFILE || ""
-            let displayPath = this.projectInfo.rootPath
-            if (homedir && displayPath.startsWith(homedir)) {
-                displayPath = "~" + displayPath.slice(homedir.length)
+            const line1HasDir =
+                buildLine({
+                    modelId: fullModelId,
+                    memCompact: "full",
+                    showDir: true,
+                    showTokens: true,
+                    showThinking: true,
+                }) !== null
+
+            if (line1HasDir) {
+                // Dir is on line 1, line 2 is empty
+                this.memoryStatusLine.setText("")
+            } else {
+                const padding = " ".repeat(modeBadgeWidth)
+                this.memoryStatusLine.setText(
+                    padding + fg("dim", displayPath),
+                )
             }
-            if (this.projectInfo.gitBranch) {
-                displayPath = `${displayPath} (${this.projectInfo.gitBranch})`
-            }
-            const padding = " ".repeat(modeBadgeWidth)
-            this.memoryStatusLine.setText(padding + fg("dim", displayPath))
         }
 
         this.ui.requestRender()
