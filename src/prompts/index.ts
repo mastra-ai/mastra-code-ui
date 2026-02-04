@@ -14,6 +14,10 @@ import {
 import { buildModePromptFn } from "./build.js"
 import { planModePrompt } from "./plan.js"
 import { fastModePrompt } from "./fast.js"
+import {
+	loadAgentInstructions,
+	formatAgentInstructions,
+} from "../utils/agent-instructions.js"
 
 // Extended prompt context that includes runtime information
 export interface PromptContext extends BasePromptContext {
@@ -70,5 +74,16 @@ export function buildFullPrompt(ctx: PromptContext): string {
 		todoSection = `\n<current-task-list>\n${lines.join("\n")}\n</current-task-list>\n`
 	}
 
-	return base + toolsSection + todoSection + "\n" + modeSpecific
+	// Load and inject agent instructions from AGENT.md/CLAUDE.md files
+	const instructionSources = loadAgentInstructions(ctx.workingDir)
+	const instructionsSection = formatAgentInstructions(instructionSources)
+
+	return (
+		base +
+		toolsSection +
+		todoSection +
+		instructionsSection +
+		"\n" +
+		modeSpecific
+	)
 }
