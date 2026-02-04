@@ -1652,6 +1652,12 @@ ${instructions}`,
 		this.omProgress.status = "reflecting"
 		this.omProgress.cycleId = cycleId
 		this.omProgress.startTime = Date.now()
+		// Update observation tokens to show the total being reflected
+		this.omProgress.observationTokens = tokensToReflect
+		this.omProgress.reflectionThresholdPercent =
+			this.omProgress.reflectionThreshold > 0
+				? (tokensToReflect / this.omProgress.reflectionThreshold) * 100
+				: 0
 		// Show in-progress marker in chat
 		this.activeOMMarker = new OMMarkerComponent({
 			type: "om_observation_start",
