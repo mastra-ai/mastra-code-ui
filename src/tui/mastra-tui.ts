@@ -786,57 +786,78 @@ ${instructions}`,
 		const termWidth = (process.stdout.columns || 80) - 2 // buffer to prevent jitter
 		const SEP = "  " // double-space separator between parts
 
+		// --- Determine if we're showing observer/reflector instead of main mode ---
+		const omStatus = this.omProgress.status
+		const isObserving = omStatus === "observing"
+		const isReflecting = omStatus === "reflecting"
+		const showOMMode = isObserving || isReflecting
+
+		// Colors for OM modes
+		const OBSERVER_COLOR = "#f59e0b" // amber/yellow
+		const REFLECTOR_COLOR = "#ef4444" // red/orange
+
 		// --- Mode badge ---
 		let modeBadge = ""
 		let modeBadgeWidth = 0
 		const modes = this.harness.getModes()
 		const currentMode =
 			modes.length > 1 ? this.harness.getCurrentMode() : undefined
-		const modeColor = currentMode?.color
-		if (currentMode) {
-			const modeName = currentMode.name || currentMode.id || "unknown"
-			if (modeColor) {
-				const [mcr, mcg, mcb] = [
-					parseInt(modeColor.slice(1, 3), 16),
-					parseInt(modeColor.slice(3, 5), 16),
-					parseInt(modeColor.slice(5, 7), 16),
-				]
-				// Pulse the badge bg brightness opposite to the gradient sweep
-				let badgeBrightness = 0.9
-				if (this.gradientAnimator?.isRunning()) {
-					const fade = this.gradientAnimator.getFadeProgress()
-					if (fade < 1) {
-						const offset = this.gradientAnimator.getOffset() % 1
-						// Inverted phase (+ PI), range 0.65-0.95
-						const animBrightness =
-							0.65 +
-							0.3 * (0.5 + 0.5 * Math.sin(offset * Math.PI * 2 + Math.PI))
-						// Interpolate toward idle (0.9) as fade progresses
-						badgeBrightness = animBrightness + (0.9 - animBrightness) * fade
-					}
-				}
-				const [mr, mg, mb] = [
-					Math.floor(mcr * badgeBrightness),
-					Math.floor(mcg * badgeBrightness),
-					Math.floor(mcb * badgeBrightness),
-				]
-				modeBadge = chalk
-					.bgRgb(mr, mg, mb)
-					.hex("#0a0a0a")
-					.bold(` ${modeName.toLowerCase()} `)
-				modeBadgeWidth = modeName.length + 2
-			} else {
-				modeBadge = fg("dim", modeName) + " "
-				modeBadgeWidth = modeName.length + 1
-			}
-		}
+		// Use OM color when observing/reflecting, otherwise mode color
+		const mainModeColor = currentMode?.color
+		const modeColor = showOMMode
+			? isObserving
+				? OBSERVER_COLOR
+				: REFLECTOR_COLOR
+			: mainModeColor
+		// Badge name: use OM mode name when observing/reflecting, otherwise main mode name
+		const badgeName = showOMMode
+			? isObserving
+				? "observer"
+				: "reflector"
+			: currentMode
+				? currentMode.name || currentMode.id || "unknown"
+				: undefined
 
-		// --- Update editor border to match mode color ---
-		if (modeColor) {
-			const [br, bg, bb] = [
+		if (badgeName && modeColor) {
+			const [mcr, mcg, mcb] = [
 				parseInt(modeColor.slice(1, 3), 16),
 				parseInt(modeColor.slice(3, 5), 16),
 				parseInt(modeColor.slice(5, 7), 16),
+			]
+			// Pulse the badge bg brightness opposite to the gradient sweep
+			let badgeBrightness = 0.9
+			if (this.gradientAnimator?.isRunning()) {
+				const fade = this.gradientAnimator.getFadeProgress()
+				if (fade < 1) {
+					const offset = this.gradientAnimator.getOffset() % 1
+					// Inverted phase (+ PI), range 0.65-0.95
+					const animBrightness =
+						0.65 + 0.3 * (0.5 + 0.5 * Math.sin(offset * Math.PI * 2 + Math.PI))
+					// Interpolate toward idle (0.9) as fade progresses
+					badgeBrightness = animBrightness + (0.9 - animBrightness) * fade
+				}
+			}
+			const [mr, mg, mb] = [
+				Math.floor(mcr * badgeBrightness),
+				Math.floor(mcg * badgeBrightness),
+				Math.floor(mcb * badgeBrightness),
+			]
+			modeBadge = chalk
+				.bgRgb(mr, mg, mb)
+				.hex("#0a0a0a")
+				.bold(` ${badgeName.toLowerCase()} `)
+			modeBadgeWidth = badgeName.length + 2
+		} else if (badgeName) {
+			modeBadge = fg("dim", badgeName) + " "
+			modeBadgeWidth = badgeName.length + 1
+		}
+
+		// --- Update editor border to match mode color (not OM color) ---
+		if (mainModeColor) {
+			const [br, bg, bb] = [
+				parseInt(mainModeColor.slice(1, 3), 16),
+				parseInt(mainModeColor.slice(3, 5), 16),
+				parseInt(mainModeColor.slice(5, 7), 16),
 			]
 			const dim = 0.35
 			this.editor.borderColor = (text: string) =>
@@ -848,7 +869,12 @@ ${instructions}`,
 		}
 
 		// --- Collect raw data ---
-		const fullModelId = this.harness.getFullModelId()
+		// Show OM model when observing/reflecting, otherwise main model
+		const fullModelId = showOMMode
+			? isObserving
+				? this.harness.getObserverModelId()
+				: this.harness.getReflectorModelId()
+			: this.harness.getFullModelId()
 		// e.g. "anthropic/claude-sonnet-4-20250514" → "claude-sonnet-4-20250514"
 		const shortModelId = fullModelId.includes("/")
 			? fullModelId.slice(fullModelId.indexOf("/") + 1)
