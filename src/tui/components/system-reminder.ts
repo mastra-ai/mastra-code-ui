@@ -15,7 +15,7 @@ export class SystemReminderComponent extends Container {
 		super()
 
 		// Title and message combined with full-width background
-		const title = theme.fg("warning", "⚡ System Reminder")
+		const title = theme.fg("warning", "⚡ System Notice")
 		const content = `${title}\n${options.message.trim()}`
 
 		this.addChild(

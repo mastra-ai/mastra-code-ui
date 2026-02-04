@@ -82,6 +82,7 @@ import {
 	fg,
 	bold,
 	getContrastText,
+	theme,
 } from "./theme.js"
 
 // =============================================================================
@@ -197,8 +198,8 @@ export class MastraTUI {
 	private lastCtrlCTime = 0
 	private static readonly DOUBLE_CTRL_C_MS = 500
 
-	// Suppress mode change/abort messages during plan approval flow
-	private suppressModeChangeMessages = false
+	// Track user-initiated aborts (Ctrl+C/Esc) vs system aborts (mode switch, etc.)
+	private userInitiatedAbort = false
 
 	// Event handling
 	private unsubscribe?: () => void
@@ -270,6 +271,7 @@ export class MastraTUI {
 				// Clean up active inline components on abort
 				this.activeInlinePlanApproval = undefined
 				this.activeInlineQuestion = undefined
+				this.userInitiatedAbort = true
 				this.harness.abort()
 			} else {
 				this.editor.setText("")
@@ -1216,6 +1218,7 @@ ${instructions}`,
 				process.exit(0)
 			}
 			this.lastCtrlCTime = now
+			this.userInitiatedAbort = true
 			this.harness.abort()
 		})
 
@@ -1300,10 +1303,7 @@ ${instructions}`,
 				break
 
 			case "mode_changed": {
-				const mode = this.harness.getModes().find((m) => m.id === event.modeId)
-				if (!this.suppressModeChangeMessages) {
-					this.showInfo(`Mode: ${mode?.name || event.modeId}`)
-				}
+				// Mode is already visible in status line, no need to log it
 				await this.refreshModelAuthStatus()
 				break
 			}
@@ -1782,12 +1782,14 @@ ${instructions}`,
 			this.streamingComponent.updateContent(this.streamingMessage)
 			this.streamingComponent = undefined
 			this.streamingMessage = undefined
-		} else if (!this.suppressModeChangeMessages) {
-			// No streaming message (e.g., interrupted during tool execution)
-			// Add a standalone "Interrupted" message (unless suppressed during plan approval)
-			const interruptedText = new Text(fg("muted", "Interrupted"))
-			this.chatContainer.addChild(interruptedText)
+		} else if (this.userInitiatedAbort) {
+			// Show standalone "Interrupted" if user pressed Ctrl+C but no streaming component
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(
+				new Text(theme.fg("error", "Interrupted"), 1, 0),
+			)
 		}
+		this.userInitiatedAbort = false
 
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after interruption
@@ -2220,8 +2222,6 @@ ${instructions}`,
 								approvedAt: new Date().toISOString(),
 							},
 						})
-						// Suppress "Mode: Build" and "Interrupted" messages during plan approval flow
-						this.suppressModeChangeMessages = true
 						// Wait for plan approval to complete (switches mode, aborts stream)
 						await this.harness.respondToPlanApproval(planId, {
 							action: "approved",
@@ -2231,9 +2231,8 @@ ${instructions}`,
 						// Now that mode switch is complete, add system reminder and trigger build agent
 						// Use setTimeout to ensure the plan approval component has fully rendered
 						setTimeout(() => {
-							this.suppressModeChangeMessages = false
 							const reminderText =
-								"<system-reminder>The user has approved the plan, begin executing 🎉</system-reminder>"
+								"<system-reminder>The user has approved the plan, begin executing.</system-reminder>"
 							this.addUserMessage({
 								id: `system-${Date.now()}`,
 								role: "user",
