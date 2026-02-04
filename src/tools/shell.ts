@@ -271,6 +271,7 @@ Usage notes:
 			let manuallyKilled = false
 			let abortedBySignal = false
 			let subprocess: ReturnType<typeof execa> | undefined
+			let capturedOutput = "" // Track output ourselves for abort case
 
 			// Get abort signal from harness context
 			const harnessCtx = (toolContext as any)?.requestContext?.get("harness")
@@ -351,6 +352,7 @@ Usage notes:
 				if (subprocess.stdout) {
 					subprocess.stdout.on(`data`, (chunk: Buffer) => {
 						const text = chunk.toString()
+						capturedOutput += text
 						ipcReporter.send(`shell-output`, { output: text, type: `stdout` })
 					})
 				}
@@ -358,6 +360,7 @@ Usage notes:
 				if (subprocess.stderr) {
 					subprocess.stderr.on(`data`, (chunk: Buffer) => {
 						const text = chunk.toString()
+						capturedOutput += text
 						ipcReporter.send(`shell-output`, { output: text, type: `stderr` })
 					})
 				}
@@ -383,11 +386,8 @@ Usage notes:
 						clearTimeout(timeoutHandle)
 					}
 
-					// Strip ANSI codes from any partial output
-					const rawOutput = result.all || result.stdout || result.stderr || ""
-					let cleanOutput = stripAnsi(
-						typeof rawOutput === "string" ? rawOutput : rawOutput.toString(),
-					)
+					// Use our captured output (more reliable than result.all on SIGKILL)
+					let cleanOutput = stripAnsi(capturedOutput)
 					if (context.tail) {
 						cleanOutput = applyTail(cleanOutput, context.tail)
 					}
@@ -396,9 +396,9 @@ Usage notes:
 						content: [
 							{
 								type: "text" as const,
-								text: cleanOutput
-									? `Command aborted by user.\n\nPartial output:\n${truncateStringForTokenEstimate(cleanOutput, 1_000)}`
-									: "Command aborted by user.",
+								text: cleanOutput.trim()
+									? `[User aborted command]\n\nPartial output:\n${truncateStringForTokenEstimate(cleanOutput, 1_000)}`
+									: "[User aborted command]",
 							},
 						],
 						isError: true,
@@ -458,11 +458,18 @@ Usage notes:
 
 				// Check if aborted by user
 				if (abortedBySignal) {
+					let cleanOutput = stripAnsi(capturedOutput)
+					if (context.tail) {
+						cleanOutput = applyTail(cleanOutput, context.tail)
+					}
+
 					return {
 						content: [
 							{
 								type: "text" as const,
-								text: "Command aborted by user.",
+								text: cleanOutput.trim()
+									? `[User aborted command]\n\nPartial output:\n${truncateStringForTokenEstimate(cleanOutput, 1_000)}`
+									: "[User aborted command]",
 							},
 						],
 						isError: true,
