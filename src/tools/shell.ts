@@ -273,7 +273,7 @@ Usage notes:
 			let subprocess: ReturnType<typeof execa> | undefined
 
 			// Get abort signal from harness context
-			const harnessCtx = (toolContext as any)?.harnessContext
+			const harnessCtx = (toolContext as any)?.requestContext?.get("harness")
 			const abortSignal = harnessCtx?.abortSignal as AbortSignal | undefined
 
 			// Define abort handler outside try block so it's accessible in catch
