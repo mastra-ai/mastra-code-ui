@@ -1490,6 +1490,13 @@ ${instructions}`,
 			case "plan_approval_required":
 				await this.handlePlanApproval(event.planId, event.title, event.plan)
 				break
+
+			case "plan_approved":
+				// Auto-trigger the build agent after plan approval
+				this.fireMessage(
+					"<system-reminder>The plan was approved. Begin implementing the plan.</system-reminder>",
+				)
+				break
 		}
 	}
 

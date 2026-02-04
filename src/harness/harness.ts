@@ -401,6 +401,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 		if (response.action === "approved") {
 			await this.switchMode("build")
+			// Emit event to trigger the build agent to start working
+			this.emit({ type: "plan_approved" } as HarnessEvent)
 		}
 
 		resolve(response)

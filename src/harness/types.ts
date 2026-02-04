@@ -366,6 +366,9 @@ export type HarnessEvent =
 			title: string
 			plan: string
 	  }
+	| {
+			type: "plan_approved"
+	  }
 
 /**
  * Listener function for harness events.
