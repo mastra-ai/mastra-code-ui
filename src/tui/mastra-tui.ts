@@ -3875,9 +3875,27 @@ Keyboard shortcuts:
 			imageCount > 0 ? `[${imageCount} image${imageCount > 1 ? "s" : ""}] ` : ""
 
 		if (displayText || prefix) {
-			this.chatContainer.addChild(
-				new UserMessageComponent(prefix + displayText),
-			)
+			const userComponent = new UserMessageComponent(prefix + displayText)
+
+			// If agent is streaming, insert after the streaming component
+			// so the message appears in the right chronological position
+			if (this.streamingComponent) {
+				const streamingIdx = this.chatContainer.children.indexOf(
+					this.streamingComponent,
+				)
+				if (streamingIdx >= 0) {
+					// Insert after streaming component
+					;(this.chatContainer.children as unknown[]).splice(
+						streamingIdx + 1,
+						0,
+						userComponent,
+					)
+					return
+				}
+			}
+
+			// Default: add to end
+			this.chatContainer.addChild(userComponent)
 		}
 	}
 
