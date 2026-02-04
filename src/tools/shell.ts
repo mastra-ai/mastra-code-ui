@@ -269,7 +269,24 @@ Usage notes:
 
 			let timeoutHandle: NodeJS.Timeout | undefined
 			let manuallyKilled = false
+			let abortedBySignal = false
 			let subprocess: ReturnType<typeof execa> | undefined
+
+			// Get abort signal from harness context
+			const harnessCtx = (toolContext as any)?.harnessContext
+			const abortSignal = harnessCtx?.abortSignal as AbortSignal | undefined
+
+			// Define abort handler outside try block so it's accessible in catch
+			const abortHandler = () => {
+				if (subprocess?.pid) {
+					abortedBySignal = true
+					try {
+						process.kill(-subprocess.pid, "SIGKILL")
+					} catch {
+						treeKill(subprocess.pid, "SIGKILL", () => {})
+					}
+				}
+			}
 
 			try {
 				// Create the subprocess with environment variables to force color output
@@ -325,6 +342,11 @@ Usage notes:
 						}
 					}, timeoutMS - 100) // Kill 100ms before execa's timeout
 				}
+
+				// Set up abort signal handler to kill subprocess on Ctrl+C
+				if (abortSignal) {
+					abortSignal.addEventListener("abort", abortHandler)
+				}
 				// Capture stdout/stderr (no direct piping — TUI renders via tool results)
 				if (subprocess.stdout) {
 					subprocess.stdout.on(`data`, (chunk: Buffer) => {
@@ -342,6 +364,46 @@ Usage notes:
 
 				// Wait for completion
 				const result = await subprocess
+
+				// Clean up abort listener
+				if (abortSignal) {
+					abortSignal.removeEventListener("abort", abortHandler)
+				}
+
+				// Check if aborted
+				if (abortedBySignal) {
+					ipcReporter.send(`shell-output`, {
+						output: `\nAborted by user\n`,
+						style: { fg: "yellow" },
+						type: "stdout",
+					})
+
+					// Clear the timeout
+					if (timeoutHandle) {
+						clearTimeout(timeoutHandle)
+					}
+
+					// Strip ANSI codes from any partial output
+					const rawOutput = result.all || result.stdout || result.stderr || ""
+					let cleanOutput = stripAnsi(
+						typeof rawOutput === "string" ? rawOutput : rawOutput.toString(),
+					)
+					if (context.tail) {
+						cleanOutput = applyTail(cleanOutput, context.tail)
+					}
+
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: cleanOutput
+									? `Command aborted by user.\n\nPartial output:\n${truncateStringForTokenEstimate(cleanOutput, 1_000)}`
+									: "Command aborted by user.",
+							},
+						],
+						isError: true,
+					}
+				}
 
 				ipcReporter.send(`shell-output`, {
 					output: `\nExited with code ${result.exitCode}${result.timedOut ? `\nTimed out after ${timeoutMS}ms` : ``}\n`,
@@ -386,9 +448,25 @@ Usage notes:
 			} catch (error: any) {
 				// console.error('\n❌ Command failed')
 				// console.error('----------------------------------------\n')
-				// Clear the timeout handle on error to prevent dangling timers
+				// Clean up abort listener and timeout handle on error
+				if (abortSignal) {
+					abortSignal.removeEventListener("abort", abortHandler)
+				}
 				if (timeoutHandle) {
 					clearTimeout(timeoutHandle)
+				}
+
+				// Check if aborted by user
+				if (abortedBySignal) {
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: "Command aborted by user.",
+							},
+						],
+						isError: true,
+					}
 				}
 
 				// Strip ANSI codes from error message for the LLM
