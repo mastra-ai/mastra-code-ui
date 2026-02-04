@@ -812,8 +812,8 @@ ${instructions}`,
 		// Badge name: use OM mode name when observing/reflecting, otherwise main mode name
 		const badgeName = showOMMode
 			? isObserving
-				? "observer"
-				: "reflector"
+				? "observe"
+				: "reflect"
 			: currentMode
 				? currentMode.name || currentMode.id || "unknown"
 				: undefined

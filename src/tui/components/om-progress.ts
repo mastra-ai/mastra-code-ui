@@ -173,20 +173,25 @@ function colorByPercent(text: string, percent: number): string {
  * percentOnly: msg 42%
  */
 export function formatObservationStatus(
-    state: OMProgressState,
-    compact?: "percentOnly" | "full",
+	state: OMProgressState,
+	compact?: "percentOnly" | "full",
 ): string {
-    if (state.status === "observing") {
-        return chalk.yellow("⚡ observing")
-    }
-    const percent = Math.min(100, Math.round(state.thresholdPercent))
-    const pct = colorByPercent(`${percent}%`, percent)
-    if (compact === "percentOnly") {
-        return chalk.hex("#a1a1aa")("msg ") + pct
-    }
-    const label = compact === "full" ? "messages" : "msg"
-    const current = colorByPercent(formatTokens(state.pendingTokens), percent)
-    return chalk.hex("#a1a1aa")(`${label} `) + colorByPercent(`${formatTokens(state.pendingTokens)}/${formatTokens(state.threshold)}`, percent) + " " + pct
+	// Status is now shown in the mode badge, so just show the metrics
+	const percent = Math.min(100, Math.round(state.thresholdPercent))
+	const pct = colorByPercent(`${percent}%`, percent)
+	if (compact === "percentOnly") {
+		return chalk.hex("#a1a1aa")("msg ") + pct
+	}
+	const label = compact === "full" ? "messages" : "msg"
+	return (
+		chalk.hex("#a1a1aa")(`${label} `) +
+		colorByPercent(
+			`${formatTokens(state.pendingTokens)}/${formatTokens(state.threshold)}`,
+			percent,
+		) +
+		" " +
+		pct
+	)
 }
 
 /**
@@ -196,19 +201,25 @@ export function formatObservationStatus(
  * percentOnly: obs 21%
  */
 export function formatReflectionStatus(
-    state: OMProgressState,
-    compact?: "percentOnly" | "full",
+	state: OMProgressState,
+	compact?: "percentOnly" | "full",
 ): string {
-    if (state.status === "reflecting") {
-        return chalk.magenta("🔮 reflecting")
-    }
-    const percent = Math.min(100, Math.round(state.reflectionThresholdPercent))
-    const pct = colorByPercent(`${percent}%`, percent)
-    if (compact === "percentOnly") {
-        return chalk.hex("#a1a1aa")("obs ") + pct
-    }
-    const label = compact === "full" ? "observations" : "obs"
-    return chalk.hex("#a1a1aa")(`${label} `) + colorByPercent(`${formatTokens(state.observationTokens)}/${formatTokens(state.reflectionThreshold)}`, percent) + " " + pct
+	// Status is now shown in the mode badge, so just show the metrics
+	const percent = Math.min(100, Math.round(state.reflectionThresholdPercent))
+	const pct = colorByPercent(`${percent}%`, percent)
+	if (compact === "percentOnly") {
+		return chalk.hex("#a1a1aa")("obs ") + pct
+	}
+	const label = compact === "full" ? "observations" : "obs"
+	return (
+		chalk.hex("#a1a1aa")(`${label} `) +
+		colorByPercent(
+			`${formatTokens(state.observationTokens)}/${formatTokens(state.reflectionThreshold)}`,
+			percent,
+		) +
+		" " +
+		pct
+	)
 }
 
 /**
