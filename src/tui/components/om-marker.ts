@@ -7,14 +7,12 @@ import { Container, Text, Spacer } from "@mariozechner/pi-tui"
 import { fg } from "../theme.js"
 
 /**
- * Format token count for display (e.g., 7234 -> "7.2k", 234 -> "234")
+ * Format token count for display (e.g., 7234 -> "7.2k", 234 -> "0.2k", 0 -> "0")
  */
 function formatTokens(tokens: number): string {
-	if (tokens >= 1000) {
-		const k = tokens / 1000
-		return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
-	}
-	return String(tokens)
+	if (tokens === 0) return "0"
+	const k = tokens / 1000
+	return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
 }
 
 export type OMMarkerData =

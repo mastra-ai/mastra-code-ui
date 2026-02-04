@@ -155,12 +155,17 @@ export class OMProgressComponent extends Container {
 	}
 }
 
-function formatTokens(n: number): string {
-	if (n >= 1000) {
-		const k = n / 1000
-		return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
-	}
-	return String(n)
+/** Format token count without k suffix (e.g., 7234 -> "7.2", 200 -> "0.2", 0 -> "0") */
+function formatTokensValue(n: number): string {
+	if (n === 0) return "0"
+	const k = n / 1000
+	return k % 1 === 0 ? String(k) : k.toFixed(1)
+}
+
+/** Format token threshold with k suffix (e.g., 30000 -> "30k", 40000 -> "40k") */
+function formatTokensThreshold(n: number): string {
+	const k = n / 1000
+	return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
 }
 
 function colorByPercent(text: string, percent: number): string {
@@ -189,7 +194,7 @@ export function formatObservationStatus(
 	return (
 		chalk.hex("#a1a1aa")(`${label} `) +
 		colorByPercent(
-			`${formatTokens(state.pendingTokens)}/${formatTokens(state.threshold)}`,
+			`${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`,
 			percent,
 		) +
 		" " +
@@ -217,7 +222,7 @@ export function formatReflectionStatus(
 	return (
 		chalk.hex("#a1a1aa")(`${label} `) +
 		colorByPercent(
-			`${formatTokens(state.observationTokens)}/${formatTokens(state.reflectionThreshold)}`,
+			`${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`,
 			percent,
 		) +
 		" " +
