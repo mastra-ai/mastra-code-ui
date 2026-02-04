@@ -74,6 +74,7 @@ import {
 	type TodoItem,
 } from "./components/todo-progress.js"
 import { UserMessageComponent } from "./components/user-message.js"
+import { SystemReminderComponent } from "./components/system-reminder.js"
 import {
 	getEditorTheme,
 	getMarkdownTheme,
@@ -195,6 +196,9 @@ export class MastraTUI {
 	// Ctrl+C double-tap tracking
 	private lastCtrlCTime = 0
 	private static readonly DOUBLE_CTRL_C_MS = 500
+
+	// Suppress mode change/abort messages during plan approval flow
+	private suppressModeChangeMessages = false
 
 	// Event handling
 	private unsubscribe?: () => void
@@ -1297,7 +1301,9 @@ ${instructions}`,
 
 			case "mode_changed": {
 				const mode = this.harness.getModes().find((m) => m.id === event.modeId)
-				this.showInfo(`Mode: ${mode?.name || event.modeId}`)
+				if (!this.suppressModeChangeMessages) {
+					this.showInfo(`Mode: ${mode?.name || event.modeId}`)
+				}
 				await this.refreshModelAuthStatus()
 				break
 			}
@@ -1492,10 +1498,7 @@ ${instructions}`,
 				break
 
 			case "plan_approved":
-				// Auto-trigger the build agent after plan approval
-				this.fireMessage(
-					"<system-reminder>The plan was approved. Begin implementing the plan.</system-reminder>",
-				)
+				// Handled directly in onApprove callback to ensure proper sequencing
 				break
 		}
 	}
@@ -1779,9 +1782,9 @@ ${instructions}`,
 			this.streamingComponent.updateContent(this.streamingMessage)
 			this.streamingComponent = undefined
 			this.streamingMessage = undefined
-		} else {
+		} else if (!this.suppressModeChangeMessages) {
 			// No streaming message (e.g., interrupted during tool execution)
-			// Add a standalone "Interrupted" message
+			// Add a standalone "Interrupted" message (unless suppressed during plan approval)
 			const interruptedText = new Text(fg("muted", "Interrupted"))
 			this.chatContainer.addChild(interruptedText)
 		}
@@ -2217,8 +2220,29 @@ ${instructions}`,
 								approvedAt: new Date().toISOString(),
 							},
 						})
-						this.harness.respondToPlanApproval(planId, { action: "approved" })
+						// Suppress "Mode: Build" and "Interrupted" messages during plan approval flow
+						this.suppressModeChangeMessages = true
+						// Wait for plan approval to complete (switches mode, aborts stream)
+						await this.harness.respondToPlanApproval(planId, {
+							action: "approved",
+						})
 						this.updateStatusLine()
+
+						// Now that mode switch is complete, add system reminder and trigger build agent
+						// Use setTimeout to ensure the plan approval component has fully rendered
+						setTimeout(() => {
+							this.suppressModeChangeMessages = false
+							const reminderText =
+								"<system-reminder>The user has approved the plan, begin executing 🎉</system-reminder>"
+							this.addUserMessage({
+								id: `system-${Date.now()}`,
+								role: "user",
+								content: [{ type: "text", text: reminderText }],
+								createdAt: new Date(),
+							})
+							this.fireMessage(reminderText)
+						}, 50)
+
 						resolve()
 					},
 					onReject: async (feedback?: string) => {
@@ -3910,6 +3934,24 @@ Keyboard shortcuts:
 			imageCount > 0
 				? textContent.replace(/\[image\]\s*/g, "").trim()
 				: textContent.trim()
+
+		// Check for system reminder tags
+		const systemReminderMatch = displayText.match(
+			/<system-reminder>([\s\S]*?)<\/system-reminder>/,
+		)
+		if (systemReminderMatch) {
+			const reminderText = systemReminderMatch[1].trim()
+			const reminderComponent = new SystemReminderComponent({
+				message: reminderText,
+			})
+
+			// System reminders always go at the end (after plan approval)
+			this.chatContainer.addChild(new Spacer(1))
+			this.chatContainer.addChild(reminderComponent)
+			this.ui.requestRender()
+			return
+		}
+
 		const prefix =
 			imageCount > 0 ? `[${imageCount} image${imageCount > 1 ? "s" : ""}] ` : ""
 

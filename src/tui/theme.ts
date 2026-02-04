@@ -34,6 +34,7 @@ export type ThemeColor =
 export type ThemeBg =
 	| "selectedBg"
 	| "userMessageBg"
+	| "systemReminderBg"
 	| "toolPendingBg"
 	| "toolSuccessBg"
 	| "toolErrorBg"
@@ -56,6 +57,8 @@ export interface ThemeColors {
 	// User messages
 	userMessageBg: string
 	userMessageText: string
+	// System reminders
+	systemReminderBg: string
 	// Tool execution
 	toolPendingBg: string
 	toolSuccessBg: string
@@ -96,6 +99,8 @@ const darkTheme: ThemeColors = {
 	// User messages
 	userMessageBg: "#0f172a", // Slate blue
 	userMessageText: "#fafafa",
+	// System reminders
+	systemReminderBg: "#1a1400", // Dark orange tint
 	// Tool execution
 	toolPendingBg: "#18152a", // Dark purple (matches tool title accent)
 	toolSuccessBg: "#18152a", // Dark purple (same as pending)

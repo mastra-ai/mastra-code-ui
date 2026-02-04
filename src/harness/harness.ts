@@ -399,13 +399,14 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 		this.pendingPlanApprovals.delete(planId)
 
+		// Resolve first so the plan approval component can update its UI
+		resolve(response)
+
 		if (response.action === "approved") {
 			await this.switchMode("build")
-			// Emit event to trigger the build agent to start working
-			this.emit({ type: "plan_approved" } as HarnessEvent)
+			// Note: The TUI handles triggering the build agent via system reminder
+			// after this method completes, ensuring proper message ordering
 		}
-
-		resolve(response)
 	}
 
 	/**
