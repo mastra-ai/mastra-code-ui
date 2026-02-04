@@ -1,4 +1,4 @@
-import type { Agent } from "@mastra/core/agent"
+import type { Agent, MastraMessageContentV2 } from "@mastra/core/agent"
 import type { StorageThreadType } from "@mastra/core/memory"
 import { RequestContext } from "@mastra/core/request-context"
 import { Workspace } from "@mastra/core/workspace"
@@ -1173,45 +1173,44 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				40_000,
 			)
 
-			// pendingMessageTokens in DB is only updated after observation cycles.
-			// If it's 0, estimate from unobserved messages in the thread.
+			// Try to get accurate counts from the most recent data-om-progress part in messages
 			let pendingTokens = record.pendingMessageTokens ?? 0
-			if (pendingTokens === 0 && this.currentThreadId) {
-				try {
-					const result = await memoryStorage.listMessages({
-						threadId: this.currentThreadId,
-						perPage: false,
-					})
-					if (result.messages.length > 0) {
-						const lastObservedAt = (record as { lastObservedAt?: string })
-							.lastObservedAt
-						// Only count messages after the last observation
-						const unobservedMessages = lastObservedAt
-							? result.messages.filter((msg: { createdAt?: string | Date }) => {
-									if (!msg.createdAt) return true
-									return new Date(msg.createdAt) > new Date(lastObservedAt)
-								})
-							: result.messages
+			let observationTokens = record.observationTokenCount ?? 0
 
-						// Estimate tokens from message content (~4 chars per token)
-						const totalChars = unobservedMessages.reduce(
-							(sum: number, msg: { content: unknown }) => {
-								const content =
-									typeof msg.content === "string"
-										? msg.content
-										: JSON.stringify(msg.content)
-								return sum + content.length
-							},
-							0,
-						)
-						pendingTokens = Math.round(totalChars / 4)
+			// Scan recent messages for data-om-progress parts which have accurate counts
+			const messagesResult = await memoryStorage.listMessages({
+				threadId: this.currentThreadId,
+				perPage: 70,
+				page: 0,
+				orderBy: { field: "createdAt", direction: "DESC" },
+			})
+			const messages = messagesResult.messages
+
+			for (const msg of messages) {
+				if (msg.role !== "assistant") continue
+				// MastraDBMessage content is MastraMessageContentV2: { format: 2, parts: [...] }
+				const content = msg.content as MastraMessageContentV2 | string
+				if (typeof content === "string" || !content?.parts) continue
+
+				// Find the last data-om-progress part in this message
+				for (let i = content.parts.length - 1; i >= 0; i--) {
+					const part = content.parts[i] as {
+						type?: string
+						data?: Record<string, any>
 					}
-				} catch {
-					// Can't estimate — use 0
+					if (part.type === "data-om-progress" && part.data) {
+						if (part.data.pendingTokens !== undefined) {
+							pendingTokens = part.data.pendingTokens
+						}
+						if (part.data.observationTokens !== undefined) {
+							observationTokens = part.data.observationTokens
+						}
+						break
+					}
 				}
+				// Stop once we've found OM progress data
+				if (pendingTokens !== (record.pendingMessageTokens ?? 0)) break
 			}
-
-			const observationTokens = record.observationTokenCount ?? 0
 
 			const thresholdPercent =
 				observationThreshold > 0
