@@ -162,50 +162,83 @@ const storage = new LibSQLStore({
 // =============================================================================
 
 // Default OM thresholds — per-thread overrides are loaded from thread metadata
-const omObsThreshold = 30_000
-const omRefThreshold = 60_000
+const DEFAULT_OBS_THRESHOLD = 30_000
+const DEFAULT_REF_THRESHOLD = 60_000
 
-// Mutable OM model state — updated by harness event listeners, read by OM model
+// Mutable OM state — updated by harness event listeners, read by OM config
 // functions. We use this instead of requestContext because Mastra's OM system
 // does NOT propagate requestContext to observer/reflector agent.generate() calls.
-const omModelState = {
+const omState = {
 	observerModelId: DEFAULT_OM_MODEL_ID,
 	reflectorModelId: DEFAULT_OM_MODEL_ID,
+	obsThreshold: DEFAULT_OBS_THRESHOLD,
+	refThreshold: DEFAULT_REF_THRESHOLD,
 }
 
 /**
  * Dynamic model function for Observer agent.
- * Reads from module-level omModelState (kept in sync by harness events).
+ * Reads from module-level omState (kept in sync by harness events).
  */
 function getObserverModel() {
-	return resolveModel(omModelState.observerModelId)
+	return resolveModel(omState.observerModelId)
 }
 
 /**
  * Dynamic model function for Reflector agent.
- * Reads from module-level omModelState (kept in sync by harness events).
+ * Reads from module-level omState (kept in sync by harness events).
  */
 function getReflectorModel() {
-	return resolveModel(omModelState.reflectorModelId)
+	return resolveModel(omState.reflectorModelId)
 }
 
-const memory = new Memory({
-	storage,
-	options: {
-		observationalMemory: {
-			enabled: true,
-			scope: "thread",
-			observation: {
-				model: getObserverModel,
-				messageTokens: omObsThreshold,
-			},
-			reflection: {
-				model: getReflectorModel,
-				observationTokens: omRefThreshold,
+// Cache for Memory instances by threshold config
+let cachedMemory: Memory | null = null
+let cachedMemoryKey: string | null = null
+
+/**
+ * Dynamic memory factory function.
+ * Creates Memory with current threshold values from harness state.
+ * Caches instance and reuses if config unchanged.
+ */
+function getDynamicMemory({
+	requestContext,
+}: {
+	requestContext: RequestContext
+}) {
+	const ctx = requestContext.get("harness") as
+		| HarnessRuntimeContext<typeof stateSchema>
+		| undefined
+	const state = ctx?.getState?.()
+
+	const obsThreshold = state?.observationThreshold ?? omState.obsThreshold
+	const refThreshold = state?.reflectionThreshold ?? omState.refThreshold
+
+	const cacheKey = `${obsThreshold}:${refThreshold}`
+	if (cachedMemory && cachedMemoryKey === cacheKey) {
+		return cachedMemory
+	}
+
+	cachedMemory = new Memory({
+		storage,
+		options: {
+			observationalMemory: {
+				enabled: true,
+				scope: "thread",
+				observation: {
+					model: getObserverModel,
+					messageTokens: obsThreshold,
+				},
+				reflection: {
+					model: getReflectorModel,
+					observationTokens: refThreshold,
+				},
 			},
 		},
-	},
-})
+	})
+	cachedMemoryKey = cacheKey
+
+	return cachedMemory
+}
 
 // =============================================================================
 // Create Agent
@@ -423,7 +456,7 @@ const codeAgent = new Agent({
 		return buildFullPrompt(promptCtx)
 	},
 	model: getDynamicModel,
-	memory,
+	memory: getDynamicMemory,
 	workspace: ({ requestContext }) => {
 		const ctx = requestContext.get("harness") as
 			| HarnessRuntimeContext<typeof stateSchema>
@@ -599,12 +632,16 @@ harness.subscribe((event) => {
 			role: string
 			modelId: string
 		}
-		if (role === "observer") omModelState.observerModelId = modelId
-		if (role === "reflector") omModelState.reflectorModelId = modelId
+		if (role === "observer") omState.observerModelId = modelId
+		if (role === "reflector") omState.reflectorModelId = modelId
 	} else if (event.type === "thread_changed") {
-		// Thread switch restores OM model IDs from metadata — re-read from harness state
-		omModelState.observerModelId = harness.getObserverModelId()
-		omModelState.reflectorModelId = harness.getReflectorModelId()
+		// Thread switch restores OM model IDs and thresholds from metadata — re-read from harness state
+		omState.observerModelId = harness.getObserverModelId()
+		omState.reflectorModelId = harness.getReflectorModelId()
+		omState.obsThreshold =
+			harness.getState().observationThreshold ?? DEFAULT_OBS_THRESHOLD
+		omState.refThreshold =
+			harness.getState().reflectionThreshold ?? DEFAULT_REF_THRESHOLD
 		// Keep hook manager session ID in sync
 		hookManager.setSessionId((event as any).threadId)
 	} else if (event.type === "thread_created") {
