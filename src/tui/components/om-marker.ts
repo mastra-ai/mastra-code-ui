@@ -11,7 +11,8 @@ import { fg } from "../theme.js"
  */
 function formatTokens(tokens: number): string {
 	if (tokens >= 1000) {
-		return `${(tokens / 1000).toFixed(1)}k`
+		const k = tokens / 1000
+		return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
 	}
 	return String(tokens)
 }
