@@ -235,16 +235,38 @@ export class ToolExecutionComponentEnhanced
 
 	private renderViewToolEnhanced(): void {
 		const argsObj = this.args as Record<string, unknown> | undefined
-		const path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
 		const fullPath = argsObj?.path ? String(argsObj.path) : ""
 		const viewRange = argsObj?.view_range as [number, number] | undefined
-		const rangeDisplay = viewRange
-			? theme.fg("muted", `:${viewRange[0]},${viewRange[1]}`)
-			: ""
 		const startLine = viewRange?.[0] ?? 1
+
+		// Don't show border until we have a result
+		if (!this.result || this.isPartial) {
+			// Just show pending indicator
+			const path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
+			const rangeDisplay = viewRange
+				? theme.fg("muted", `:${viewRange[0]},${viewRange[1]}`)
+				: ""
+			const status = this.getStatusIndicator()
+			const headerText = `${theme.bold(theme.fg("toolTitle", "view"))} ${theme.fg("accent", path)}${rangeDisplay}${status}`
+			this.contentBox.addChild(new Text(headerText, 0, 0))
+			return
+		}
 
 		const border = (char: string) => theme.bold(theme.fg("accent", char))
 		const status = this.getStatusIndicator()
+		const rangeDisplay = viewRange
+			? theme.fg("muted", `:${viewRange[0]},${viewRange[1]}`)
+			: ""
+
+		// Calculate available width for path and truncate from beginning if needed
+		const termWidth = process.stdout.columns || 80
+		const fixedParts = "└── view  " + (rangeDisplay ? `:XXX,XXX` : "") + " ✓" // approximate fixed width
+		const availableForPath = termWidth - fixedParts.length - 6 // buffer
+		let path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
+		if (path.length > availableForPath && availableForPath > 10) {
+			path = "…" + path.slice(-(availableForPath - 1))
+		}
+
 		const footerText = `${theme.bold(theme.fg("toolTitle", "view"))} ${theme.fg("accent", path)}${rangeDisplay}${status}`
 
 		// Empty line padding above
@@ -253,23 +275,45 @@ export class ToolExecutionComponentEnhanced
 		// Top border
 		this.contentBox.addChild(new Text(border("┌──"), 0, 0))
 
-		if (!this.result || this.isPartial) {
-			// Bottom border with info (no content yet)
-			this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
-			return
-		}
-
 		// Syntax-highlighted content with left border, truncated to prevent soft wrap
 		const output = this.getFormattedOutput()
 		if (output) {
 			const termWidth = process.stdout.columns || 80
 			const maxLineWidth = termWidth - 6 // Account for border "│ " (2) + padding (2) + buffer (2)
 			const highlighted = highlightCode(output, fullPath, startLine)
-			const borderedLines = highlighted.split("\n").map((line) => {
+			let lines = highlighted.split("\n")
+
+			// Limit lines when collapsed
+			const collapsedLines = 20
+			const totalLines = lines.length
+			const hasMore = !this.expanded && totalLines > collapsedLines
+
+			if (hasMore) {
+				lines = lines.slice(0, collapsedLines)
+			}
+
+			const borderedLines = lines.map((line) => {
 				const truncated = truncateAnsi(line, maxLineWidth)
 				return border("│") + " " + truncated
 			})
 			this.contentBox.addChild(new Text(borderedLines.join("\n"), 0, 0))
+
+			// Show truncation indicator
+			if (hasMore) {
+				const remaining = totalLines - collapsedLines
+				this.contentBox.addChild(
+					new Text(
+						border("│") +
+							" " +
+							theme.fg(
+								"muted",
+								`... ${remaining} more lines (click to expand)`,
+							),
+						0,
+						0,
+					),
+				)
+			}
 		}
 
 		// Bottom border with tool info
@@ -278,9 +322,13 @@ export class ToolExecutionComponentEnhanced
 
 	private renderBashToolEnhanced(): void {
 		const argsObj = this.args as Record<string, unknown> | undefined
-		const command = argsObj?.command ? String(argsObj.command) : "..."
+		let command = argsObj?.command ? String(argsObj.command) : "..."
 		const timeout = argsObj?.timeout as number | undefined
 		const cwd = argsObj?.cwd ? shortenPath(String(argsObj.cwd)) : ""
+
+		// Strip "cd $CWD && " from the start since we show cwd in the footer
+		const cdPattern = /^cd\s+[^\s]+\s+&&\s+/
+		command = command.replace(cdPattern, "")
 
 		const timeoutSuffix = timeout
 			? theme.fg("muted", ` (timeout ${timeout}s)`)
