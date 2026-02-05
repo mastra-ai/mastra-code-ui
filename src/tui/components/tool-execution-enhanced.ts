@@ -5,12 +5,9 @@
 
 import * as os from "node:os"
 import { Box, Container, Spacer, Text, type TUI } from "@mariozechner/pi-tui"
+import { highlight } from "cli-highlight"
 import { theme } from "../theme.js"
-import {
-	CollapsibleComponent,
-	CollapsibleFileViewer,
-	CollapsibleDiffViewer,
-} from "./collapsible.js"
+import { CollapsibleComponent, CollapsibleDiffViewer } from "./collapsible.js"
 import type {
 	IToolExecutionComponent,
 	ToolResult,
@@ -179,12 +176,14 @@ export class ToolExecutionComponentEnhanced
 	}
 
 	private updateBgColor(): void {
-		// For shell commands, skip background - we use bordered box style instead
+		// For shell and view commands, skip background - we use bordered box style instead
 		const isShellCommand =
 			this.toolName === "execute_command" ||
 			this.toolName === "mastra_workspace_execute_command"
+		const isViewCommand =
+			this.toolName === "view" || this.toolName === "mastra_workspace_read_file"
 
-		if (isShellCommand) {
+		if (isShellCommand || isViewCommand) {
 			// No background - let terminal colors show through
 			this.contentBox.setBgFn((text: string) => text)
 			return
@@ -237,31 +236,44 @@ export class ToolExecutionComponentEnhanced
 	private renderViewToolEnhanced(): void {
 		const argsObj = this.args as Record<string, unknown> | undefined
 		const path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
-		const range = argsObj?.view_range
-			? theme.fg("muted", `:${String(argsObj.view_range)}`)
+		const fullPath = argsObj?.path ? String(argsObj.path) : ""
+		const viewRange = argsObj?.view_range as [number, number] | undefined
+		const rangeDisplay = viewRange
+			? theme.fg("muted", `:${viewRange[0]},${viewRange[1]}`)
 			: ""
+		const startLine = viewRange?.[0] ?? 1
+
+		const border = (char: string) => theme.bold(theme.fg("accent", char))
+		const status = this.getStatusIndicator()
+		const footerText = `${theme.bold(theme.fg("toolTitle", "view"))} ${theme.fg("accent", path)}${rangeDisplay}${status}`
+
+		// Empty line padding above
+		this.contentBox.addChild(new Text("", 0, 0))
+
+		// Top border
+		this.contentBox.addChild(new Text(border("┌──"), 0, 0))
 
 		if (!this.result || this.isPartial) {
-			const status = this.getStatusIndicator()
-			const header = `${theme.bold(theme.fg("toolTitle", "📄 view"))} ${theme.fg("accent", path)}${range}${status}`
-			this.contentBox.addChild(new Text(header, 0, 0))
+			// Bottom border with info (no content yet)
+			this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 			return
 		}
 
+		// Syntax-highlighted content with left border, truncated to prevent soft wrap
 		const output = this.getFormattedOutput()
 		if (output) {
-			const status = this.getStatusIndicator()
-			this.collapsible = new CollapsibleFileViewer(
-				`${path}${range}${status}`,
-				output,
-				{
-					expanded: this.expanded,
-					collapsedLines: this.result.isError ? 50 : 20,
-				},
-				this.ui,
-			)
-			this.contentBox.addChild(this.collapsible)
+			const termWidth = process.stdout.columns || 80
+			const maxLineWidth = termWidth - 6 // Account for border "│ " (2) + padding (2) + buffer (2)
+			const highlighted = highlightCode(output, fullPath, startLine)
+			const borderedLines = highlighted.split("\n").map((line) => {
+				const truncated = truncateAnsi(line, maxLineWidth)
+				return border("│") + " " + truncated
+			})
+			this.contentBox.addChild(new Text(borderedLines.join("\n"), 0, 0))
 		}
+
+		// Bottom border with tool info
+		this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 	}
 
 	private renderBashToolEnhanced(): void {
@@ -298,7 +310,11 @@ export class ToolExecutionComponentEnhanced
 		if (!this.result || this.isPartial) {
 			const status = this.getStatusIndicator()
 			let lines = this.streamingOutput ? this.streamingOutput.split("\n") : []
-			// Remove trailing empty line during streaming (from trailing newline)
+			// Remove leading empty lines during streaming
+			while (lines.length > 0 && lines[0] === "") {
+				lines.shift()
+			}
+			// Remove trailing empty lines during streaming (from trailing newline)
 			while (lines.length > 0 && lines[lines.length - 1] === "") {
 				lines.pop()
 			}
@@ -329,7 +345,15 @@ export class ToolExecutionComponentEnhanced
 		// Success - use bordered box with checkmark
 		const status = theme.fg("success", " ✓")
 		const output = this.streamingOutput.trim() || this.getFormattedOutput()
-		renderBorderedShell(status, output.split("\n"))
+		let lines = output.split("\n")
+		// Remove leading/trailing empty lines
+		while (lines.length > 0 && lines[0] === "") {
+			lines.shift()
+		}
+		while (lines.length > 0 && lines[lines.length - 1] === "") {
+			lines.pop()
+		}
+		renderBorderedShell(status, lines)
 	}
 
 	private renderEditToolEnhanced(): void {
@@ -575,4 +599,138 @@ export class ToolExecutionComponentEnhanced
 
 		this.contentBox.addChild(errorDisplay)
 	}
+}
+
+/** Map file extensions to highlight.js language names */
+function getLanguageFromPath(path: string): string | undefined {
+	const ext = path.split(".").pop()?.toLowerCase()
+	const langMap: Record<string, string> = {
+		ts: "typescript",
+		tsx: "typescript",
+		js: "javascript",
+		jsx: "javascript",
+		mjs: "javascript",
+		cjs: "javascript",
+		json: "json",
+		md: "markdown",
+		py: "python",
+		rb: "ruby",
+		rs: "rust",
+		go: "go",
+		java: "java",
+		kt: "kotlin",
+		swift: "swift",
+		c: "c",
+		cpp: "cpp",
+		h: "c",
+		hpp: "cpp",
+		cs: "csharp",
+		php: "php",
+		sh: "bash",
+		bash: "bash",
+		zsh: "bash",
+		fish: "bash",
+		yml: "yaml",
+		yaml: "yaml",
+		toml: "ini",
+		ini: "ini",
+		xml: "xml",
+		html: "html",
+		htm: "html",
+		css: "css",
+		scss: "scss",
+		sass: "scss",
+		less: "less",
+		sql: "sql",
+		graphql: "graphql",
+		gql: "graphql",
+		dockerfile: "dockerfile",
+		makefile: "makefile",
+		cmake: "cmake",
+		vue: "vue",
+		svelte: "xml",
+	}
+	return ext ? langMap[ext] : undefined
+}
+
+/** Strip cat -n formatting and apply syntax highlighting */
+function highlightCode(
+	content: string,
+	path: string,
+	startLine?: number,
+): string {
+	let lines = content.split("\n").map((line) => line.trimEnd())
+
+	// Remove "Here's the result of running `cat -n`..." header if present
+	if (lines.length > 0 && lines[0].includes("Here's the result of running")) {
+		lines = lines.slice(1)
+	}
+
+	// Strip line numbers - we know they're sequential starting from startLine
+	let expectedLineNum = startLine ?? 1
+	const codeLines = lines.map((line) => {
+		const numStr = String(expectedLineNum)
+		// Line format is like "   123\tcode" or "   123" for blank lines
+		// Check if line starts with spaces + our expected number
+		const match = line.match(/^(\s*)(\d+)(\t?)(.*)$/)
+		if (match && match[2] === numStr) {
+			expectedLineNum++
+			return match[4] // Return just the code part after the tab
+		}
+		return line
+	})
+
+	// Remove trailing empty lines
+	while (codeLines.length > 0 && codeLines[codeLines.length - 1] === "") {
+		codeLines.pop()
+	}
+
+	// Apply syntax highlighting
+	try {
+		return highlight(codeLines.join("\n"), {
+			language: getLanguageFromPath(path),
+			ignoreIllegals: true,
+		})
+	} catch {
+		return codeLines.join("\n")
+	}
+}
+
+/** Truncate a string with ANSI codes to a visible width */
+function truncateAnsi(str: string, maxWidth: number): string {
+	// eslint-disable-next-line no-control-regex
+	const ansiRegex = /\x1b\[[0-9;]*m/g
+	let visibleLength = 0
+	let result = ""
+	let lastIndex = 0
+	let match: RegExpExecArray | null
+
+	while ((match = ansiRegex.exec(str)) !== null) {
+		// Add text before this ANSI code
+		const textBefore = str.slice(lastIndex, match.index)
+		const remaining = maxWidth - visibleLength
+		if (textBefore.length <= remaining) {
+			result += textBefore
+			visibleLength += textBefore.length
+		} else {
+			result += textBefore.slice(0, remaining - 1) + "…"
+			result += "\x1b[0m" // Reset to clean up any open styles
+			return result
+		}
+		// Add the ANSI code (doesn't count toward visible length)
+		result += match[0]
+		lastIndex = match.index + match[0].length
+	}
+
+	// Add remaining text after last ANSI code
+	const remaining = str.slice(lastIndex)
+	const spaceLeft = maxWidth - visibleLength
+	if (remaining.length <= spaceLeft) {
+		result += remaining
+	} else {
+		result += remaining.slice(0, spaceLeft - 1) + "…"
+		result += "\x1b[0m" // Reset
+	}
+
+	return result
 }

@@ -4,6 +4,7 @@
  */
 
 import { Container, Text, type TUI } from "@mariozechner/pi-tui"
+import { highlight } from "cli-highlight"
 import { theme } from "../theme.js"
 
 export interface CollapsibleOptions {
@@ -132,11 +133,32 @@ export class CollapsibleFileViewer extends CollapsibleComponent {
 		options: Partial<CollapsibleOptions>,
 		ui: TUI,
 	) {
-		// Clean up the content - remove trailing whitespace from each line but preserve structure
-		const lines = content.split("\n").map((line) => line.trimEnd())
+		let lines = content.split("\n").map((line) => line.trimEnd())
+
+		// Remove "Here's the result of running `cat -n`..." header if present
+		if (lines.length > 0 && lines[0].includes("Here's the result of running")) {
+			lines = lines.slice(1)
+		}
+
+		// Strip line numbers from cat -n format: "   123\tcode" -> "code"
+		const lineNumberRegex = /^\s*\d+\t/
+		const codeLines = lines.map((line) => line.replace(lineNumberRegex, ""))
+
 		// Remove trailing empty lines
-		while (lines.length > 0 && lines[lines.length - 1] === "") {
-			lines.pop()
+		while (codeLines.length > 0 && codeLines[codeLines.length - 1] === "") {
+			codeLines.pop()
+		}
+
+		// Apply syntax highlighting
+		let highlightedLines = codeLines
+		try {
+			const highlighted = highlight(codeLines.join("\n"), {
+				language: getLanguageFromPath(path),
+				ignoreIllegals: true,
+			})
+			highlightedLines = highlighted.split("\n")
+		} catch {
+			// If highlighting fails, use original content
 		}
 
 		const header = `${theme.bold(theme.fg("toolTitle", "📄 view"))} ${theme.fg("accent", path)}`
@@ -152,8 +174,60 @@ export class CollapsibleFileViewer extends CollapsibleComponent {
 			ui,
 		)
 
-		this.setContent(lines)
+		this.setContent(highlightedLines)
 	}
+}
+
+/** Map file extensions to highlight.js language names */
+function getLanguageFromPath(path: string): string | undefined {
+	const ext = path.split(".").pop()?.toLowerCase()
+	const langMap: Record<string, string> = {
+		ts: "typescript",
+		tsx: "typescript",
+		js: "javascript",
+		jsx: "javascript",
+		mjs: "javascript",
+		cjs: "javascript",
+		json: "json",
+		md: "markdown",
+		py: "python",
+		rb: "ruby",
+		rs: "rust",
+		go: "go",
+		java: "java",
+		kt: "kotlin",
+		swift: "swift",
+		c: "c",
+		cpp: "cpp",
+		h: "c",
+		hpp: "cpp",
+		cs: "csharp",
+		php: "php",
+		sh: "bash",
+		bash: "bash",
+		zsh: "bash",
+		fish: "bash",
+		yml: "yaml",
+		yaml: "yaml",
+		toml: "ini",
+		ini: "ini",
+		xml: "xml",
+		html: "html",
+		htm: "html",
+		css: "css",
+		scss: "scss",
+		sass: "scss",
+		less: "less",
+		sql: "sql",
+		graphql: "graphql",
+		gql: "graphql",
+		dockerfile: "dockerfile",
+		makefile: "makefile",
+		cmake: "cmake",
+		vue: "vue",
+		svelte: "xml",
+	}
+	return ext ? langMap[ext] : undefined
 }
 
 /**
