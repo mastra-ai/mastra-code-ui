@@ -325,19 +325,16 @@ export class ToolExecutionComponentEnhanced
 		let command = argsObj?.command ? String(argsObj.command) : "..."
 		const timeout = argsObj?.timeout as number | undefined
 		const cwd = argsObj?.cwd ? shortenPath(String(argsObj.cwd)) : ""
-		const explicitTail = argsObj?.tail as number | undefined
 
 		// Strip "cd $CWD && " from the start since we show cwd in the footer
 		const cdPattern = /^cd\s+[^\s]+\s+&&\s+/
 		command = command.replace(cdPattern, "")
 
 		// Extract tail value from command (e.g., "| tail -5" or "| tail -n 5")
-		let maxStreamLines: number | undefined = explicitTail
-		if (!maxStreamLines) {
-			const tailMatch = command.match(/\|\s*tail\s+(?:-n\s+)?(-?\d+)\s*$/)
-			if (tailMatch) {
-				maxStreamLines = Math.abs(parseInt(tailMatch[1], 10))
-			}
+		let maxStreamLines: number | undefined
+		const tailMatch = command.match(/\|\s*tail\s+(?:-n\s+)?(-?\d+)\s*$/)
+		if (tailMatch) {
+			maxStreamLines = Math.abs(parseInt(tailMatch[1], 10))
 		}
 
 		const timeoutSuffix = timeout
@@ -356,7 +353,7 @@ export class ToolExecutionComponentEnhanced
 
 			// Output lines with left border, truncated to prevent soft wrap
 			const termWidth = process.stdout.columns || 80
-			const maxLineWidth = termWidth - 4 // Account for border "│ " (2) + buffer (2)
+			const maxLineWidth = termWidth - 6 // Account for border "│ " (2) + buffer (4)
 			const borderedLines = outputLines.map((line) => {
 				const truncated = truncateAnsi(line, maxLineWidth)
 				return border("│") + " " + truncated

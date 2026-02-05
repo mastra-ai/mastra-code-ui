@@ -105,10 +105,6 @@ const ExecuteCommandSchema = z.object({
 		.describe(
 			"The number of seconds until the shell command should be killed if it hasn't exited yet. Defaults to 30 seconds",
 		),
-	tail: z
-		.number()
-		.optional()
-		.describe("Number of lines to return from the end of the output."),
 })
 
 // Function to create the execute command tool with optional project root
@@ -121,14 +117,14 @@ Usage notes:
 - Use for: git commands, npm/pnpm, docker, build tools, test runners, linters, and other terminal operations.
 - Do NOT use for: reading files (use view tool), searching file contents (use grep tool), finding files (use glob tool), editing files (use string_replace_lsp tool).
 - Commands run with a 30-second default timeout. Use the timeout parameter for longer commands.
-- Output is stripped of ANSI codes and truncated if too long. Use the tail parameter or pipe to tail.
+- Output is stripped of ANSI codes and truncated if too long.
 - Be careful with destructive commands. Never run git push --force, git reset --hard, or rm -rf without explicit user request.
 - For interactive commands that need user input, they will fail. Set CI=true is already forced.`,
 		inputSchema: ExecuteCommandSchema,
 		// requireApproval: true, // TODO: re-enable when Mastra workflow suspension is stable
 		execute: async (context, toolContext) => {
 			let { command } = context
-			let extractedTail: number | undefined = context.tail
+			let extractedTail: number | undefined
 
 			// Extract `| tail -N` or `| tail -n N` from command if present
 			// This allows streaming all output to user while only returning last N lines to agent
