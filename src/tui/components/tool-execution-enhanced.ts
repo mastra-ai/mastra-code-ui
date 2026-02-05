@@ -5,9 +5,10 @@
 
 import * as os from "node:os"
 import { Box, Container, Spacer, Text, type TUI } from "@mariozechner/pi-tui"
+import chalk from "chalk"
 import { highlight } from "cli-highlight"
 import { theme } from "../theme.js"
-import { CollapsibleComponent, CollapsibleDiffViewer } from "./collapsible.js"
+import { CollapsibleComponent } from "./collapsible.js"
 import type {
 	IToolExecutionComponent,
 	ToolResult,
@@ -176,14 +177,17 @@ export class ToolExecutionComponentEnhanced
 	}
 
 	private updateBgColor(): void {
-		// For shell and view commands, skip background - we use bordered box style instead
+		// For shell, view, and edit commands, skip background - we use bordered box style instead
 		const isShellCommand =
 			this.toolName === "execute_command" ||
 			this.toolName === "mastra_workspace_execute_command"
 		const isViewCommand =
 			this.toolName === "view" || this.toolName === "mastra_workspace_read_file"
+		const isEditCommand =
+			this.toolName === "string_replace_lsp" ||
+			this.toolName === "mastra_workspace_edit_file"
 
-		if (isShellCommand || isViewCommand) {
+		if (isShellCommand || isViewCommand || isEditCommand) {
 			// No background - let terminal colors show through
 			this.contentBox.setBgFn((text: string) => text)
 			return
@@ -431,41 +435,122 @@ export class ToolExecutionComponentEnhanced
 
 	private renderEditToolEnhanced(): void {
 		const argsObj = this.args as Record<string, unknown> | undefined
-		const path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
-		const line = argsObj?.start_line
-			? theme.fg("muted", `:${String(argsObj.start_line)}`)
+		const startLine = argsObj?.start_line
+			? `:${String(argsObj.start_line)}`
 			: ""
 
-		const status = this.getStatusIndicator()
-		const header = `${theme.bold(theme.fg("toolTitle", "✏️ edit"))} ${theme.fg("accent", path)}${line}${status}`
-
+		// Don't show border until we have a result
 		if (!this.result || this.isPartial) {
-			this.contentBox.addChild(new Text(header, 0, 0))
+			const path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
+			const status = this.getStatusIndicator()
+			const headerText = `${theme.bold(theme.fg("toolTitle", "edit"))} ${theme.fg("accent", path)}${theme.fg("muted", startLine)}${status}`
+			this.contentBox.addChild(new Text(headerText, 0, 0))
 			return
 		}
 
+		const border = (char: string) => theme.bold(theme.fg("accent", char))
+		const status = this.getStatusIndicator()
+
+		// Calculate available width for path and truncate from beginning if needed
+		const termWidth = process.stdout.columns || 80
+		const fixedParts = "└── edit  " + startLine + " ✓" // approximate fixed width
+		const availableForPath = termWidth - fixedParts.length - 6 // buffer
+		let path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
+		if (path.length > availableForPath && availableForPath > 10) {
+			path = "…" + path.slice(-(availableForPath - 1))
+		}
+
+		const footerText = `${theme.bold(theme.fg("toolTitle", "edit"))} ${theme.fg("accent", path)}${theme.fg("muted", startLine)}${status}`
+
+		// Empty line padding above
+		this.contentBox.addChild(new Text("", 0, 0))
+
+		// Top border
+		this.contentBox.addChild(new Text(border("┌──"), 0, 0))
+
 		// For edits, show the diff
 		if (argsObj?.old_str && argsObj?.new_str && !this.result.isError) {
-			const editStatus = this.getStatusIndicator()
-			this.collapsible = new CollapsibleDiffViewer(
-				`${path}${line}${editStatus}`,
-				String(argsObj.old_str),
-				String(argsObj.new_str),
-				{
-					expanded: this.expanded,
-					collapsedLines: 15,
-				},
-				this.ui,
-			)
-			this.contentBox.addChild(this.collapsible)
-		} else {
-			// Show error or generic output
-			if (this.result.isError) {
-				this.renderErrorResult(header)
-			} else {
-				this.contentBox.addChild(new Text(header, 0, 0))
+			const oldStr = String(argsObj.old_str)
+			const newStr = String(argsObj.new_str)
+			const diffLines = this.generateDiffLines(oldStr, newStr)
+
+			// Limit lines when collapsed
+			const collapsedLines = 15
+			const totalLines = diffLines.length
+			const hasMore = !this.expanded && totalLines > collapsedLines
+
+			let linesToShow = diffLines
+			if (hasMore) {
+				linesToShow = diffLines.slice(0, collapsedLines)
+			}
+
+			// Render diff lines with border, truncated to prevent wrap
+			const maxLineWidth = termWidth - 6
+			const borderedLines = linesToShow.map((line) => {
+				const truncated = truncateAnsi(line, maxLineWidth)
+				return border("│") + " " + truncated
+			})
+			this.contentBox.addChild(new Text(borderedLines.join("\n"), 0, 0))
+
+			// Show truncation indicator
+			if (hasMore) {
+				const remaining = totalLines - collapsedLines
+				this.contentBox.addChild(
+					new Text(
+						border("│") +
+							" " +
+							theme.fg(
+								"muted",
+								`... ${remaining} more lines (ctrl+e to expand)`,
+							),
+						0,
+						0,
+					),
+				)
+			}
+		} else if (this.result.isError) {
+			// Show error output
+			const output = this.getFormattedOutput()
+			if (output) {
+				const maxLineWidth = termWidth - 6
+				const lines = output.split("\n").map((line) => {
+					const truncated = truncateAnsi(line, maxLineWidth)
+					return border("│") + " " + theme.fg("error", truncated)
+				})
+				this.contentBox.addChild(new Text(lines.join("\n"), 0, 0))
 			}
 		}
+
+		// Bottom border with tool info
+		this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
+	}
+
+	private generateDiffLines(oldStr: string, newStr: string): string[] {
+		const oldLines = oldStr.split("\n")
+		const newLines = newStr.split("\n")
+		const diff: string[] = []
+
+		// Use soft red for removed, green for added
+		const removedColor = chalk.hex("#dc6868") // soft red
+		const addedColor = chalk.hex("#5cb85c") // soft green
+
+		const maxLines = Math.max(oldLines.length, newLines.length)
+
+		for (let i = 0; i < maxLines; i++) {
+			if (i >= oldLines.length) {
+				diff.push(addedColor(newLines[i]))
+			} else if (i >= newLines.length) {
+				diff.push(removedColor(oldLines[i]))
+			} else if (oldLines[i] !== newLines[i]) {
+				diff.push(removedColor(oldLines[i]))
+				diff.push(addedColor(newLines[i]))
+			} else {
+				// Context line
+				diff.push(theme.fg("muted", oldLines[i]))
+			}
+		}
+
+		return diff
 	}
 
 	private renderWriteToolEnhanced(): void {
