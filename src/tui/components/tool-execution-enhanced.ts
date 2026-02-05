@@ -354,8 +354,13 @@ export class ToolExecutionComponentEnhanced
 			// Top border
 			this.contentBox.addChild(new Text(border("┌──"), 0, 0))
 
-			// Output lines with left border (no truncation)
-			const borderedLines = outputLines.map((line) => border("│") + " " + line)
+			// Output lines with left border, truncated to prevent soft wrap
+			const termWidth = process.stdout.columns || 80
+			const maxLineWidth = termWidth - 4 // Account for border "│ " (2) + buffer (2)
+			const borderedLines = outputLines.map((line) => {
+				const truncated = truncateAnsi(line, maxLineWidth)
+				return border("│") + " " + truncated
+			})
 			const displayOutput = borderedLines.join("\n")
 			if (displayOutput.trim()) {
 				this.contentBox.addChild(new Text(displayOutput, 0, 0))
