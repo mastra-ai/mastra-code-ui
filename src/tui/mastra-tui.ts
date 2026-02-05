@@ -1294,6 +1294,10 @@ ${instructions}`,
 				this.handleToolUpdate(event.toolCallId, event.partialResult)
 				break
 
+			case "shell_output":
+				this.handleShellOutput(event.toolCallId, event.output, event.stream)
+				break
+
 			case "tool_end":
 				this.handleToolEnd(event.toolCallId, event.result, event.isError)
 				break
@@ -1992,6 +1996,21 @@ ${instructions}`,
 				isError: false,
 			}
 			component.updateResult(result, true)
+			this.ui.requestRender()
+		}
+	}
+
+	/**
+	 * Handle streaming shell output from execute_command tool.
+	 */
+	private handleShellOutput(
+		toolCallId: string,
+		output: string,
+		_stream: "stdout" | "stderr",
+	): void {
+		const component = this.pendingTools.get(toolCallId)
+		if (component?.appendStreamingOutput) {
+			component.appendStreamingOutput(output)
 			this.ui.requestRender()
 		}
 	}

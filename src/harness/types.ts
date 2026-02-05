@@ -225,6 +225,12 @@ export type HarnessEvent =
 	  }
 	| { type: "tool_update"; toolCallId: string; partialResult: unknown }
 	| { type: "tool_end"; toolCallId: string; result: unknown; isError: boolean }
+	| {
+			type: "shell_output"
+			toolCallId: string
+			output: string
+			stream: "stdout" | "stderr"
+	  }
 	| { type: "usage_update"; usage: TokenUsage }
 	| {
 			type: "error"

@@ -100,6 +100,7 @@ export class ToolExecutionComponentEnhanced
 	private options: ToolExecutionOptions
 	private collapsible?: CollapsibleComponent
 	private startTime = Date.now()
+	private streamingOutput = "" // Buffer for streaming shell output
 
 	constructor(
 		toolName: string,
@@ -137,6 +138,22 @@ export class ToolExecutionComponentEnhanced
 	updateResult(result: ToolResult, isPartial = false): void {
 		this.result = result
 		this.isPartial = isPartial
+		// Keep streaming output for colored display in final result
+		this.rebuild()
+	}
+
+	/**
+	 * Append streaming shell output.
+	 * Only for execute_command tool - shows live output while command runs.
+	 */
+	appendStreamingOutput(output: string): void {
+		if (
+			this.toolName !== "execute_command" &&
+			this.toolName !== "mastra_workspace_execute_command"
+		) {
+			return
+		}
+		this.streamingOutput += output
 		this.rebuild()
 	}
 
@@ -163,6 +180,18 @@ export class ToolExecutionComponentEnhanced
 	}
 
 	private updateBgColor(): void {
+		// For shell commands with streaming output, skip background to preserve ANSI colors
+		const isShellWithStreaming =
+			(this.toolName === "execute_command" ||
+				this.toolName === "mastra_workspace_execute_command") &&
+			this.streamingOutput
+
+		if (isShellWithStreaming) {
+			// No background - let terminal colors show through
+			this.contentBox.setBgFn((text: string) => text)
+			return
+		}
+
 		const bgColor = this.isPartial
 			? "toolPendingBg"
 			: this.result?.isError
@@ -249,18 +278,45 @@ export class ToolExecutionComponentEnhanced
 		const cwdSuffix = cwd ? theme.fg("muted", ` in ${cwd}`) : ""
 		const timeSuffix = this.isPartial ? timeoutSuffix : this.getDurationSuffix()
 
+		// Helper to render shell command with bordered box
+		const renderBorderedShell = (
+			status: string,
+			outputLines: string[],
+			maxLines: number = 10,
+		) => {
+			const border = (char: string) => theme.bold(theme.fg("accent", char))
+			const headerText = `${theme.bold(theme.fg("toolTitle", "$"))} ${theme.fg("accent", command)}${cwdSuffix}${timeSuffix}${status}`
+
+			// Top border with header
+			this.contentBox.addChild(new Text(`${border("┌──")} ${headerText}`, 0, 0))
+
+			// Output lines with left border
+			const displayLines =
+				outputLines.length > maxLines
+					? outputLines.slice(-maxLines)
+					: outputLines
+			const borderedLines = displayLines.map((line) => border("│") + " " + line)
+			const displayOutput = borderedLines.join("\n")
+			if (displayOutput.trim()) {
+				this.contentBox.addChild(new Text(displayOutput, 0, 0))
+			}
+
+			// Bottom border
+			this.contentBox.addChild(new Text(border("└──"), 0, 0))
+		}
+
 		if (!this.result || this.isPartial) {
 			const status = this.getStatusIndicator()
-			const header = `${theme.bold(theme.fg("toolTitle", "command"))} ${theme.fg("accent", command)}${cwdSuffix}${timeSuffix}${status}`
-			this.contentBox.addChild(new Text(header, 0, 0))
+			const lines = this.streamingOutput ? this.streamingOutput.split("\n") : []
+			renderBorderedShell(status, lines, 10)
 			return
 		}
 
-		// For errors, use enhanced error display
+		// For errors, use bordered box with error status
 		if (this.result.isError) {
 			const status = theme.fg("error", " ✗")
-			const header = `${theme.bold(theme.fg("toolTitle", "command"))} ${theme.fg("accent", command)}${cwdSuffix}${timeSuffix}${status}`
-			this.renderErrorResult(header)
+			const output = this.streamingOutput.trim() || this.getFormattedOutput()
+			renderBorderedShell(status, output.split("\n"), 10)
 			return
 		}
 
@@ -271,25 +327,15 @@ export class ToolExecutionComponentEnhanced
 		)
 		if (looksLikeError) {
 			const status = theme.fg("error", " ✗")
-			const header = `${theme.bold(theme.fg("toolTitle", "command"))} ${theme.fg("accent", command)}${cwdSuffix}${timeSuffix}${status}`
-			this.renderErrorResult(header)
+			const output = this.streamingOutput.trim() || this.getFormattedOutput()
+			renderBorderedShell(status, output.split("\n"), 10)
 			return
 		}
 
-		const output = this.getFormattedOutput()
-		const exitCode = 0
-
-		this.collapsible = new CollapsibleCommandOutput(
-			`${command}${cwdSuffix}${timeSuffix}`,
-			output,
-			exitCode,
-			{
-				expanded: this.expanded,
-				collapsedLines: 10,
-			},
-			this.ui,
-		)
-		this.contentBox.addChild(this.collapsible)
+		// Success - use bordered box with checkmark
+		const status = theme.fg("success", " ✓")
+		const output = this.streamingOutput.trim() || this.getFormattedOutput()
+		renderBorderedShell(status, output.split("\n"), 10)
 	}
 
 	private renderEditToolEnhanced(): void {

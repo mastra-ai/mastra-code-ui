@@ -127,7 +127,23 @@ Usage notes:
 		inputSchema: ExecuteCommandSchema,
 		// requireApproval: true, // TODO: re-enable when Mastra workflow suspension is stable
 		execute: async (context, toolContext) => {
-			const { command } = context
+			let { command } = context
+			let extractedTail: number | undefined = context.tail
+
+			// Extract `| tail -N` or `| tail -n N` from command if present
+			// This allows streaming all output to user while only returning last N lines to agent
+			const tailPipeMatch = command.match(/\|\s*tail\s+(?:-n\s+)?(-?\d+)\s*$/)
+			if (tailPipeMatch) {
+				const tailLines = Math.abs(parseInt(tailPipeMatch[1], 10))
+				if (tailLines > 0) {
+					extractedTail = tailLines
+					// Remove the tail pipe from the command
+					command = command
+						.replace(/\|\s*tail\s+(?:-n\s+)?-?\d+\s*$/, "")
+						.trim()
+				}
+			}
+
 			// Use provided cwd, fall back to project root, then process.cwd()
 			const cwd = context.cwd || projectRoot || process.cwd()
 			const root = projectRoot || process.cwd()
@@ -236,10 +252,10 @@ Usage notes:
 					}
 
 					return {
-						stdout: context.tail ? applyTail(stdout, context.tail) : stdout,
-						stderr: context.tail ? applyTail(stderr, context.tail) : stderr,
-						combined: context.tail
-							? applyTail(combined, context.tail)
+						stdout: extractedTail ? applyTail(stdout, extractedTail) : stdout,
+						stderr: extractedTail ? applyTail(stderr, extractedTail) : stderr,
+						combined: extractedTail
+							? applyTail(combined, extractedTail)
 							: combined,
 						exitCode: result.exitCode || 0,
 						signal: result.signal,
@@ -273,9 +289,20 @@ Usage notes:
 			let subprocess: ReturnType<typeof execa> | undefined
 			let capturedOutput = "" // Track output ourselves for abort case
 
-			// Get abort signal from harness context
+			// Get abort signal and emit function from harness context
 			const harnessCtx = (toolContext as any)?.requestContext?.get("harness")
 			const abortSignal = harnessCtx?.abortSignal as AbortSignal | undefined
+			const emitEvent = harnessCtx?.emitEvent as
+				| ((event: {
+						type: "shell_output"
+						toolCallId: string
+						output: string
+						stream: "stdout" | "stderr"
+				  }) => void)
+				| undefined
+			const toolCallId = (toolContext as any)?.agent?.toolCallId as
+				| string
+				| undefined
 
 			// Define abort handler outside try block so it's accessible in catch
 			const abortHandler = () => {
@@ -348,12 +375,21 @@ Usage notes:
 				if (abortSignal) {
 					abortSignal.addEventListener("abort", abortHandler)
 				}
-				// Capture stdout/stderr (no direct piping — TUI renders via tool results)
+				// Capture stdout/stderr and stream to TUI via harness events
 				if (subprocess.stdout) {
 					subprocess.stdout.on(`data`, (chunk: Buffer) => {
 						const text = chunk.toString()
 						capturedOutput += text
 						ipcReporter.send(`shell-output`, { output: text, type: `stdout` })
+						// Emit shell_output event for TUI streaming
+						if (emitEvent && toolCallId) {
+							emitEvent({
+								type: "shell_output",
+								toolCallId,
+								output: text,
+								stream: "stdout",
+							})
+						}
 					})
 				}
 
@@ -362,6 +398,15 @@ Usage notes:
 						const text = chunk.toString()
 						capturedOutput += text
 						ipcReporter.send(`shell-output`, { output: text, type: `stderr` })
+						// Emit shell_output event for TUI streaming
+						if (emitEvent && toolCallId) {
+							emitEvent({
+								type: "shell_output",
+								toolCallId,
+								output: text,
+								stream: "stderr",
+							})
+						}
 					})
 				}
 
@@ -388,8 +433,8 @@ Usage notes:
 
 					// Use our captured output (more reliable than result.all on SIGKILL)
 					let cleanOutput = stripAnsi(capturedOutput)
-					if (context.tail) {
-						cleanOutput = applyTail(cleanOutput, context.tail)
+					if (extractedTail) {
+						cleanOutput = applyTail(cleanOutput, extractedTail)
 					}
 
 					return {
@@ -431,8 +476,8 @@ Usage notes:
 				)
 
 				// Apply tail if specified
-				if (context.tail) {
-					cleanOutput = applyTail(cleanOutput, context.tail)
+				if (extractedTail) {
+					cleanOutput = applyTail(cleanOutput, extractedTail)
 				}
 
 				return {
@@ -459,8 +504,8 @@ Usage notes:
 				// Check if aborted by user
 				if (abortedBySignal) {
 					let cleanOutput = stripAnsi(capturedOutput)
-					if (context.tail) {
-						cleanOutput = applyTail(cleanOutput, context.tail)
+					if (extractedTail) {
+						cleanOutput = applyTail(cleanOutput, extractedTail)
 					}
 
 					return {

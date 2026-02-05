@@ -16,4 +16,6 @@ export interface IToolExecutionComponent {
 	updateArgs(args: unknown): void
 	updateResult(result: ToolResult, isPartial?: boolean): void
 	setExpanded(expanded: boolean): void
+	/** Append streaming output for shell commands */
+	appendStreamingOutput?(output: string): void
 }
