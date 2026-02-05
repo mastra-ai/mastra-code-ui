@@ -56,5 +56,23 @@
 		"tsx": "^4.21.0",
 		"typescript": "^5.8.0",
 		"vitest": "^4.0.18"
+	},
+	"overrides": {
+		"@mastra/deployer": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/deployer",
+		"@mastra/core": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/core",
+		"@mastra/storage": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/storage",
+		"@mastra/libsql": "link:/Users/tylerbarnes/code/mastra-ai/mastra/stores/libsql",
+		"@mastra/mcp": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/mcp",
+		"@mastra/memory": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/memory",
+		"mastra": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/cli"
+	},
+	"resolutions": {
+		"@mastra/deployer": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/deployer",
+		"@mastra/core": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/core",
+		"@mastra/memory": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/memory",
+		"@mastra/libsql": "link:/Users/tylerbarnes/code/mastra-ai/mastra/stores/libsql",
+		"@mastra/storage": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/storage",
+		"@mastra/mcp": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/mcp",
+		"mastra": "link:/Users/tylerbarnes/code/mastra-ai/mastra/packages/cli"
 	}
 }

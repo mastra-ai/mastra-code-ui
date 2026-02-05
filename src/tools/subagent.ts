@@ -32,6 +32,12 @@ export interface SubagentToolDeps {
 	 * Defaults to a fast model to keep costs down.
 	 */
 	defaultModelId?: string
+
+	/**
+	 * Restrict which agent types can be spawned.
+	 * If not provided, all registered agent types are available.
+	 */
+	allowedAgentTypes?: string[]
 }
 
 // Default model for subagent tasks — fast and cheap
@@ -42,24 +48,36 @@ const EXPLORE_SUBAGENT_MODEL = process.env.CEREBRAS_API_KEY
 	: DEFAULT_SUBAGENT_MODEL
 
 export function createSubagentTool(deps: SubagentToolDeps) {
-	const validAgentTypes = getSubagentIds()
+	const allAgentTypes = getSubagentIds()
+	const validAgentTypes = deps.allowedAgentTypes
+		? allAgentTypes.filter((t) => deps.allowedAgentTypes!.includes(t))
+		: allAgentTypes
+
+	const typeDescriptions: Record<string, string> = {
+		explore: `- **explore**: Read-only codebase exploration. Has access to view, search_content, and find_files. Use for questions like "find all usages of X", "how does module Y work", "what files are related to Z".`,
+		plan: `- **plan**: Read-only analysis and planning. Same tools as explore. Use for "create an implementation plan for X", "analyze the architecture of Y".`,
+		execute: `- **execute**: Task execution with write capabilities. Has access to all tools including string_replace_lsp, write_file, and execute_command. Use for "implement feature X", "fix bug Y", "refactor module Z".`,
+	}
+
+	const availableTypesDocs = validAgentTypes
+		.map((t) => typeDescriptions[t] ?? `- **${t}**`)
+		.join("\n")
+
+	const hasExecute = validAgentTypes.includes("execute")
 
 	return createTool({
 		id: "subagent",
 		description: `Delegate a focused task to a specialized subagent. The subagent runs independently with a constrained toolset, then returns its findings as text.
 
 Available agent types:
-- **explore**: Read-only codebase exploration. Has access to view, search_content, and find_files. Use for questions like "find all usages of X", "how does module Y work", "what files are related to Z".
-- **plan**: Read-only analysis and planning. Same tools as explore. Use for "create an implementation plan for X", "analyze the architecture of Y".
-- **execute**: Task execution with write capabilities. Has access to all tools including string_replace_lsp, write_file, and execute_command. Use for "implement feature X", "fix bug Y", "refactor module Z".
+${availableTypesDocs}
 
 The subagent runs in its own context — it does NOT see the parent conversation history. Write a clear, self-contained task description.
 
 Use this tool when:
 - You need to explore a large area of the codebase before making changes
 - You want to run multiple investigations in parallel
-- The task is self-contained and can be delegated
-- You want to perform a focused implementation task (execute type)`,
+- The task is self-contained and can be delegated${hasExecute ? "\n- You want to perform a focused implementation task (execute type)" : ""}`,
 		inputSchema: z.object({
 			agentType: z
 				.enum(validAgentTypes as [string, ...string[]])

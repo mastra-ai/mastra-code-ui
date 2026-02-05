@@ -225,8 +225,13 @@ function getDynamicMemory({
 				enabled: true,
 				scope: "thread",
 				observation: {
+					bufferEvery: 10_000,
+					asyncActivation: 0.8,
 					model: getObserverModel,
 					messageTokens: obsThreshold,
+					modelSettings: {
+						maxOutputTokens: 60000,
+					},
 				},
 				reflection: {
 					model: getReflectorModel,
@@ -325,6 +330,17 @@ const subagentTool = createSubagentTool({
 		todo_check: todoCheckTool,
 	},
 	resolveModel,
+})
+
+// Read-only subagent tool for plan mode — no execute type allowed
+const subagentToolReadOnly = createSubagentTool({
+	tools: {
+		view: viewTool,
+		search_content: grepTool,
+		find_files: globTool,
+	},
+	resolveModel,
+	allowedAgentTypes: ["explore", "plan"],
 })
 
 // =============================================================================
@@ -502,8 +518,8 @@ const codeAgent = new Agent({
 			view: viewTool,
 			search_content: grepTool,
 			find_files: globTool,
-			// Subagent delegation — always available
-			subagent: subagentTool,
+			// Subagent delegation — read-only in plan mode
+			subagent: modeId === "plan" ? subagentToolReadOnly : subagentTool,
 			// Todo tracking — always available (planning tool, not a write tool)
 			todo_write: todoWriteTool,
 			todo_check: todoCheckTool,
