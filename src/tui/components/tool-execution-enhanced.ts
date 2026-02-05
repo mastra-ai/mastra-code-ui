@@ -307,7 +307,7 @@ export class ToolExecutionComponentEnhanced
 							" " +
 							theme.fg(
 								"muted",
-								`... ${remaining} more lines (click to expand)`,
+								`... ${remaining} more lines (ctrl+e to expand)`,
 							),
 						0,
 						0,
@@ -325,10 +325,20 @@ export class ToolExecutionComponentEnhanced
 		let command = argsObj?.command ? String(argsObj.command) : "..."
 		const timeout = argsObj?.timeout as number | undefined
 		const cwd = argsObj?.cwd ? shortenPath(String(argsObj.cwd)) : ""
+		const explicitTail = argsObj?.tail as number | undefined
 
 		// Strip "cd $CWD && " from the start since we show cwd in the footer
 		const cdPattern = /^cd\s+[^\s]+\s+&&\s+/
 		command = command.replace(cdPattern, "")
+
+		// Extract tail value from command (e.g., "| tail -5" or "| tail -n 5")
+		let maxStreamLines: number | undefined = explicitTail
+		if (!maxStreamLines) {
+			const tailMatch = command.match(/\|\s*tail\s+(?:-n\s+)?(-?\d+)\s*$/)
+			if (tailMatch) {
+				maxStreamLines = Math.abs(parseInt(tailMatch[1], 10))
+			}
+		}
 
 		const timeoutSuffix = timeout
 			? theme.fg("muted", ` (timeout ${timeout}s)`)
@@ -366,15 +376,36 @@ export class ToolExecutionComponentEnhanced
 			while (lines.length > 0 && lines[lines.length - 1] === "") {
 				lines.pop()
 			}
+			// Apply tail limit to streaming output to match final result
+			if (maxStreamLines && lines.length > maxStreamLines) {
+				lines = lines.slice(-maxStreamLines)
+			}
 			renderBorderedShell(status, lines)
 			return
+		}
+
+		// Helper to apply tail limit and clean up lines
+		const prepareOutputLines = (output: string): string[] => {
+			let lines = output.split("\n")
+			// Remove leading/trailing empty lines
+			while (lines.length > 0 && lines[0] === "") {
+				lines.shift()
+			}
+			while (lines.length > 0 && lines[lines.length - 1] === "") {
+				lines.pop()
+			}
+			// Apply tail limit to match streaming display
+			if (maxStreamLines && lines.length > maxStreamLines) {
+				lines = lines.slice(-maxStreamLines)
+			}
+			return lines
 		}
 
 		// For errors, use bordered box with error status
 		if (this.result.isError) {
 			const status = theme.fg("error", " ✗")
 			const output = this.streamingOutput.trim() || this.getFormattedOutput()
-			renderBorderedShell(status, output.split("\n"))
+			renderBorderedShell(status, prepareOutputLines(output))
 			return
 		}
 
@@ -386,22 +417,14 @@ export class ToolExecutionComponentEnhanced
 		if (looksLikeError) {
 			const status = theme.fg("error", " ✗")
 			const output = this.streamingOutput.trim() || this.getFormattedOutput()
-			renderBorderedShell(status, output.split("\n"))
+			renderBorderedShell(status, prepareOutputLines(output))
 			return
 		}
 
 		// Success - use bordered box with checkmark
 		const status = theme.fg("success", " ✓")
 		const output = this.streamingOutput.trim() || this.getFormattedOutput()
-		let lines = output.split("\n")
-		// Remove leading/trailing empty lines
-		while (lines.length > 0 && lines[0] === "") {
-			lines.shift()
-		}
-		while (lines.length > 0 && lines[lines.length - 1] === "") {
-			lines.pop()
-		}
-		renderBorderedShell(status, lines)
+		renderBorderedShell(status, prepareOutputLines(output))
 	}
 
 	private renderEditToolEnhanced(): void {
