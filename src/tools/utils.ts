@@ -3,8 +3,8 @@ import * as path from "path"
 import { ToolError } from "./types.js"
 import { truncateStringForTokenEstimate } from "../utils/token-estimator.js"
 
-// Per-file write lock to prevent concurrent writes causing corruption
-const fileWriteLocks = new Set<string>()
+// Per-file write queue to serialize concurrent writes
+const fileWriteQueues = new Map<string, Promise<unknown>>()
 
 async function withWriteLock<T>(
 	filePath: string,
@@ -12,22 +12,41 @@ async function withWriteLock<T>(
 ): Promise<T> {
 	const normalizedPath = path.resolve(filePath)
 
-	// Error immediately if file is already being written
-	if (fileWriteLocks.has(normalizedPath)) {
-		throw new Error(
-			`File "${filePath}" is currently being modified by another operation. ` +
-				`Wait for the previous edit to complete before making another change to this file.`,
-		)
-	}
+	// Get the current queue for this file (or a resolved promise if none)
+	const currentQueue = fileWriteQueues.get(normalizedPath) ?? Promise.resolve()
 
-	// Acquire write lock
-	fileWriteLocks.add(normalizedPath)
+	// Create a new promise that waits for the current queue, then runs our fn
+	let resolve: (value: T) => void
+	let reject: (error: unknown) => void
+	const ourPromise = new Promise<T>((res, rej) => {
+		resolve = res
+		reject = rej
+	})
 
-	try {
-		return await fn()
-	} finally {
-		fileWriteLocks.delete(normalizedPath)
-	}
+	// Chain our operation onto the queue
+	const queuePromise = currentQueue
+		.catch(() => {}) // Ignore errors from previous operations
+		.then(async () => {
+			try {
+				const result = await fn()
+				resolve(result)
+			} catch (error) {
+				reject(error)
+			}
+		})
+
+	// Update the queue
+	fileWriteQueues.set(normalizedPath, queuePromise)
+
+	// Clean up when our operation completes
+	queuePromise.finally(() => {
+		// Only delete if we're still the last in queue
+		if (fileWriteQueues.get(normalizedPath) === queuePromise) {
+			fileWriteQueues.delete(normalizedPath)
+		}
+	})
+
+	return ourPromise
 }
 
 export const SNIPPET_LINES = 4
@@ -43,16 +62,17 @@ export async function writeFile(
 	filePath: string,
 	content: string,
 ): Promise<void> {
-	return withWriteLock(filePath, async () => {
-		try {
-			await fs.mkdir(path.dirname(filePath), { recursive: true })
-			await fs.writeFile(filePath, content, "utf8")
-		} catch (e) {
-			const error = e instanceof Error ? e : new Error("Unknown error")
-			throw new Error(`Failed to write to ${filePath}: ${error.message}`)
-		}
-	})
+	try {
+		await fs.mkdir(path.dirname(filePath), { recursive: true })
+		await fs.writeFile(filePath, content, "utf8")
+	} catch (e) {
+		const error = e instanceof Error ? e : new Error("Unknown error")
+		throw new Error(`Failed to write to ${filePath}: ${error.message}`)
+	}
 }
+
+// Export the lock for operations that need to serialize read-modify-write
+export { withWriteLock as withFileLock }
 export function makeOutput(
 	fileContent: string,
 	fileDescriptor: string,
@@ -107,8 +127,8 @@ export async function validatePath(
 	}
 }
 export function truncateText(text: string, maxLength = 1000): string {
-    if (text.length <= maxLength) return text
-    return text.slice(0, maxLength) + "... (truncated)"
+	if (text.length <= maxLength) return text
+	return text.slice(0, maxLength) + "... (truncated)"
 }
 
 /**
@@ -118,17 +138,16 @@ export function truncateText(text: string, maxLength = 1000): string {
  * Returns `true` when access should be **allowed**.
  */
 export function isPathAllowed(
-    targetPath: string,
-    projectRoot: string,
-    allowedPaths: string[] = [],
+	targetPath: string,
+	projectRoot: string,
+	allowedPaths: string[] = [],
 ): boolean {
-    const resolved = path.resolve(targetPath)
-    const roots = [projectRoot, ...allowedPaths].map((p) => path.resolve(p))
+	const resolved = path.resolve(targetPath)
+	const roots = [projectRoot, ...allowedPaths].map((p) => path.resolve(p))
 
-    return roots.some(
-        (root) =>
-            resolved === root || resolved.startsWith(root + path.sep),
-    )
+	return roots.some(
+		(root) => resolved === root || resolved.startsWith(root + path.sep),
+	)
 }
 
 /**
@@ -136,21 +155,21 @@ export function isPathAllowed(
  * Designed to be called early in each tool's `execute` function.
  */
 export function assertPathAllowed(
-    targetPath: string,
-    projectRoot: string,
-    allowedPaths: string[] = [],
+	targetPath: string,
+	projectRoot: string,
+	allowedPaths: string[] = [],
 ): void {
-    if (!isPathAllowed(targetPath, projectRoot, allowedPaths)) {
-        const resolvedTarget = path.resolve(targetPath)
-        const resolvedRoot = path.resolve(projectRoot)
-        throw new ToolError(
-            `Access denied: "${resolvedTarget}" is outside the project root "${resolvedRoot}"` +
-                (allowedPaths.length
-                    ? ` and allowed paths [${allowedPaths.join(", ")}]`
-                    : "") +
-                `. Use /sandbox to add additional allowed paths.`,
-        )
-    }
+	if (!isPathAllowed(targetPath, projectRoot, allowedPaths)) {
+		const resolvedTarget = path.resolve(targetPath)
+		const resolvedRoot = path.resolve(projectRoot)
+		throw new ToolError(
+			`Access denied: "${resolvedTarget}" is outside the project root "${resolvedRoot}"` +
+				(allowedPaths.length
+					? ` and allowed paths [${allowedPaths.join(", ")}]`
+					: "") +
+				`. Use /sandbox to add additional allowed paths.`,
+		)
+	}
 }
 
 /**
@@ -158,11 +177,20 @@ export function assertPathAllowed(
  * Returns an empty array when the context is unavailable (e.g. in tests).
  */
 export function getAllowedPathsFromContext(
-    toolContext: { requestContext?: { get: (key: string) => unknown } } | undefined,
+	toolContext:
+		| { requestContext?: { get: (key: string) => unknown } }
+		| undefined,
 ): string[] {
-    if (!toolContext?.requestContext) return []
-    const harnessCtx = toolContext.requestContext.get("harness") as
-        | { state?: { sandboxAllowedPaths?: string[] }; getState?: () => { sandboxAllowedPaths?: string[] } }
-        | undefined
-    return harnessCtx?.getState?.()?.sandboxAllowedPaths ?? harnessCtx?.state?.sandboxAllowedPaths ?? []
+	if (!toolContext?.requestContext) return []
+	const harnessCtx = toolContext.requestContext.get("harness") as
+		| {
+				state?: { sandboxAllowedPaths?: string[] }
+				getState?: () => { sandboxAllowedPaths?: string[] }
+		  }
+		| undefined
+	return (
+		harnessCtx?.getState?.()?.sandboxAllowedPaths ??
+		harnessCtx?.state?.sandboxAllowedPaths ??
+		[]
+	)
 }

@@ -30,6 +30,7 @@ import {
 	writeFile,
 	makeOutput,
 	validatePath,
+	withFileLock,
 	// truncateText
 } from "./utils"
 const realExecAsync = promisify(exec)
@@ -132,328 +133,342 @@ export class FileEditor {
 		if (args.old_str === args.new_str) {
 			return `Received the same string for old_str and new_str`
 		}
-		const fileContent = await readFile(args.path)
-		// First, try exact match with the raw string (no processing)
-		// This handles cases where the search/replace should work exactly as provided
-		if (fileContent.includes(args.old_str)) {
-			// Exact match found! Use simple string replacement
-			const processedNewStr = args.new_str || ""
-			const newFileContent = fileContent
-				.split(args.old_str)
-				.join(processedNewStr)
-			await writeFile(args.path, newFileContent)
-			return `The file ${args.path} has been edited. `
-		}
-
-		// Try whitespace-normalized exact match before falling back to fuzzy matching
-		// This handles cases where the only difference is whitespace/indentation
-		// while preserving all escaping (e.g., \\n stays as \\n)
-		const normalizeWhitespace = (str: string) => str.replace(/\s+/g, " ").trim()
-		const normalizedOldStr = normalizeWhitespace(args.old_str)
-		const normalizedContent = normalizeWhitespace(fileContent)
-
-		if (normalizedContent.includes(normalizedOldStr)) {
-			// Find the actual position in the original content by searching for the pattern
-			// We need to find where the whitespace-normalized match occurs in the original
-			const lines = fileContent.split("\n")
-			let bestMatch = { start: -1, end: -1, content: "" }
-
-			const normalizedOldLineCount = normalizedOldStr.split(`\n`).length
-			// Try to find the matching section by comparing normalized versions
-			for (let i = 0; i < lines.length; i++) {
-				for (let j = i; j <= normalizedOldLineCount; j++) {
-					const candidate = lines.slice(i, j + 1).join("\n")
-					if (normalizeWhitespace(candidate) === normalizedOldStr) {
-						bestMatch = { start: i, end: j, content: candidate }
-						break
-					}
-				}
-				if (bestMatch.start !== -1) break
-			}
-
-			if (bestMatch.start !== -1) {
-				// Found the match! Replace it while preserving the structure
-				const beforeLines = lines.slice(0, bestMatch.start)
-				const afterLines = lines.slice(bestMatch.end + 1)
-				const newFileContent = [
-					...beforeLines,
-					args.new_str || "",
-					...afterLines,
-				].join("\n")
-
-				// Save the file
+		// Queue concurrent edits to the same file
+		return withFileLock(args.path, async () => {
+			const fileContent = await readFile(args.path)
+			// First, try exact match with the raw string (no processing)
+			// This handles cases where the search/replace should work exactly as provided
+			if (fileContent.includes(args.old_str)) {
+				// Exact match found! Use simple string replacement
+				const processedNewStr = args.new_str || ""
+				const newFileContent = fileContent
+					.split(args.old_str)
+					.join(processedNewStr)
 				await writeFile(args.path, newFileContent)
+				return `The file ${args.path} has been edited. `
+			}
 
-				// Find the line number for the snippet
-				const fileLines = newFileContent.split("\n")
-				const startLine = Math.max(0, bestMatch.start - SNIPPET_LINES)
-				const endLine = Math.min(
-					fileLines.length,
-					bestMatch.start +
-						SNIPPET_LINES +
-						(args.new_str || "").split("\n").length,
-				)
-				const snippet = fileLines.slice(startLine, endLine).join("\n")
-				let successMsg = `The file ${args.path} has been edited. `
-				successMsg += makeOutput(
-					snippet,
-					`a snippet of ${args.path}`,
-					startLine + 1,
-				)
-				successMsg +=
-					"Review the changes and make sure they are as expected. Edit the file again if necessary."
-				return successMsg
-			}
-		}
+			// Try whitespace-normalized exact match before falling back to fuzzy matching
+			// This handles cases where the only difference is whitespace/indentation
+			// while preserving all escaping (e.g., \\n stays as \\n)
+			const normalizeWhitespace = (str: string) =>
+				str.replace(/\s+/g, " ").trim()
+			const normalizedOldStr = normalizeWhitespace(args.old_str)
+			const normalizedContent = normalizeWhitespace(fileContent)
 
-		// If exact match and whitespace-normalized match both fail, proceed with fuzzy whitespace-agnostic matching
-		// First apply undoubleEscape for the fuzzy matching
-		const processedOldStr = args.old_str
-		const processedNewStr = args.new_str || ""
-		// Remove leading line numbers and whitespace from each line
-		const removeLeadingLineNumbers = (str: string): string => {
-			return str
-				.split("\n")
-				.map((line) => line.replace(/^\s*\d+\s*/, ""))
-				.join("\n")
-		}
-		let oldStr = removeLeadingLineNumbers(processedOldStr)
-		let newStr = removeLeadingLineNumbers(processedNewStr)
-		if (oldStr.startsWith(`\\\n`)) {
-			oldStr = oldStr.substring(`\\\n`.length)
-		}
-		if (newStr.startsWith(`\\\n`)) {
-			newStr = newStr.substring(`\\\n`.length)
-		}
-		const startLineArg =
-			typeof args.start_line === `number`
-				? Math.max(args.start_line - 5, 0) // - 3 cause llms are not precise
-				: undefined
-		// Split and normalize
-		const oldLinesSplit = oldStr.split("\n")
-		const oldLinesOriginal = oldLinesSplit.filter((l, i) => {
-			if (i === 0) return removeWhitespace(l) !== ``
-			if (i + 1 !== oldLinesSplit.length) return true
-			// only keep last item if it's not an empty string
-			return removeWhitespace(l) !== ``
-		})
-		const oldLines = oldLinesOriginal.map(removeWhitespace)
-		const split = (str: string): string[] => {
-			return str.split("\n").map((l: string) => l.replaceAll(`\n`, `\\n`))
-		}
-		const fileLines = split(fileContent)
-		const normFileLines = fileLines.map(removeWhitespace)
-		const bestMatch: {
-			start: number
-			avgDist: number
-			type: string
-			end?: number
-		} = {
-			start: -1,
-			avgDist: Infinity,
-			type: "replace-lines",
-		}
-		const isSingleLineReplacement = oldLines.length === 1
-		const matchLineNumbers = normFileLines
-			.map((l: string, index: number) => (l === oldLines[0] ? index + 1 : null))
-			.filter(Boolean)
-		if (
-			isSingleLineReplacement &&
-			matchLineNumbers.length > 1 &&
-			!startLineArg
-		) {
-			return `Single line search string "${oldLines[0]}" has too many matches. This will result in innacurate replacements. Found ${matchLineNumbers.length} matches. Pass start_line to choose one. Found on lines ${matchLineNumbers.join(`, `)}`
-		}
-		let divergedMessage
-		let divergenceAfterX = 0
-		const fileNoSpace = removeVaryingChars(fileContent)
-		const oldStringNoSpace = removeVaryingChars(oldStr)
-		if (fileNoSpace.includes(oldStringNoSpace.substring(0, -1))) {
-			let oldStringNoSpaceBuffer = oldStringNoSpace
-			let startIndex = null
-			let endIndex = null
-			for (const [index, line] of split(fileContent).entries()) {
-				if (
-					startIndex === null &&
-					typeof startLineArg !== `undefined` &&
-					index + 1 > startLineArg + 50 // allow for llm to be off by 50 lines lmao
-				) {
-					continue
-				}
-				if (typeof startLineArg !== `undefined` && index < startLineArg) {
-					continue
-				}
-				const lineNoSpace = removeVaryingChars(line)
-				if (lineNoSpace === `` && !startIndex) continue
-				const startsWith = oldStringNoSpaceBuffer.startsWith(lineNoSpace)
-				const startsWithNoDanglingCommaTho =
-					!startsWith &&
-					lineNoSpace.endsWith(`,`) &&
-					oldStringNoSpaceBuffer
-						.substring(lineNoSpace.length - 1)
-						.startsWith(`)`) &&
-					oldStringNoSpaceBuffer.startsWith(
-						lineNoSpace.substring(0, lineNoSpace.length - 1),
-					)
-				if (
-					startsWith ||
-					// allow for missing dangling comma (common in JS/TS, harmless in other languages)
-					startsWithNoDanglingCommaTho
-				) {
-					if (startIndex === null) {
-						startIndex = index
+			if (normalizedContent.includes(normalizedOldStr)) {
+				// Find the actual position in the original content by searching for the pattern
+				// We need to find where the whitespace-normalized match occurs in the original
+				const lines = fileContent.split("\n")
+				let bestMatch = { start: -1, end: -1, content: "" }
+
+				const normalizedOldLineCount = normalizedOldStr.split(`\n`).length
+				// Try to find the matching section by comparing normalized versions
+				for (let i = 0; i < lines.length; i++) {
+					for (let j = i; j <= normalizedOldLineCount; j++) {
+						const candidate = lines.slice(i, j + 1).join("\n")
+						if (normalizeWhitespace(candidate) === normalizedOldStr) {
+							bestMatch = { start: i, end: j, content: candidate }
+							break
+						}
 					}
-					oldStringNoSpaceBuffer = oldStringNoSpaceBuffer.substring(
-						startsWithNoDanglingCommaTho
-							? lineNoSpace.length - 1 // remove the comma
-							: lineNoSpace.length,
+					if (bestMatch.start !== -1) break
+				}
+
+				if (bestMatch.start !== -1) {
+					// Found the match! Replace it while preserving the structure
+					const beforeLines = lines.slice(0, bestMatch.start)
+					const afterLines = lines.slice(bestMatch.end + 1)
+					const newFileContent = [
+						...beforeLines,
+						args.new_str || "",
+						...afterLines,
+					].join("\n")
+
+					// Save the file
+					await writeFile(args.path, newFileContent)
+
+					// Find the line number for the snippet
+					const fileLines = newFileContent.split("\n")
+					const startLine = Math.max(0, bestMatch.start - SNIPPET_LINES)
+					const endLine = Math.min(
+						fileLines.length,
+						bestMatch.start +
+							SNIPPET_LINES +
+							(args.new_str || "").split("\n").length,
 					)
-					if (oldStringNoSpaceBuffer.length === 0 && startIndex !== null) {
-						endIndex = index
-						break
-					}
-				} else if (startIndex !== null) {
-					// diverged from a partial match. reset
-					startIndex = null
-					oldStringNoSpaceBuffer = oldStringNoSpace
+					const snippet = fileLines.slice(startLine, endLine).join("\n")
+					let successMsg = `The file ${args.path} has been edited. `
+					successMsg += makeOutput(
+						snippet,
+						`a snippet of ${args.path}`,
+						startLine + 1,
+					)
+					successMsg +=
+						"Review the changes and make sure they are as expected. Edit the file again if necessary."
+					return successMsg
 				}
 			}
-			if (startIndex !== null && endIndex !== null) {
-				bestMatch.start = startIndex
-				bestMatch.end = endIndex
+
+			// If exact match and whitespace-normalized match both fail, proceed with fuzzy whitespace-agnostic matching
+			// First apply undoubleEscape for the fuzzy matching
+			const processedOldStr = args.old_str
+			const processedNewStr = args.new_str || ""
+			// Remove leading line numbers and whitespace from each line
+			const removeLeadingLineNumbers = (str: string): string => {
+				return str
+					.split("\n")
+					.map((line) => line.replace(/^\s*\d+\s*/, ""))
+					.join("\n")
 			}
-		}
-		for (const [index, normLine] of normFileLines.entries()) {
-			if (!normLine) continue
-			// we already matched above!
-			if (bestMatch.end) break
-			if (typeof startLineArg !== `undefined` && index + 1 < startLineArg)
-				continue
-			// if there's a start line it must match within the next 50 lines
-			if (typeof startLineArg !== `undefined` && index + 1 > startLineArg + 50)
-				continue
-			if (
-				typeof startLineArg !== `undefined` &&
-				index + 1 > startLineArg + 5 &&
-				isSingleLineReplacement
-			) {
-				// only break early for single line replacements.. if the llm added a line number to start from + multiple lines to match, often it gets confused about the line numbers, so keep going until the end.
-				break
+			let oldStr = removeLeadingLineNumbers(processedOldStr)
+			let newStr = removeLeadingLineNumbers(processedNewStr)
+			if (oldStr.startsWith(`\\\n`)) {
+				oldStr = oldStr.substring(`\\\n`.length)
 			}
-			// this line is equal to the first line in our from replacement. Lets check each following line to see if we match
-			const firstDistance = distance(oldLines[0] || "", normLine || "")
-			const firstPercentDiff = (firstDistance / (normLine?.length || 0)) * 100
+			if (newStr.startsWith(`\\\n`)) {
+				newStr = newStr.substring(`\\\n`.length)
+			}
+			const startLineArg =
+				typeof args.start_line === `number`
+					? Math.max(args.start_line - 5, 0) // - 3 cause llms are not precise
+					: undefined
+			// Split and normalize
+			const oldLinesSplit = oldStr.split("\n")
+			const oldLinesOriginal = oldLinesSplit.filter((l, i) => {
+				if (i === 0) return removeWhitespace(l) !== ``
+				if (i + 1 !== oldLinesSplit.length) return true
+				// only keep last item if it's not an empty string
+				return removeWhitespace(l) !== ``
+			})
+			const oldLines = oldLinesOriginal.map(removeWhitespace)
+			const split = (str: string): string[] => {
+				return str.split("\n").map((l: string) => l.replaceAll(`\n`, `\\n`))
+			}
+			const fileLines = split(fileContent)
+			const normFileLines = fileLines.map(removeWhitespace)
+			const bestMatch: {
+				start: number
+				avgDist: number
+				type: string
+				end?: number
+			} = {
+				start: -1,
+				avgDist: Infinity,
+				type: "replace-lines",
+			}
+			const isSingleLineReplacement = oldLines.length === 1
+			const matchLineNumbers = normFileLines
+				.map((l: string, index: number) =>
+					l === oldLines[0] ? index + 1 : null,
+				)
+				.filter(Boolean)
 			if (
 				isSingleLineReplacement &&
-				(normLine === oldLines[0] || normLine.includes(oldLines[0]))
+				matchLineNumbers.length > 1 &&
+				!startLineArg
 			) {
-				bestMatch.start = index
-				bestMatch.type = "replace-in-line"
-				continue
+				return `Single line search string "${oldLines[0]}" has too many matches. This will result in innacurate replacements. Found ${matchLineNumbers.length} matches. Pass start_line to choose one. Found on lines ${matchLineNumbers.join(`, `)}`
 			}
-			if (oldLines[0] === normLine || firstPercentDiff < 5) {
-				let isMatching = true
-				let matchingLineCount = 0
-				for (const [matchIndex, oldLine] of oldLines.entries()) {
-					const innerNormLine = normFileLines[index + matchIndex]
-					const innerDistance = distance(
-						oldLine,
-						normFileLines[index + matchIndex],
-					)
-					const innerPercentDiff = (innerDistance / innerNormLine.length) * 100
-					const remainingLines = oldLines.length - matchingLineCount
-					const percentLinesRemaining = (remainingLines / oldLines.length) * 100
-					const isMatch = oldLine === innerNormLine || innerPercentDiff < 5
-					const fewLinesAreLeft =
-						oldLines.length >= 30 && percentLinesRemaining < 1
-					if (isMatch || fewLinesAreLeft) {
-						matchingLineCount++
-					} else {
-						const message = `old_str matching diverged after ${matchingLineCount} matching lines.\nExpected line from old_str: \`${oldLinesOriginal[matchIndex]}\` (line ${matchIndex + 1} in old_str), found line: \`${fileLines[index + matchIndex]}\` (line ${index + 1 + matchIndex} in file). ${remainingLines - 1} lines remained to compare but they were not checked due to this line not matching.\n\nHere are the lines that did match up until the old_str diverged:\n\n${oldLinesOriginal.slice(0, matchIndex).join(`\n`)}\n\nHere are the remaining lines you would've had to provide for the old_str to match:\n\n${fileLines
-							.slice(index + matchIndex, index + matchIndex + remainingLines)
-							.join(`\n`)}`
-						// tell the llm about the longest matching string so it can adjust the next input
-						if (matchingLineCount > divergenceAfterX) {
-							divergenceAfterX = matchingLineCount
-							divergedMessage = message
+			let divergedMessage
+			let divergenceAfterX = 0
+			const fileNoSpace = removeVaryingChars(fileContent)
+			const oldStringNoSpace = removeVaryingChars(oldStr)
+			if (fileNoSpace.includes(oldStringNoSpace.substring(0, -1))) {
+				let oldStringNoSpaceBuffer = oldStringNoSpace
+				let startIndex = null
+				let endIndex = null
+				for (const [index, line] of split(fileContent).entries()) {
+					if (
+						startIndex === null &&
+						typeof startLineArg !== `undefined` &&
+						index + 1 > startLineArg + 50 // allow for llm to be off by 50 lines lmao
+					) {
+						continue
+					}
+					if (typeof startLineArg !== `undefined` && index < startLineArg) {
+						continue
+					}
+					const lineNoSpace = removeVaryingChars(line)
+					if (lineNoSpace === `` && !startIndex) continue
+					const startsWith = oldStringNoSpaceBuffer.startsWith(lineNoSpace)
+					const startsWithNoDanglingCommaTho =
+						!startsWith &&
+						lineNoSpace.endsWith(`,`) &&
+						oldStringNoSpaceBuffer
+							.substring(lineNoSpace.length - 1)
+							.startsWith(`)`) &&
+						oldStringNoSpaceBuffer.startsWith(
+							lineNoSpace.substring(0, lineNoSpace.length - 1),
+						)
+					if (
+						startsWith ||
+						// allow for missing dangling comma (common in JS/TS, harmless in other languages)
+						startsWithNoDanglingCommaTho
+					) {
+						if (startIndex === null) {
+							startIndex = index
 						}
-						isMatching = false
+						oldStringNoSpaceBuffer = oldStringNoSpaceBuffer.substring(
+							startsWithNoDanglingCommaTho
+								? lineNoSpace.length - 1 // remove the comma
+								: lineNoSpace.length,
+						)
+						if (oldStringNoSpaceBuffer.length === 0 && startIndex !== null) {
+							endIndex = index
+							break
+						}
+					} else if (startIndex !== null) {
+						// diverged from a partial match. reset
+						startIndex = null
+						oldStringNoSpaceBuffer = oldStringNoSpace
+					}
+				}
+				if (startIndex !== null && endIndex !== null) {
+					bestMatch.start = startIndex
+					bestMatch.end = endIndex
+				}
+			}
+			for (const [index, normLine] of normFileLines.entries()) {
+				if (!normLine) continue
+				// we already matched above!
+				if (bestMatch.end) break
+				if (typeof startLineArg !== `undefined` && index + 1 < startLineArg)
+					continue
+				// if there's a start line it must match within the next 50 lines
+				if (
+					typeof startLineArg !== `undefined` &&
+					index + 1 > startLineArg + 50
+				)
+					continue
+				if (
+					typeof startLineArg !== `undefined` &&
+					index + 1 > startLineArg + 5 &&
+					isSingleLineReplacement
+				) {
+					// only break early for single line replacements.. if the llm added a line number to start from + multiple lines to match, often it gets confused about the line numbers, so keep going until the end.
+					break
+				}
+				// this line is equal to the first line in our from replacement. Lets check each following line to see if we match
+				const firstDistance = distance(oldLines[0] || "", normLine || "")
+				const firstPercentDiff = (firstDistance / (normLine?.length || 0)) * 100
+				if (
+					isSingleLineReplacement &&
+					(normLine === oldLines[0] || normLine.includes(oldLines[0]))
+				) {
+					bestMatch.start = index
+					bestMatch.type = "replace-in-line"
+					continue
+				}
+				if (oldLines[0] === normLine || firstPercentDiff < 5) {
+					let isMatching = true
+					let matchingLineCount = 0
+					for (const [matchIndex, oldLine] of oldLines.entries()) {
+						const innerNormLine = normFileLines[index + matchIndex]
+						const innerDistance = distance(
+							oldLine,
+							normFileLines[index + matchIndex],
+						)
+						const innerPercentDiff =
+							(innerDistance / innerNormLine.length) * 100
+						const remainingLines = oldLines.length - matchingLineCount
+						const percentLinesRemaining =
+							(remainingLines / oldLines.length) * 100
+						const isMatch = oldLine === innerNormLine || innerPercentDiff < 5
+						const fewLinesAreLeft =
+							oldLines.length >= 30 && percentLinesRemaining < 1
+						if (isMatch || fewLinesAreLeft) {
+							matchingLineCount++
+						} else {
+							const message = `old_str matching diverged after ${matchingLineCount} matching lines.\nExpected line from old_str: \`${oldLinesOriginal[matchIndex]}\` (line ${matchIndex + 1} in old_str), found line: \`${fileLines[index + matchIndex]}\` (line ${index + 1 + matchIndex} in file). ${remainingLines - 1} lines remained to compare but they were not checked due to this line not matching.\n\nHere are the lines that did match up until the old_str diverged:\n\n${oldLinesOriginal.slice(0, matchIndex).join(`\n`)}\n\nHere are the remaining lines you would've had to provide for the old_str to match:\n\n${fileLines
+								.slice(index + matchIndex, index + matchIndex + remainingLines)
+								.join(`\n`)}`
+							// tell the llm about the longest matching string so it can adjust the next input
+							if (matchingLineCount > divergenceAfterX) {
+								divergenceAfterX = matchingLineCount
+								divergedMessage = message
+							}
+							isMatching = false
+							break
+						}
+					}
+					if (isMatching) {
+						bestMatch.start = index
 						break
 					}
 				}
-				if (isMatching) {
-					bestMatch.start = index
-					break
-				}
 			}
-		}
-		if (
-			bestMatch.start === -1 &&
-			(isSingleLineReplacement || oldStr === `\n`) &&
-			newStr === `` &&
-			typeof startLineArg === `number`
-		) {
-			// we're just deleting a line
-			bestMatch.start = startLineArg
-			bestMatch.type = "delete-line"
-		}
-		let newFileContent = ``
-		if (bestMatch.start === -1) {
-			return `No replacement was performed. No sufficiently close match for old_str found in ${args.path}.
+			if (
+				bestMatch.start === -1 &&
+				(isSingleLineReplacement || oldStr === `\n`) &&
+				newStr === `` &&
+				typeof startLineArg === `number`
+			) {
+				// we're just deleting a line
+				bestMatch.start = startLineArg
+				bestMatch.type = "delete-line"
+			}
+			let newFileContent = ``
+			if (bestMatch.start === -1) {
+				return `No replacement was performed. No sufficiently close match for old_str found in ${args.path}.
 ${divergedMessage ? divergedMessage : ``}Try adjusting your input or the file content.`
-		}
-		if (bestMatch.type === `replace-lines`) {
-			// Replace the original lines in fileLines from bestMatch.start to bestMatch.start + oldLines.length
-			const newFileLines = [
-				...fileLines.slice(0, bestMatch.start),
-				...(newStr ? newStr.split("\n") : []),
-				...fileLines.slice(
-					bestMatch.end ? bestMatch.end + 1 : bestMatch.start + oldLines.length,
-				),
-			]
-			// console.log({ newFileLines });
-			newFileContent = newFileLines.join("\n")
-			await writeFile(args.path, newFileContent)
-		} else if (bestMatch.type === `replace-in-line`) {
-			const [firstNew, ...restNew] = newStr ? newStr.split("\n") : []
-			const newFileLines = [
-				...fileLines.slice(0, bestMatch.start),
-				...(restNew?.length
-					? [firstNew, ...restNew]
-					: [
-							fileLines
-								.at(bestMatch.start)
-								?.replace(oldLinesOriginal[0], firstNew || "") ?? "",
-						]),
-				...fileLines.slice(bestMatch.start + 1),
-			]
-			newFileContent = newFileLines.join("\n")
-			await writeFile(args.path, newFileContent)
-		} else if (bestMatch.type === `delete-line`) {
-			const newFileLines = [
-				...fileLines.slice(0, bestMatch.start),
-				...fileLines.slice(bestMatch.start + 1),
-			]
-			newFileContent = newFileLines.join("\n")
-			await writeFile(args.path, newFileContent)
-		}
-		// Find the line number for the snippet
-		const replacementLine = bestMatch.start + 1
-		const startLine = Math.max(0, replacementLine - SNIPPET_LINES)
-		const endLine = replacementLine + SNIPPET_LINES + newStr.split("\n").length
-		const snippet = newFileContent
-			.split("\n")
-			.slice(startLine, endLine + 1)
-			.join("\n")
-		let successMsg = `The file ${args.path} has been edited. `
-		successMsg += makeOutput(
-			snippet,
-			`a snippet of ${args.path}`,
-			startLine + 1,
-		)
-		successMsg +=
-			"Review the changes and make sure they are as expected. Edit the file again if necessary."
-		return successMsg
+			}
+			if (bestMatch.type === `replace-lines`) {
+				// Replace the original lines in fileLines from bestMatch.start to bestMatch.start + oldLines.length
+				const newFileLines = [
+					...fileLines.slice(0, bestMatch.start),
+					...(newStr ? newStr.split("\n") : []),
+					...fileLines.slice(
+						bestMatch.end
+							? bestMatch.end + 1
+							: bestMatch.start + oldLines.length,
+					),
+				]
+				// console.log({ newFileLines });
+				newFileContent = newFileLines.join("\n")
+				await writeFile(args.path, newFileContent)
+			} else if (bestMatch.type === `replace-in-line`) {
+				const [firstNew, ...restNew] = newStr ? newStr.split("\n") : []
+				const newFileLines = [
+					...fileLines.slice(0, bestMatch.start),
+					...(restNew?.length
+						? [firstNew, ...restNew]
+						: [
+								fileLines
+									.at(bestMatch.start)
+									?.replace(oldLinesOriginal[0], firstNew || "") ?? "",
+							]),
+					...fileLines.slice(bestMatch.start + 1),
+				]
+				newFileContent = newFileLines.join("\n")
+				await writeFile(args.path, newFileContent)
+			} else if (bestMatch.type === `delete-line`) {
+				const newFileLines = [
+					...fileLines.slice(0, bestMatch.start),
+					...fileLines.slice(bestMatch.start + 1),
+				]
+				newFileContent = newFileLines.join("\n")
+				await writeFile(args.path, newFileContent)
+			}
+			// Find the line number for the snippet
+			const replacementLine = bestMatch.start + 1
+			const startLine = Math.max(0, replacementLine - SNIPPET_LINES)
+			const endLine =
+				replacementLine + SNIPPET_LINES + newStr.split("\n").length
+			const snippet = newFileContent
+				.split("\n")
+				.slice(startLine, endLine + 1)
+				.join("\n")
+			let successMsg = `The file ${args.path} has been edited. `
+			successMsg += makeOutput(
+				snippet,
+				`a snippet of ${args.path}`,
+				startLine + 1,
+			)
+			successMsg +=
+				"Review the changes and make sure they are as expected. Edit the file again if necessary."
+			return successMsg
+		}) // end withFileLock
 	}
 	async insert(args: InsertArgs) {
 		await validatePath("insert", args.path)
