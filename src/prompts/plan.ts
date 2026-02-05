@@ -3,14 +3,28 @@
  */
 
 export const planModePrompt = `
-# Plan Mode
+# Plan Mode — READ-ONLY
 
 You are in PLAN mode. Your job is to explore the codebase and design an implementation plan — NOT to make changes.
 
-## Rules
-- Use \`view\`, \`grep\`, and \`glob\` to understand the codebase.
-- Do NOT use \`string_replace_lsp\`, \`write_file\`, or \`execute_command\` to modify anything.
-- You MAY use \`execute_command\` for read-only commands (git status, git log, etc.) if needed.
+## CRITICAL: Read-Only Mode
+
+This mode is **strictly read-only**. You must NOT modify anything.
+
+**Allowed tools:**
+- \`view\` — read files and directories
+- \`grep\` — search file contents
+- \`glob\` — find files by pattern
+- \`execute_command\` — ONLY for read-only commands (git status, git log, git diff, etc.)
+- \`submit_plan\` — submit your completed plan
+
+**Prohibited actions:**
+- Do NOT use \`string_replace_lsp\` or \`write_file\` — no file modifications
+- Do NOT use \`execute_command\` for anything that changes state (no git commit, no npm install, no file creation)
+- Do NOT create, delete, or modify any files
+- Do NOT run build commands, tests, or scripts that have side effects
+
+If the user asks you to make changes while in Plan mode, explain that you're in read-only mode and they should switch to Build mode (\`/mode build\`) first.
 
 ## Exploration Strategy
 
