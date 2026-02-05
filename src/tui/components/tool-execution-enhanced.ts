@@ -10,7 +10,6 @@ import {
 	CollapsibleComponent,
 	CollapsibleFileViewer,
 	CollapsibleDiffViewer,
-	CollapsibleCommandOutput,
 } from "./collapsible.js"
 import type {
 	IToolExecutionComponent,
@@ -180,13 +179,12 @@ export class ToolExecutionComponentEnhanced
 	}
 
 	private updateBgColor(): void {
-		// For shell commands with streaming output, skip background to preserve ANSI colors
-		const isShellWithStreaming =
-			(this.toolName === "execute_command" ||
-				this.toolName === "mastra_workspace_execute_command") &&
-			this.streamingOutput
+		// For shell commands, skip background - we use bordered box style instead
+		const isShellCommand =
+			this.toolName === "execute_command" ||
+			this.toolName === "mastra_workspace_execute_command"
 
-		if (isShellWithStreaming) {
+		if (isShellCommand) {
 			// No background - let terminal colors show through
 			this.contentBox.setBgFn((text: string) => text)
 			return
@@ -279,36 +277,32 @@ export class ToolExecutionComponentEnhanced
 		const timeSuffix = this.isPartial ? timeoutSuffix : this.getDurationSuffix()
 
 		// Helper to render shell command with bordered box
-		const renderBorderedShell = (
-			status: string,
-			outputLines: string[],
-			maxLines: number = 10,
-		) => {
+		const renderBorderedShell = (status: string, outputLines: string[]) => {
 			const border = (char: string) => theme.bold(theme.fg("accent", char))
-			const headerText = `${theme.bold(theme.fg("toolTitle", "$"))} ${theme.fg("accent", command)}${cwdSuffix}${timeSuffix}${status}`
+			const footerText = `${theme.bold(theme.fg("toolTitle", "$"))} ${theme.fg("accent", command)}${cwdSuffix}${timeSuffix}${status}`
 
-			// Top border with header
-			this.contentBox.addChild(new Text(`${border("┌──")} ${headerText}`, 0, 0))
+			// Top border
+			this.contentBox.addChild(new Text(border("┌──"), 0, 0))
 
-			// Output lines with left border
-			const displayLines =
-				outputLines.length > maxLines
-					? outputLines.slice(-maxLines)
-					: outputLines
-			const borderedLines = displayLines.map((line) => border("│") + " " + line)
+			// Output lines with left border (no truncation)
+			const borderedLines = outputLines.map((line) => border("│") + " " + line)
 			const displayOutput = borderedLines.join("\n")
 			if (displayOutput.trim()) {
 				this.contentBox.addChild(new Text(displayOutput, 0, 0))
 			}
 
-			// Bottom border
-			this.contentBox.addChild(new Text(border("└──"), 0, 0))
+			// Bottom border with command info
+			this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 		}
 
 		if (!this.result || this.isPartial) {
 			const status = this.getStatusIndicator()
-			const lines = this.streamingOutput ? this.streamingOutput.split("\n") : []
-			renderBorderedShell(status, lines, 10)
+			let lines = this.streamingOutput ? this.streamingOutput.split("\n") : []
+			// Remove trailing empty line during streaming (from trailing newline)
+			while (lines.length > 0 && lines[lines.length - 1] === "") {
+				lines.pop()
+			}
+			renderBorderedShell(status, lines)
 			return
 		}
 
@@ -316,7 +310,7 @@ export class ToolExecutionComponentEnhanced
 		if (this.result.isError) {
 			const status = theme.fg("error", " ✗")
 			const output = this.streamingOutput.trim() || this.getFormattedOutput()
-			renderBorderedShell(status, output.split("\n"), 10)
+			renderBorderedShell(status, output.split("\n"))
 			return
 		}
 
@@ -328,14 +322,14 @@ export class ToolExecutionComponentEnhanced
 		if (looksLikeError) {
 			const status = theme.fg("error", " ✗")
 			const output = this.streamingOutput.trim() || this.getFormattedOutput()
-			renderBorderedShell(status, output.split("\n"), 10)
+			renderBorderedShell(status, output.split("\n"))
 			return
 		}
 
 		// Success - use bordered box with checkmark
 		const status = theme.fg("success", " ✓")
 		const output = this.streamingOutput.trim() || this.getFormattedOutput()
-		renderBorderedShell(status, output.split("\n"), 10)
+		renderBorderedShell(status, output.split("\n"))
 	}
 
 	private renderEditToolEnhanced(): void {
