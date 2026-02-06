@@ -1486,33 +1486,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			// Process the stream
 			const lastMessage = await this.processStream(response)
 
-			// Check if agent has usage data after stream completes
-			if ((agent as any).totalUsage || (agent as any).usage) {
-				const usage = (agent as any).totalUsage || (agent as any).usage
-				if (usage) {
-					// Update cumulative token usage
-					const promptTokens = usage.promptTokens ?? 0
-					const completionTokens = usage.completionTokens ?? 0
-					const totalTokens = promptTokens + completionTokens
-
-					this.tokenUsage.promptTokens += promptTokens
-					this.tokenUsage.completionTokens += completionTokens
-					this.tokenUsage.totalTokens += totalTokens
-
-					// Persist to thread metadata (fire and forget)
-					this.persistTokenUsage().catch(() => {})
-
-					this.emit({
-						type: "usage_update",
-						usage: {
-							promptTokens,
-							completionTokens,
-							totalTokens,
-						},
-					})
-				}
-			}
-
 			// Handle hook-blocked tool decline (queued during processStream)
 			if (
 				this.pendingDeclineToolCallId &&
@@ -1932,60 +1905,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 			// Process the resumed stream
 			await this.processStream(response)
-
-			// Check if agent has usage data after stream completes
-			if ((agent as any).totalUsage || (agent as any).usage) {
-				const usage = (agent as any).totalUsage || (agent as any).usage
-				if (usage) {
-					// Update cumulative token usage
-					const promptTokens = usage.promptTokens ?? 0
-					const completionTokens = usage.completionTokens ?? 0
-					const totalTokens = promptTokens + completionTokens
-
-					this.tokenUsage.promptTokens += promptTokens
-					this.tokenUsage.completionTokens += completionTokens
-					this.tokenUsage.totalTokens += totalTokens
-
-					// Persist to thread metadata (fire and forget)
-					this.persistTokenUsage().catch(() => {})
-
-					this.emit({
-						type: "usage_update",
-						usage: {
-							promptTokens,
-							completionTokens,
-							totalTokens,
-						},
-					})
-				}
-			}
-
-			// Check if agent has usage data after stream completes
-			if ((agent as any).totalUsage || (agent as any).usage) {
-				const usage = (agent as any).totalUsage || (agent as any).usage
-				if (usage) {
-					// Update cumulative token usage
-					const promptTokens = usage.promptTokens ?? 0
-					const completionTokens = usage.completionTokens ?? 0
-					const totalTokens = promptTokens + completionTokens
-
-					this.tokenUsage.promptTokens += promptTokens
-					this.tokenUsage.completionTokens += completionTokens
-					this.tokenUsage.totalTokens += totalTokens
-
-					// Persist to thread metadata (fire and forget)
-					this.persistTokenUsage().catch(() => {})
-
-					this.emit({
-						type: "usage_update",
-						usage: {
-							promptTokens,
-							completionTokens,
-							totalTokens,
-						},
-					})
-				}
-			}
 
 			// Handle chained YOLO approvals (if another tool-call-approval was queued)
 			if (this.pendingApprovalToolCallId) {
