@@ -1329,6 +1329,27 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		return thread
 	}
 	/**
+	 * Rename the current thread.
+	 */
+	async renameThread(title: string): Promise<void> {
+		if (!this.currentThreadId) return
+
+		const memoryStorage = await this.getMemoryStorage()
+		const thread = await memoryStorage.getThreadById({
+			threadId: this.currentThreadId,
+		})
+		if (thread) {
+			await memoryStorage.saveThread({
+				thread: {
+					...thread,
+					title,
+					updatedAt: new Date(),
+				},
+			})
+		}
+	}
+
+	/**
 	 * Switch to a different thread.
 	 */
 	async switchThread(threadId: string): Promise<void> {

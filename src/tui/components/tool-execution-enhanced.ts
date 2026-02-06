@@ -26,7 +26,6 @@ export interface ToolExecutionOptions {
 	autoCollapse?: boolean
 	collapsedByDefault?: boolean
 }
-
 /**
  * Convert absolute path to tilde notation if it's in home directory
  */
@@ -36,6 +35,34 @@ function shortenPath(path: string): string {
 		return `~${path.slice(home.length)}`
 	}
 	return path
+}
+
+/**
+ * Resolve a file path to an absolute path for use in file:// URLs.
+ */
+function resolveAbsolutePath(filePath: string): string {
+	if (filePath.startsWith("/")) return filePath
+	if (filePath.startsWith("~")) {
+		return os.homedir() + filePath.slice(1)
+	}
+	return process.cwd() + "/" + filePath
+}
+
+/**
+ * Wrap text in an OSC 8 hyperlink to a file path.
+ * Terminals that support OSC 8 (iTerm2, WezTerm, Kitty, etc.) will
+ * render the text as a clickable link that opens the file.
+ * Other terminals will just show the visible text.
+ */
+function fileLink(
+	displayText: string,
+	filePath: string,
+	line?: number,
+): string {
+	const absPath = resolveAbsolutePath(filePath)
+	const lineFragment = line ? `#${line}` : ""
+	// OSC 8: \x1b]8;params;URI\x07 ... \x1b]8;;\x07
+	return `\x1b]8;;file://${absPath}${lineFragment}\x07${displayText}\x1b]8;;\x07`
 }
 
 /**
@@ -242,7 +269,6 @@ export class ToolExecutionComponentEnhanced
 		const fullPath = argsObj?.path ? String(argsObj.path) : ""
 		const viewRange = argsObj?.view_range as [number, number] | undefined
 		const startLine = viewRange?.[0] ?? 1
-
 		// Don't show border until we have a result
 		if (!this.result || this.isPartial) {
 			// Just show pending indicator
@@ -251,7 +277,10 @@ export class ToolExecutionComponentEnhanced
 				? theme.fg("muted", `:${viewRange[0]},${viewRange[1]}`)
 				: ""
 			const status = this.getStatusIndicator()
-			const headerText = `${theme.bold(theme.fg("toolTitle", "view"))} ${theme.fg("accent", path)}${rangeDisplay}${status}`
+			const pathDisplay = fullPath
+				? fileLink(theme.fg("accent", path), fullPath, viewRange?.[0])
+				: theme.fg("accent", path)
+			const headerText = `${theme.bold(theme.fg("toolTitle", "view"))} ${pathDisplay}${rangeDisplay}${status}`
 			this.contentBox.addChild(new Text(headerText, 0, 0))
 			return
 		}
@@ -271,7 +300,10 @@ export class ToolExecutionComponentEnhanced
 			path = "…" + path.slice(-(availableForPath - 1))
 		}
 
-		const footerText = `${theme.bold(theme.fg("toolTitle", "view"))} ${theme.fg("accent", path)}${rangeDisplay}${status}`
+		const pathDisplay = fullPath
+			? fileLink(theme.fg("accent", path), fullPath, viewRange?.[0])
+			: theme.fg("accent", path)
+		const footerText = `${theme.bold(theme.fg("toolTitle", "view"))} ${pathDisplay}${rangeDisplay}${status}`
 
 		// Empty line padding above
 		this.contentBox.addChild(new Text("", 0, 0))
@@ -432,18 +464,22 @@ export class ToolExecutionComponentEnhanced
 		const output = this.streamingOutput.trim() || this.getFormattedOutput()
 		renderBorderedShell(status, prepareOutputLines(output))
 	}
-
 	private renderEditToolEnhanced(): void {
 		const argsObj = this.args as Record<string, unknown> | undefined
-		const startLine = argsObj?.start_line
-			? `:${String(argsObj.start_line)}`
-			: ""
+		const fullPath = argsObj?.path ? String(argsObj.path) : ""
+		const startLineNum = argsObj?.start_line
+			? Number(argsObj.start_line)
+			: undefined
+		const startLine = startLineNum ? `:${String(startLineNum)}` : ""
 
 		// Don't show border until we have a result
 		if (!this.result || this.isPartial) {
 			const path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
 			const status = this.getStatusIndicator()
-			const headerText = `${theme.bold(theme.fg("toolTitle", "edit"))} ${theme.fg("accent", path)}${theme.fg("muted", startLine)}${status}`
+			const pathDisplay = fullPath
+				? fileLink(theme.fg("accent", path), fullPath, startLineNum)
+				: theme.fg("accent", path)
+			const headerText = `${theme.bold(theme.fg("toolTitle", "edit"))} ${pathDisplay}${theme.fg("muted", startLine)}${status}`
 			this.contentBox.addChild(new Text(headerText, 0, 0))
 			return
 		}
@@ -460,7 +496,10 @@ export class ToolExecutionComponentEnhanced
 			path = "…" + path.slice(-(availableForPath - 1))
 		}
 
-		const footerText = `${theme.bold(theme.fg("toolTitle", "edit"))} ${theme.fg("accent", path)}${theme.fg("muted", startLine)}${status}`
+		const pathDisplay = fullPath
+			? fileLink(theme.fg("accent", path), fullPath, startLineNum)
+			: theme.fg("accent", path)
+		const footerText = `${theme.bold(theme.fg("toolTitle", "edit"))} ${pathDisplay}${theme.fg("muted", startLine)}${status}`
 
 		// Empty line padding above
 		this.contentBox.addChild(new Text("", 0, 0))
@@ -645,13 +684,16 @@ export class ToolExecutionComponentEnhanced
 
 		return diff
 	}
-
 	private renderWriteToolEnhanced(): void {
 		const argsObj = this.args as Record<string, unknown> | undefined
+		const fullPath = argsObj?.path ? String(argsObj.path) : ""
 		const path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
 
 		const status = this.getStatusIndicator()
-		const header = `${theme.bold(theme.fg("toolTitle", "💾 write"))} ${theme.fg("accent", path)}${status}`
+		const pathDisplay = fullPath
+			? fileLink(theme.fg("accent", path), fullPath)
+			: theme.fg("accent", path)
+		const header = `${theme.bold(theme.fg("toolTitle", "💾 write"))} ${pathDisplay}${status}`
 
 		this.contentBox.addChild(new Text(header, 0, 0))
 
@@ -664,14 +706,17 @@ export class ToolExecutionComponentEnhanced
 			}
 		}
 	}
-
 	private renderListFilesEnhanced(): void {
 		const argsObj = this.args as Record<string, unknown> | undefined
+		const fullPath = argsObj?.path ? String(argsObj.path) : ""
 		const path = argsObj?.path ? shortenPath(String(argsObj.path)) : "/"
 
 		if (!this.result || this.isPartial) {
 			const status = this.getStatusIndicator()
-			const header = `${theme.bold(theme.fg("toolTitle", "📁 list"))} ${theme.fg("accent", path)}${status}`
+			const pathDisplay = fullPath
+				? fileLink(theme.fg("accent", path), fullPath)
+				: theme.fg("accent", path)
+			const header = `${theme.bold(theme.fg("toolTitle", "📁 list"))} ${pathDisplay}${status}`
 			this.contentBox.addChild(new Text(header, 0, 0))
 			return
 		}
@@ -950,11 +995,12 @@ function highlightCode(
 		return codeLines.join("\n")
 	}
 }
-
-/** Truncate a string with ANSI codes to a visible width */
+/** Truncate a string with ANSI codes to a visible width.
+ *  Handles both SGR sequences (\x1b[...m) and OSC 8 hyperlinks (\x1b]8;...;\x07).
+ */
 function truncateAnsi(str: string, maxWidth: number): string {
 	// eslint-disable-next-line no-control-regex
-	const ansiRegex = /\x1b\[[0-9;]*m/g
+	const ansiRegex = /\x1b\[[0-9;]*m|\x1b\]8;[^\x07]*\x07/g
 	let visibleLength = 0
 	let result = ""
 	let lastIndex = 0
@@ -969,7 +1015,7 @@ function truncateAnsi(str: string, maxWidth: number): string {
 			visibleLength += textBefore.length
 		} else {
 			result += textBefore.slice(0, remaining - 1) + "…"
-			result += "\x1b[0m" // Reset to clean up any open styles
+			result += "\x1b]8;;\x07\x1b[0m" // Close any open hyperlink + reset styles
 			return result
 		}
 		// Add the ANSI code (doesn't count toward visible length)
@@ -984,7 +1030,7 @@ function truncateAnsi(str: string, maxWidth: number): string {
 		result += remaining
 	} else {
 		result += remaining.slice(0, spaceLeft - 1) + "…"
-		result += "\x1b[0m" // Reset
+		result += "\x1b]8;;\x07\x1b[0m" // Close hyperlink + reset
 	}
 
 	return result

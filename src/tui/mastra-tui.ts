@@ -78,6 +78,7 @@ import {
 import { UserMessageComponent } from "./components/user-message.js"
 import { SystemReminderComponent } from "./components/system-reminder.js"
 import { ShellOutputComponent } from "./components/shell-output.js"
+import { DiffOutputComponent } from "./components/diff-output.js"
 import {
 	getEditorTheme,
 	getMarkdownTheme,
@@ -203,9 +204,19 @@ export class MastraTUI {
 	// Ctrl+C double-tap tracking
 	private lastCtrlCTime = 0
 	private static readonly DOUBLE_CTRL_C_MS = 500
-
 	// Track user-initiated aborts (Ctrl+C/Esc) vs system aborts (mode switch, etc.)
 	private userInitiatedAbort = false
+
+	// Track files modified during this session (for /diff command)
+	private modifiedFiles = new Map<
+		string,
+		{ operations: string[]; firstModified: Date }
+	>()
+	// Map toolCallId -> { toolName, filePath } for pending tool calls that modify files
+	private pendingFileTools = new Map<
+		string,
+		{ toolName: string; filePath: string }
+	>()
 
 	// Event handling
 	private unsubscribe?: () => void
@@ -1023,6 +1034,8 @@ ${instructions}`,
 			{ name: "login", description: "Login with OAuth provider" },
 			{ name: "skills", description: "List available skills" },
 			{ name: "cost", description: "Show token usage and estimated costs" },
+			{ name: "diff", description: "Show modified files or git diff" },
+			{ name: "name", description: "Rename current thread" },
 			{ name: "logout", description: "Logout from OAuth provider" },
 			{ name: "hooks", description: "Show/reload configured hooks" },
 			{ name: "mcp", description: "Show/reload MCP server connections" },
@@ -1034,6 +1047,7 @@ ${instructions}`,
 				name: "sandbox",
 				description: "Manage allowed paths (add/remove directories)",
 			},
+			{ name: "review", description: "Review a GitHub pull request" },
 			{ name: "exit", description: "Exit the TUI" },
 			{ name: "help", description: "Show available commands" },
 		]
@@ -1952,10 +1966,19 @@ ${instructions}`,
 			if (toolName === "ask_user") {
 				this.lastAskUserComponent = component
 			}
-
 			// Track submit_plan tool components for inline plan approval placement
 			if (toolName === "submit_plan") {
 				this.lastSubmitPlanComponent = component
+			}
+
+			// Track file-modifying tools for /diff command
+			const FILE_TOOLS = ["string_replace_lsp", "write_file", "ast_smart_edit"]
+			if (FILE_TOOLS.includes(toolName)) {
+				const toolArgs = args as Record<string, unknown>
+				const filePath = toolArgs?.path as string
+				if (filePath) {
+					this.pendingFileTools.set(toolCallId, { toolName, filePath })
+				}
 			}
 
 			// Create a new post-tool AssistantMessageComponent so pre-tool text is preserved
@@ -2294,7 +2317,6 @@ ${instructions}`,
 			approvalComponent.focused = true
 		})
 	}
-
 	private handleToolEnd(
 		toolCallId: string,
 		result: unknown,
@@ -2309,6 +2331,21 @@ ${instructions}`,
 			// Store it temporarily
 			;(subagentComponent as any)._pendingResult = resultText
 		}
+
+		// Track successful file modifications for /diff command
+		const pendingFile = this.pendingFileTools.get(toolCallId)
+		if (pendingFile && !isError) {
+			const existing = this.modifiedFiles.get(pendingFile.filePath)
+			if (existing) {
+				existing.operations.push(pendingFile.toolName)
+			} else {
+				this.modifiedFiles.set(pendingFile.filePath, {
+					operations: [pendingFile.toolName],
+					firstModified: new Date(),
+				})
+			}
+		}
+		this.pendingFileTools.delete(toolCallId)
 
 		const component = this.pendingTools.get(toolCallId)
 		if (component) {
@@ -3517,6 +3554,8 @@ ${instructions}`,
 				this.chatContainer.clear()
 				this.pendingTools.clear()
 				this.allToolComponents = []
+				this.modifiedFiles.clear()
+				this.pendingFileTools.clear()
 				this.resetStatusLineState()
 				this.ui.requestRender()
 				this.showInfo("Ready for new conversation")
@@ -3606,9 +3645,28 @@ ${modeList}`)
 				await this.showLoginSelector("logout")
 				return true
 			}
-
 			case "cost": {
 				await this.showCostBreakdown()
+				return true
+			}
+
+			case "diff": {
+				await this.showDiff(args[0])
+				return true
+			}
+
+			case "name": {
+				const title = args.join(" ").trim()
+				if (!title) {
+					this.showInfo("Usage: /name <title>")
+					return true
+				}
+				if (!this.harness.getCurrentThreadId()) {
+					this.showInfo("No active thread. Send a message first.")
+					return true
+				}
+				await this.harness.renameThread(title)
+				this.showInfo(`Thread renamed to: ${title}`)
 				return true
 			}
 
@@ -3638,13 +3696,16 @@ ${modeList}`)
   /new       - Start a new thread
   /threads       - Switch between threads
   /thread:tag-dir - Tag thread with current directory
+  /name          - Rename current thread
   /skills        - List available skills
   /models    - Configure model (global/thread/mode)
   /subagents - Configure subagent model defaults
   /om       - Configure Observational Memory
   /think    - Set thinking level (Anthropic)
+  /review   - Review a GitHub pull request
   /yolo     - Toggle YOLO mode (auto-approve tools)
   /cost     - Show token usage and estimated costs
+  /diff     - Show modified files or git diff for a path
   /sandbox  - Manage sandbox allowed paths
   /hooks    - Show/reload configured hooks
   /mcp      - Show/reload MCP server connections
@@ -3818,6 +3879,10 @@ Keyboard shortcuts:
 				this.showInfo(lines.join("\n"))
 				return true
 			}
+			case "review": {
+				await this.handleReviewCommand(args)
+				return true
+			}
 
 			default: {
 				// Fall back to custom commands for single-slash input
@@ -3832,6 +3897,77 @@ Keyboard shortcuts:
 				return true
 			}
 		}
+	}
+	/**
+	 * Handle the /review command — send a PR review prompt to the agent.
+	 * With no args: lists open PRs. With a PR number: reviews that PR.
+	 */
+	private async handleReviewCommand(args: string[]): Promise<void> {
+		if (!this.harness.hasModelSelected()) {
+			this.showInfo(
+				"No model selected. Use /models to select a model, or /login to authenticate.",
+			)
+			return
+		}
+
+		// Ensure thread exists
+		if (this.pendingNewThread) {
+			await this.harness.createThread()
+			this.pendingNewThread = false
+			this.updateStatusLine()
+		}
+
+		const prNumber = args[0]
+		const focusArea = args.slice(1).join(" ")
+
+		let prompt: string
+
+		if (!prNumber) {
+			// No PR specified — list open PRs and ask
+			prompt =
+				`List the open pull requests for this repository using \`gh pr list --limit 20\`. ` +
+				`Present them in a clear table with PR number, title, and author. ` +
+				`Then ask me which PR I'd like you to review.`
+		} else {
+			// PR number given — do a thorough review
+			prompt =
+				`Do a thorough code review of PR #${prNumber}. Follow these steps:\n\n` +
+				`1. Run \`gh pr view ${prNumber}\` to get the PR description and metadata.\n` +
+				`2. Run \`gh pr diff ${prNumber}\` to get the full diff.\n` +
+				`3. Run \`gh pr checks ${prNumber}\` to check CI status.\n` +
+				`4. Read any relevant source files for full context on the changes.\n` +
+				`5. Provide a detailed code review covering:\n` +
+				`   - Overview of what the PR does\n` +
+				`   - Root cause analysis (if it's a fix)\n` +
+				`   - Code quality assessment\n` +
+				`   - Potential concerns or edge cases\n` +
+				`   - CI status\n` +
+				`   - Suggestions for improvement\n` +
+				`   - Final verdict (approve/request changes/comment)\n`
+
+			if (focusArea) {
+				prompt += `\nPay special attention to: ${focusArea}\n`
+			}
+		}
+
+		// Show what's happening
+		this.addUserMessage({
+			id: `user-${Date.now()}`,
+			role: "user",
+			content: [
+				{
+					type: "text",
+					text: prNumber ? `/review ${args.join(" ")}` : "/review",
+				},
+			],
+			createdAt: new Date(),
+		})
+		this.ui.requestRender()
+
+		// Send to the agent
+		this.harness.sendMessage(prompt).catch((error) => {
+			this.showError(error instanceof Error ? error.message : "Review failed")
+		})
 	}
 
 	/**
@@ -4279,6 +4415,103 @@ Keyboard shortcuts:
 				return null
 		}
 	}
+	/**
+	 * Show file changes tracked during this session.
+	 * With no args: shows summary of all modified files.
+	 * With a path: shows git diff for that specific file.
+	 */
+	private async showDiff(filePath?: string): Promise<void> {
+		if (filePath) {
+			// Show git diff for a specific file
+			try {
+				const { execa } = await import("execa")
+				const result = await execa("git", ["diff", filePath], {
+					cwd: process.cwd(),
+					reject: false,
+				})
+
+				if (!result.stdout.trim()) {
+					// Try staged diff
+					const staged = await execa("git", ["diff", "--cached", filePath], {
+						cwd: process.cwd(),
+						reject: false,
+					})
+					if (!staged.stdout.trim()) {
+						this.showInfo(`No changes detected for: ${filePath}`)
+						return
+					}
+					const component = new DiffOutputComponent(
+						`git diff --cached ${filePath}`,
+						staged.stdout,
+					)
+					this.chatContainer.addChild(component)
+					this.ui.requestRender()
+					return
+				}
+
+				const component = new DiffOutputComponent(
+					`git diff ${filePath}`,
+					result.stdout,
+				)
+				this.chatContainer.addChild(component)
+				this.ui.requestRender()
+			} catch (error) {
+				this.showError(
+					error instanceof Error ? error.message : "Failed to get diff",
+				)
+			}
+			return
+		}
+
+		// No path specified — show summary of all tracked modified files
+		if (this.modifiedFiles.size === 0) {
+			// Fall back to git diff --stat
+			try {
+				const { execa } = await import("execa")
+				const result = await execa("git", ["diff", "--stat"], {
+					cwd: process.cwd(),
+					reject: false,
+				})
+				const staged = await execa("git", ["diff", "--cached", "--stat"], {
+					cwd: process.cwd(),
+					reject: false,
+				})
+
+				const output = [result.stdout, staged.stdout].filter(Boolean).join("\n")
+				if (output.trim()) {
+					const component = new DiffOutputComponent("git diff --stat", output)
+					this.chatContainer.addChild(component)
+					this.ui.requestRender()
+				} else {
+					this.showInfo(
+						"No file changes detected in this session or working tree.",
+					)
+				}
+			} catch {
+				this.showInfo("No file changes tracked in this session.")
+			}
+			return
+		}
+
+		const lines: string[] = [`Modified files (${this.modifiedFiles.size}):`]
+		for (const [filePath, info] of this.modifiedFiles) {
+			const opCounts = new Map<string, number>()
+			for (const op of info.operations) {
+				opCounts.set(op, (opCounts.get(op) || 0) + 1)
+			}
+			const ops = Array.from(opCounts.entries())
+				.map(([op, count]) => (count > 1 ? `${op}×${count}` : op))
+				.join(", ")
+			lines.push(`  ${fg("path", filePath)} ${fg("muted", `(${ops})`)}`)
+		}
+		lines.push("")
+		lines.push(
+			fg("muted", "Use /diff <path> to see the git diff for a specific file."),
+		)
+
+		this.showInfo(lines.join("\n"))
+	}
+
 	/**
 	 * Run a shell command directly and display the output in the chat.
 	 * Triggered by the `!` prefix (e.g., `!ls -la`).
