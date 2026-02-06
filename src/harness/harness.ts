@@ -1232,6 +1232,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				observationTokens,
 				reflectionThreshold,
 				reflectionThresholdPercent,
+				bufferedMessageTokens: 0,
+				bufferedObservationTokens: 0,
 			} as HarnessEvent)
 		} catch {
 			// OM not available or not initialized — that's fine

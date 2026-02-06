@@ -203,14 +203,16 @@ export function formatObservationStatus(
 	const fraction = `${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`
 	const buffered =
 		state.bufferedMessageTokens > 0
-			? chalk.dim(`(-${formatTokensThreshold(state.bufferedMessageTokens)})`)
+			? chalk.hex("#555")(
+					` ↓${formatTokensThreshold(state.bufferedMessageTokens)}`,
+				)
 			: ""
 	return (
 		styleLabel(`${label} `) +
 		colorByPercent(fraction, percent) +
-		buffered +
 		" " +
-		pct
+		pct +
+		buffered
 	)
 }
 
@@ -238,19 +240,7 @@ export function formatReflectionStatus(
 	}
 	const label = compact === "full" ? "observations" : "obs"
 	const fraction = `${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`
-	const buffered =
-		state.bufferedObservationTokens > 0
-			? chalk.dim(
-					`(-${formatTokensThreshold(state.bufferedObservationTokens)})`,
-				)
-			: ""
-	return (
-		styleLabel(`${label} `) +
-		colorByPercent(fraction, percent) +
-		buffered +
-		" " +
-		pct
-	)
+	return styleLabel(`${label} `) + colorByPercent(fraction, percent) + " " + pct
 }
 
 /**
