@@ -14,7 +14,6 @@ function formatTokens(tokens: number): string {
 	const k = tokens / 1000
 	return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
 }
-
 export type OMMarkerData =
 	| {
 			type: "om_observation_start"
@@ -33,6 +32,26 @@ export type OMMarkerData =
 			error: string
 			tokensAttempted?: number
 			operationType?: "observation" | "reflection"
+	  }
+	| {
+			type: "om_buffering_start"
+			operationType: "observation" | "reflection"
+			tokensToBuffer: number
+	  }
+	| {
+			type: "om_buffering_end"
+			operationType: "observation" | "reflection"
+			tokensBuffered: number
+	  }
+	| {
+			type: "om_buffering_failed"
+			operationType: "observation" | "reflection"
+			error: string
+	  }
+	| {
+			type: "om_activation"
+			operationType: "observation" | "reflection"
+			tokensActivated: number
 	  }
 
 /**
@@ -57,7 +76,6 @@ export class OMMarkerComponent extends Container {
 		this.textChild.setText(formatMarker(data))
 	}
 }
-
 function formatMarker(data: OMMarkerData): string {
 	const isReflection = data.operationType === "reflection"
 	const label = isReflection ? "Reflection" : "Observation"
@@ -89,6 +107,33 @@ function formatMarker(data: OMMarkerData): string {
 				? ` (${formatTokens(data.tokensAttempted)} tokens)`
 				: ""
 			return fg("error", `  ✗ ${label} failed${tokens}: ${data.error}`)
+		}
+		case "om_buffering_start": {
+			const tokens =
+				data.tokensToBuffer > 0
+					? ` ~${formatTokens(data.tokensToBuffer)} tokens`
+					: ""
+			return fg("muted", `  ⟳ Buffering ${label.toLowerCase()}${tokens}...`)
+		}
+		case "om_buffering_end": {
+			const tokens = formatTokens(data.tokensBuffered)
+			return fg(
+				"success",
+				`  ✓ Buffered ${label.toLowerCase()}: ${tokens} tokens`,
+			)
+		}
+		case "om_buffering_failed": {
+			return fg(
+				"error",
+				`  ✗ Buffering ${label.toLowerCase()} failed: ${data.error}`,
+			)
+		}
+		case "om_activation": {
+			const tokens = formatTokens(data.tokensActivated)
+			return fg(
+				"success",
+				`  ✓ Activated ${label.toLowerCase()}: ${tokens} tokens`,
+			)
 		}
 	}
 }

@@ -174,6 +174,7 @@ export class MastraTUI {
 	}
 	private omProgressComponent?: OMProgressComponent
 	private activeOMMarker?: OMMarkerComponent
+	private activeBufferingMarker?: OMMarkerComponent
 	// Buffering state — drives statusline label animation
 	private bufferingMessages = false
 	private bufferingObservations = false
@@ -1414,7 +1415,6 @@ ${instructions}`,
 			case "om_reflection_failed":
 				this.handleOMFailed(event.cycleId, event.error, "reflection")
 				break
-
 			// Buffering lifecycle
 			case "om_buffering_start":
 				if (event.operationType === "observation") {
@@ -1422,7 +1422,14 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = true
 				}
+				this.activeBufferingMarker = new OMMarkerComponent({
+					type: "om_buffering_start",
+					operationType: event.operationType,
+					tokensToBuffer: event.tokensToBuffer,
+				})
+				this.addOMMarkerToChat(this.activeBufferingMarker)
 				this.updateStatusLine()
+				this.ui.requestRender()
 				break
 
 			case "om_buffering_end":
@@ -1431,7 +1438,16 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
+				if (this.activeBufferingMarker) {
+					this.activeBufferingMarker.update({
+						type: "om_buffering_end",
+						operationType: event.operationType,
+						tokensBuffered: event.tokensBuffered,
+					})
+					this.activeBufferingMarker = undefined
+				}
 				this.updateStatusLine()
+				this.ui.requestRender()
 				break
 
 			case "om_buffering_failed":
@@ -1440,17 +1456,34 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
+				if (this.activeBufferingMarker) {
+					this.activeBufferingMarker.update({
+						type: "om_buffering_failed",
+						operationType: event.operationType,
+						error: event.error,
+					})
+					this.activeBufferingMarker = undefined
+				}
 				this.updateStatusLine()
+				this.ui.requestRender()
 				break
 
 			case "om_activation":
-				// Activation is instant — briefly pulse then clear
 				if (event.operationType === "observation") {
 					this.bufferingMessages = false
 				} else {
 					this.bufferingObservations = false
 				}
+				if (this.activeBufferingMarker) {
+					this.activeBufferingMarker.update({
+						type: "om_activation",
+						operationType: event.operationType,
+						tokensActivated: event.tokensActivated,
+					})
+					this.activeBufferingMarker = undefined
+				}
 				this.updateStatusLine()
+				this.ui.requestRender()
 				break
 
 			case "follow_up_queued":
