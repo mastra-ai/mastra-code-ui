@@ -896,12 +896,6 @@ ${instructions}`,
 		const showThinking =
 			thinkingLevel !== "off" && fullModelId.startsWith("anthropic/")
 
-		const fmt = (n: number) => n.toLocaleString()
-		const hasTokens = this.tokenUsage.totalTokens > 0
-		const tokenStr = hasTokens
-			? `[${fmt(this.tokenUsage.promptTokens)}/${fmt(this.tokenUsage.completionTokens)}]`
-			: ""
-
 		const homedir = process.env.HOME || process.env.USERPROFILE || ""
 		let displayPath = this.projectInfo.rootPath
 		if (homedir && displayPath.startsWith(homedir)) {
@@ -973,7 +967,6 @@ ${instructions}`,
 			modelId: string
 			memCompact?: "percentOnly" | "full"
 			showDir: boolean
-			showTokens: boolean
 			showThinking: boolean
 		}): { plain: string; styled: string } | null => {
 			const parts: Array<{ plain: string; styled: string }> = []
@@ -1019,14 +1012,6 @@ ${instructions}`,
 			}
 			if (ref) {
 				parts.push({ plain: ref, styled: ref })
-			}
-
-			// Tokens
-			if (opts.showTokens && hasTokens) {
-				parts.push({
-					plain: tokenStr,
-					styled: fg("muted", tokenStr),
-				})
 			}
 
 			// Thinking
@@ -1096,7 +1081,6 @@ ${instructions}`,
 				modelId: fullModelId,
 				memCompact: "full",
 				showDir: true,
-				showTokens: true,
 				showThinking: true,
 			}) ??
 			// Drop directory, keep long labels
@@ -1104,14 +1088,12 @@ ${instructions}`,
 				modelId: fullModelId,
 				memCompact: "full",
 				showDir: false,
-				showTokens: true,
 				showThinking: true,
 			}) ??
 			// Short labels ("msg"/"obs")
 			buildLine({
 				modelId: fullModelId,
 				showDir: false,
-				showTokens: true,
 				showThinking: true,
 			}) ??
 			// Percent only ("msg 42%  obs 21%")
@@ -1119,15 +1101,6 @@ ${instructions}`,
 				modelId: fullModelId,
 				memCompact: "percentOnly",
 				showDir: false,
-				showTokens: true,
-				showThinking: true,
-			}) ??
-			// Drop tokens too
-			buildLine({
-				modelId: fullModelId,
-				memCompact: "percentOnly",
-				showDir: false,
-				showTokens: false,
 				showThinking: true,
 			}) ??
 			// Drop provider prefix
@@ -1135,15 +1108,13 @@ ${instructions}`,
 				modelId: shortModelId,
 				memCompact: "percentOnly",
 				showDir: false,
-				showTokens: false,
 				showThinking: true,
 			}) ??
-			// Last resort: short model, no tokens, no thinking
+			// Last resort: short model, no thinking
 			buildLine({
 				modelId: shortModelId,
 				memCompact: "percentOnly",
 				showDir: false,
-				showTokens: false,
 				showThinking: false,
 			})
 
