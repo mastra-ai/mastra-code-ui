@@ -2364,6 +2364,61 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					}
 					break
 				}
+				// Async buffering lifecycle
+				case "data-om-buffering-start": {
+					const payload = (chunk as any).data as Record<string, any> | undefined
+					if (payload && payload.cycleId) {
+						this.emit({
+							type: "om_buffering_start",
+							cycleId: payload.cycleId,
+							operationType: payload.operationType ?? "observation",
+							tokensToBuffer: payload.tokensToBuffer ?? 0,
+						})
+					}
+					break
+				}
+
+				case "data-om-buffering-end": {
+					const payload = (chunk as any).data as Record<string, any> | undefined
+					if (payload && payload.cycleId) {
+						this.emit({
+							type: "om_buffering_end",
+							cycleId: payload.cycleId,
+							operationType: payload.operationType ?? "observation",
+							tokensBuffered: payload.tokensBuffered ?? 0,
+							observations: payload.observations,
+						})
+					}
+					break
+				}
+
+				case "data-om-buffering-failed": {
+					const payload = (chunk as any).data as Record<string, any> | undefined
+					if (payload && payload.cycleId) {
+						this.emit({
+							type: "om_buffering_failed",
+							cycleId: payload.cycleId,
+							operationType: payload.operationType ?? "observation",
+							error: payload.error ?? "Unknown error",
+						})
+					}
+					break
+				}
+
+				case "data-om-activation": {
+					const payload = (chunk as any).data as Record<string, any> | undefined
+					if (payload && payload.cycleId) {
+						this.emit({
+							type: "om_activation",
+							cycleId: payload.cycleId,
+							operationType: payload.operationType ?? "observation",
+							tokensActivated: payload.tokensActivated ?? 0,
+							observationTokens: payload.observationTokens ?? 0,
+						})
+					}
+					break
+				}
+
 				default:
 					break
 			}

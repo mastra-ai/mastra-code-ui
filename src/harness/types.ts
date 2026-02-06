@@ -290,6 +290,33 @@ export type HarnessEvent =
 			role: "observer" | "reflector"
 			modelId: string
 	  }
+	// Buffering lifecycle events
+	| {
+			type: "om_buffering_start"
+			cycleId: string
+			operationType: "observation" | "reflection"
+			tokensToBuffer: number
+	  }
+	| {
+			type: "om_buffering_end"
+			cycleId: string
+			operationType: "observation" | "reflection"
+			tokensBuffered: number
+			observations?: string
+	  }
+	| {
+			type: "om_buffering_failed"
+			cycleId: string
+			operationType: "observation" | "reflection"
+			error: string
+	  }
+	| {
+			type: "om_activation"
+			cycleId: string
+			operationType: "observation" | "reflection"
+			tokensActivated: number
+			observationTokens: number
+	  }
 	| { type: "follow_up_queued"; count: number }
 	// Workspace events
 	| {

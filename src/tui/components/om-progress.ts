@@ -173,26 +173,31 @@ function colorByPercent(text: string, percent: number): string {
 	if (percent >= 70) return chalk.yellow(text)
 	return chalk.dim(text)
 }
-
 /**
  * Format OM observation threshold for status bar.
  * full:        history 12.5k/30.0k 42%
  * default:     msg 12.5k/30.0k 42%
  * percentOnly: msg 42%
+ *
+ * @param labelStyler - Optional function to style the label text (for animation).
+ *                      Receives the raw label string, returns styled string.
  */
 export function formatObservationStatus(
 	state: OMProgressState,
 	compact?: "percentOnly" | "full",
+	labelStyler?: (label: string) => string,
 ): string {
 	// Status is now shown in the mode badge, so just show the metrics
 	const percent = Math.min(100, Math.round(state.thresholdPercent))
 	const pct = colorByPercent(`${percent}%`, percent)
+	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
+	const styleLabel = labelStyler ?? defaultStyler
 	if (compact === "percentOnly") {
-		return chalk.hex("#a1a1aa")("msg ") + pct
+		return styleLabel("msg ") + pct
 	}
 	const label = compact === "full" ? "messages" : "msg"
 	return (
-		chalk.hex("#a1a1aa")(`${label} `) +
+		styleLabel(`${label} `) +
 		colorByPercent(
 			`${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`,
 			percent,
@@ -207,20 +212,26 @@ export function formatObservationStatus(
  * full:        observations 8.2k/40.0k 21%
  * default:     obs 8.2k/40.0k 21%
  * percentOnly: obs 21%
+ *
+ * @param labelStyler - Optional function to style the label text (for animation).
+ *                      Receives the raw label string, returns styled string.
  */
 export function formatReflectionStatus(
 	state: OMProgressState,
 	compact?: "percentOnly" | "full",
+	labelStyler?: (label: string) => string,
 ): string {
 	// Status is now shown in the mode badge, so just show the metrics
 	const percent = Math.min(100, Math.round(state.reflectionThresholdPercent))
 	const pct = colorByPercent(`${percent}%`, percent)
+	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
+	const styleLabel = labelStyler ?? defaultStyler
 	if (compact === "percentOnly") {
-		return chalk.hex("#a1a1aa")("obs ") + pct
+		return styleLabel("obs ") + pct
 	}
 	const label = compact === "full" ? "observations" : "obs"
 	return (
-		chalk.hex("#a1a1aa")(`${label} `) +
+		styleLabel(`${label} `) +
 		colorByPercent(
 			`${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`,
 			percent,

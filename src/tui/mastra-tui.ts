@@ -174,6 +174,9 @@ export class MastraTUI {
 	}
 	private omProgressComponent?: OMProgressComponent
 	private activeOMMarker?: OMMarkerComponent
+	// Buffering state — drives statusline label animation
+	private bufferingMessages = false
+	private bufferingObservations = false
 	private todoProgress?: TodoProgressComponent
 	private previousTodos: TodoItem[] = [] // Track previous state for diff
 
@@ -979,10 +982,37 @@ ${instructions}`,
 				plain: ` ${opts.modelId} `,
 				styled: styleModelId(opts.modelId),
 			})
-
-			// Memory info
-			const obs = formatObservationStatus(this.omProgress, opts.memCompact)
-			const ref = formatReflectionStatus(this.omProgress, opts.memCompact)
+			// Memory info — animate label text when buffering is active
+			const msgLabelStyler =
+				this.bufferingMessages && this.gradientAnimator?.isRunning()
+					? (label: string) =>
+							applyGradientSweep(
+								label,
+								this.gradientAnimator!.getOffset(),
+								OBSERVER_COLOR,
+								this.gradientAnimator!.getFadeProgress(),
+							)
+					: undefined
+			const obsLabelStyler =
+				this.bufferingObservations && this.gradientAnimator?.isRunning()
+					? (label: string) =>
+							applyGradientSweep(
+								label,
+								this.gradientAnimator!.getOffset(),
+								REFLECTOR_COLOR,
+								this.gradientAnimator!.getFadeProgress(),
+							)
+					: undefined
+			const obs = formatObservationStatus(
+				this.omProgress,
+				opts.memCompact,
+				msgLabelStyler,
+			)
+			const ref = formatReflectionStatus(
+				this.omProgress,
+				opts.memCompact,
+				obsLabelStyler,
+			)
 			if (obs) {
 				parts.push({ plain: obs, styled: obs })
 			}
@@ -1381,9 +1411,46 @@ ${instructions}`,
 					event.observations,
 				)
 				break
-
 			case "om_reflection_failed":
 				this.handleOMFailed(event.cycleId, event.error, "reflection")
+				break
+
+			// Buffering lifecycle
+			case "om_buffering_start":
+				if (event.operationType === "observation") {
+					this.bufferingMessages = true
+				} else {
+					this.bufferingObservations = true
+				}
+				this.updateStatusLine()
+				break
+
+			case "om_buffering_end":
+				if (event.operationType === "observation") {
+					this.bufferingMessages = false
+				} else {
+					this.bufferingObservations = false
+				}
+				this.updateStatusLine()
+				break
+
+			case "om_buffering_failed":
+				if (event.operationType === "observation") {
+					this.bufferingMessages = false
+				} else {
+					this.bufferingObservations = false
+				}
+				this.updateStatusLine()
+				break
+
+			case "om_activation":
+				// Activation is instant — briefly pulse then clear
+				if (event.operationType === "observation") {
+					this.bufferingMessages = false
+				} else {
+					this.bufferingObservations = false
+				}
+				this.updateStatusLine()
 				break
 
 			case "follow_up_queued":
@@ -1555,6 +1622,8 @@ ${instructions}`,
 			reflectionThresholdPercent: 0,
 		}
 		this.tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+		this.bufferingMessages = false
+		this.bufferingObservations = false
 		this.updateStatusLine()
 	}
 
