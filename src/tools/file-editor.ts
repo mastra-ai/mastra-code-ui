@@ -162,10 +162,13 @@ export class FileEditor {
 				const lines = fileContent.split("\n")
 				let bestMatch = { start: -1, end: -1, content: "" }
 
-				const normalizedOldLineCount = normalizedOldStr.split(`\n`).length
+				// Use original old_str line count (not normalized, which collapses \n)
+				const originalOldLineCount = args.old_str.split("\n").length
+				// Allow some slack for whitespace differences
+				const maxWindow = originalOldLineCount + 5
 				// Try to find the matching section by comparing normalized versions
 				for (let i = 0; i < lines.length; i++) {
-					for (let j = i; j <= normalizedOldLineCount; j++) {
+					for (let j = i; j <= Math.min(i + maxWindow, lines.length - 1); j++) {
 						const candidate = lines.slice(i, j + 1).join("\n")
 						if (normalizeWhitespace(candidate) === normalizedOldStr) {
 							bestMatch = { start: i, end: j, content: candidate }
