@@ -1470,9 +1470,6 @@ ${instructions}`,
 					if (allCompleted) {
 						// Show collapsed completed list (pinned/live)
 						this.renderCompletedTodosInline(todos, insertIndex, true)
-					} else if (todos && todos.length > 0) {
-						// Show inline status of what changed
-						this.renderTodoUpdateInline(todos, this.previousTodos, insertIndex)
 					} else if (
 						this.previousTodos.length > 0 &&
 						(!todos || todos.length === 0)
@@ -2497,82 +2494,6 @@ ${instructions}`,
 			this.chatContainer.addChild(container)
 		}
 	}
-
-	/**
-	 * Render an inline status showing what changed in the todo list.
-	 * Shows newly completed tasks, newly started tasks, or new tasks added.
-	 */
-	private renderTodoUpdateInline(
-		todos: TodoItem[],
-		previousTodos: TodoItem[],
-		insertIndex = -1,
-	): void {
-		const completed = todos.filter((t) => t.status === "completed").length
-		const total = todos.length
-		const inProgress = todos.find((t) => t.status === "in_progress")
-
-		// Find what changed
-		const prevByContent = new Map(
-			previousTodos.map((t) => [t.content, t.status]),
-		)
-		const newlyCompleted = todos.filter(
-			(t) =>
-				t.status === "completed" &&
-				prevByContent.get(t.content) !== "completed",
-		)
-		const newlyStarted = todos.filter(
-			(t) =>
-				t.status === "in_progress" &&
-				prevByContent.get(t.content) !== "in_progress",
-		)
-		const isNewList = previousTodos.length === 0 && todos.length > 0
-
-		// Build heading and detail line
-		let heading = ""
-		let detail = ""
-
-		if (isNewList) {
-			// New todo list created
-			const taskWord = total === 1 ? "Task" : "Tasks"
-			heading =
-				fg("accent", `${taskWord} created`) +
-				fg("dim", ` [${completed}/${total}]`)
-			if (inProgress) {
-				detail = fg("dim", "  → ") + fg("muted", inProgress.activeForm)
-			}
-		} else if (newlyCompleted.length > 0) {
-			// Task(s) completed
-			const task = newlyCompleted[0]
-			heading =
-				fg("accent", "Task completed") + fg("dim", ` [${completed}/${total}]`)
-			detail = "  " + chalk.green("✓") + " " + chalk.green(task.content)
-		} else if (newlyStarted.length > 0) {
-			// Task started
-			const task = newlyStarted[0]
-			heading =
-				fg("accent", "Task started") + fg("dim", ` [${completed}/${total}]`)
-			detail = fg("dim", "  → ") + fg("muted", task.activeForm)
-		} else {
-			// Generic update
-			heading =
-				fg("accent", "Tasks updated") + fg("dim", ` [${completed}/${total}]`)
-		}
-
-		// Build full text with heading and optional detail
-		const fullText = detail ? `${heading}\n${detail}` : heading
-		const textComponent = new Text(fullText, 0, 0)
-
-		// Insert spacer and text component
-		const spacer = new Spacer(1)
-		if (insertIndex >= 0) {
-			this.chatContainer.children.splice(insertIndex, 0, spacer, textComponent)
-			this.chatContainer.invalidate()
-		} else {
-			this.chatContainer.addChild(spacer)
-			this.chatContainer.addChild(textComponent)
-		}
-	}
-
 	// ===========================================================================
 	// Subagent Events
 	// ===========================================================================
