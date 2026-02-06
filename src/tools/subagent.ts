@@ -41,7 +41,7 @@ export interface SubagentToolDeps {
 }
 
 // Default model for subagent tasks — fast and cheap
-const DEFAULT_SUBAGENT_MODEL = "anthropic/claude-sonnet-4-20250514"
+const DEFAULT_SUBAGENT_MODEL = "anthropic/claude-sonnet-4-6"
 // Explore subagents can use Cerebras for speed when available
 const EXPLORE_SUBAGENT_MODEL = process.env.CEREBRAS_API_KEY
 	? "cerebras/zai-glm-4.7"
@@ -171,6 +171,8 @@ Use this tool when:
 
 			// Track partial output in case of abort
 			let partialText = ""
+			// Track tool calls for metadata embedding
+			const toolCallLog: Array<{ name: string; isError?: boolean }> = []
 
 			try {
 				const response = await subagent.stream(task, {
@@ -197,6 +199,7 @@ Use this tool when:
 							break
 
 						case "tool-call":
+							toolCallLog.push({ name: chunk.payload.toolName })
 							emitEvent?.({
 								type: "subagent_tool_start",
 								toolCallId,
@@ -206,16 +209,28 @@ Use this tool when:
 							})
 							break
 
-						case "tool-result":
+						case "tool-result": {
+							const isErr = chunk.payload.isError ?? false
+							// Update the last matching tool call
+							for (let i = toolCallLog.length - 1; i >= 0; i--) {
+								if (
+									toolCallLog[i].name === chunk.payload.toolName &&
+									toolCallLog[i].isError === undefined
+								) {
+									toolCallLog[i].isError = isErr
+									break
+								}
+							}
 							emitEvent?.({
 								type: "subagent_tool_end",
 								toolCallId,
 								agentType,
 								subToolName: chunk.payload.toolName,
 								subToolResult: chunk.payload.result,
-								isError: chunk.payload.isError ?? false,
+								isError: isErr,
 							})
 							break
+						}
 					}
 				}
 
@@ -255,8 +270,9 @@ Use this tool when:
 					durationMs,
 				})
 
+				const meta = buildSubagentMeta(resolvedModelId, durationMs, toolCallLog)
 				return {
-					content: resultText,
+					content: resultText + meta,
 					isError: false,
 				}
 			} catch (err) {
@@ -282,8 +298,13 @@ Use this tool when:
 						durationMs,
 					})
 
+					const meta = buildSubagentMeta(
+						resolvedModelId,
+						durationMs,
+						toolCallLog,
+					)
 					return {
-						content: abortResult,
+						content: abortResult + meta,
 						isError: false,
 					}
 				}
@@ -299,11 +320,59 @@ Use this tool when:
 					durationMs,
 				})
 
+				const meta = buildSubagentMeta(resolvedModelId, durationMs, toolCallLog)
 				return {
-					content: `Subagent "${definition.name}" failed: ${message}`,
+					content: `Subagent "${definition.name}" failed: ${message}` + meta,
 					isError: true,
 				}
 			}
 		},
 	})
+}
+
+/**
+ * Build a metadata tag appended to subagent results.
+ * The TUI parses this to display model ID, duration, and tool calls
+ * when loading from history (where live events aren't available).
+ */
+function buildSubagentMeta(
+	modelId: string,
+	durationMs: number,
+	toolCalls: Array<{ name: string; isError?: boolean }>,
+): string {
+	const tools = toolCalls
+		.map((tc) => `${tc.name}:${tc.isError ? "err" : "ok"}`)
+		.join(",")
+	return `\n<subagent-meta modelId="${modelId}" durationMs="${durationMs}" tools="${tools}" />`
+}
+
+/**
+ * Parse subagent metadata from a tool result string.
+ * Returns the metadata and the cleaned result text (without the tag).
+ */
+export function parseSubagentMeta(content: string): {
+	text: string
+	modelId?: string
+	durationMs?: number
+	toolCalls?: Array<{ name: string; isError: boolean }>
+} {
+	const match = content.match(
+		/\n<subagent-meta modelId="([^"]*)" durationMs="(\d+)" tools="([^"]*)" \/>$/,
+	)
+	if (!match) return { text: content }
+
+	const text = content.slice(0, match.index!)
+	const modelId = match[1]
+	const durationMs = parseInt(match[2], 10)
+	const toolCalls = match[3]
+		? match[3]
+				.split(",")
+				.filter(Boolean)
+				.map((entry) => {
+					const [name, status] = entry.split(":")
+					return { name, isError: status === "err" }
+				})
+		: []
+
+	return { text, modelId, durationMs, toolCalls }
 }

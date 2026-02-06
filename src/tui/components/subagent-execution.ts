@@ -28,7 +28,8 @@ export interface SubagentToolCall {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MAX_ACTIVITY_LINES = 10
+const MAX_ACTIVITY_LINES = 15
+const COLLAPSED_LINES = 15
 
 export class SubagentExecutionComponent
 	extends Container
@@ -46,6 +47,7 @@ export class SubagentExecutionComponent
 	private startTime = Date.now()
 	private durationMs = 0
 	private finalResult?: string
+	private expanded = false
 
 	constructor(agentType: string, task: string, ui: TUI, modelId?: string) {
 		super()
@@ -85,12 +87,14 @@ export class SubagentExecutionComponent
 		this.rebuild()
 	}
 
-	setExpanded(_expanded: boolean): void {
-		// No-op — bordered style doesn't use collapsible
+	setExpanded(expanded: boolean): void {
+		this.expanded = expanded
+		this.rebuild()
 	}
 
 	toggleExpanded(): void {
-		// No-op
+		this.expanded = !this.expanded
+		this.rebuild()
 	}
 
 	// IToolExecutionComponent interface methods
@@ -110,12 +114,11 @@ export class SubagentExecutionComponent
 		// ── Top border ──
 		this.addChild(new Text(border("┌──"), 0, 0))
 
-		// ── Task description (always shown) ──
+		// ── Task description (capped when collapsed) ──
 		const taskLines = this.task.split("\n")
 		const wrappedTaskLines: string[] = []
 		for (const line of taskLines) {
 			if (line.length > maxLineWidth) {
-				// Word-wrap long lines
 				let remaining = line
 				while (remaining.length > maxLineWidth) {
 					const breakAt = remaining.lastIndexOf(" ", maxLineWidth)
@@ -128,10 +131,26 @@ export class SubagentExecutionComponent
 				wrappedTaskLines.push(line)
 			}
 		}
-		const taskContent = wrappedTaskLines
-			.map((line) => `${border("│")} ${theme.fg("muted", line)}`)
+
+		const maxTaskLines = 5
+		const taskTruncated =
+			!this.expanded && wrappedTaskLines.length > maxTaskLines
+		const displayTaskLines = taskTruncated
+			? wrappedTaskLines.slice(0, maxTaskLines)
+			: wrappedTaskLines
+
+		const taskContent = displayTaskLines
+			.map((line) => `${border("│")} ${line}`)
 			.join("\n")
 		this.addChild(new Text(taskContent, 0, 0))
+
+		if (taskTruncated) {
+			const moreText = theme.fg(
+				"muted",
+				`... ${wrappedTaskLines.length - maxTaskLines} more lines (ctrl+e to expand)`,
+			)
+			this.addChild(new Text(`${border("│")} ${moreText}`, 0, 0))
+		}
 
 		// ── Activity lines (tool calls — capped rolling window) ──
 		if (this.toolCalls.length > 0) {
@@ -144,37 +163,62 @@ export class SubagentExecutionComponent
 				formatToolCallLine(tc, maxLineWidth),
 			)
 
-			// Cap to rolling window
+			// While streaming: rolling window. When done: collapsible.
+			const cap = this.done ? COLLAPSED_LINES : MAX_ACTIVITY_LINES
 			let displayLines = activityLines
-			if (activityLines.length > MAX_ACTIVITY_LINES) {
-				const hidden = activityLines.length - MAX_ACTIVITY_LINES
-				displayLines = [
-					theme.fg("muted", `  ... ${hidden} more above`),
-					...activityLines.slice(-MAX_ACTIVITY_LINES),
-				]
+			let hiddenCount = 0
+
+			if (!this.expanded && activityLines.length > cap) {
+				hiddenCount = activityLines.length - cap
+				if (this.done) {
+					// Show first N lines when collapsed (completed)
+					displayLines = activityLines.slice(0, cap)
+				} else {
+					// Show last N lines while streaming
+					displayLines = activityLines.slice(-cap)
+				}
+			}
+
+			if (!this.done && hiddenCount > 0) {
+				const hiddenText = theme.fg("muted", `  ... ${hiddenCount} more above`)
+				this.addChild(new Text(`${border("│")} ${hiddenText}`, 0, 0))
 			}
 
 			const activityContent = displayLines
 				.map((line) => `${border("│")} ${line}`)
 				.join("\n")
 			this.addChild(new Text(activityContent, 0, 0))
+
+			if (this.done && hiddenCount > 0) {
+				const moreText = theme.fg(
+					"muted",
+					`... ${hiddenCount} more (ctrl+e to expand)`,
+				)
+				this.addChild(new Text(`${border("│")} ${moreText}`, 0, 0))
+			}
 		}
 
-		// ── Final result (last 10 lines, shown after completion) ──
-		if (this.done && this.finalResult) {
+		// ── Final result (shown after completion) ──
+		// When tool calls exist: only show result when expanded
+		// When no tool calls: always show result (capped when collapsed)
+		const showResult =
+			this.done &&
+			this.finalResult &&
+			(this.expanded || this.toolCalls.length === 0)
+		if (showResult) {
 			this.addChild(
 				new Text(`${border("│")} ${theme.fg("muted", "───")}`, 0, 0),
 			)
 
-			const resultLines = this.finalResult.split("\n")
-			const maxResultLines = 10
+			const resultLines = this.finalResult!.split("\n")
+			const maxResultLines = this.expanded ? resultLines.length : 10
 			const truncated = resultLines.length > maxResultLines
 			const displayLines = truncated
 				? resultLines.slice(-maxResultLines)
 				: resultLines
 
 			if (truncated) {
-				const hiddenLine = `${border("│")} ${theme.fg("muted", `  ... ${resultLines.length - maxResultLines} more lines above`)}`
+				const hiddenLine = `${border("│")} ${theme.fg("muted", `  ... ${resultLines.length - maxResultLines} more lines (ctrl+e to expand)`)}`
 				this.addChild(new Text(hiddenLine, 0, 0))
 			}
 
@@ -184,7 +228,7 @@ export class SubagentExecutionComponent
 						line.length > maxLineWidth
 							? line.slice(0, maxLineWidth - 1) + "…"
 							: line
-					return `${border("│")} ${truncatedLine}`
+					return `${border("│")} ${theme.fg("muted", truncatedLine)}`
 				})
 				.join("\n")
 			if (resultContent.trim()) {

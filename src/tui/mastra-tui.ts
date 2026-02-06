@@ -69,6 +69,7 @@ import {
 } from "./components/tool-execution-enhanced.js"
 import type { IToolExecutionComponent } from "./components/tool-execution-interface.js"
 import { SubagentExecutionComponent } from "./components/subagent-execution.js"
+import { parseSubagentMeta } from "../tools/subagent.js"
 import {
 	TodoProgressComponent,
 	type TodoItem,
@@ -4057,21 +4058,34 @@ Keyboard shortcuts:
 										modelId?: string
 								  }
 								| undefined
-							const resultText =
+							const rawResult =
 								toolResult?.type === "tool_result"
 									? this.formatToolResult(toolResult.result)
 									: undefined
 							const isErr =
 								toolResult?.type === "tool_result" && toolResult.isError
 
+							// Parse embedded metadata for model ID, duration, tool calls
+							const meta = rawResult ? parseSubagentMeta(rawResult) : null
+							const resultText = meta?.text ?? rawResult
+							const modelId = meta?.modelId ?? subArgs?.modelId
+							const durationMs = meta?.durationMs ?? 0
+
 							const subComponent = new SubagentExecutionComponent(
 								subArgs?.agentType ?? "unknown",
 								subArgs?.task ?? "",
 								this.ui,
-								subArgs?.modelId,
+								modelId,
 							)
+							// Populate tool calls from metadata
+							if (meta?.toolCalls) {
+								for (const tc of meta.toolCalls) {
+									subComponent.addToolStart(tc.name, {})
+									subComponent.addToolEnd(tc.name, "", tc.isError)
+								}
+							}
 							// Mark as finished with result
-							subComponent.finish(isErr ?? false, 0, resultText)
+							subComponent.finish(isErr ?? false, durationMs, resultText)
 							this.chatContainer.addChild(subComponent)
 							this.allToolComponents.push(subComponent as any)
 							continue
