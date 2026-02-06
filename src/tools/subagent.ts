@@ -166,6 +166,7 @@ Use this tool when:
 				toolCallId,
 				agentType,
 				task,
+				modelId: resolvedModelId,
 			})
 
 			// Track partial output in case of abort

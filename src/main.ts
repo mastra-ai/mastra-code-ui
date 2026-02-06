@@ -225,8 +225,8 @@ function getDynamicMemory({
 				enabled: true,
 				scope: "thread",
 				observation: {
-					bufferEvery: 10_000,
-					asyncActivation: 0.8,
+					// bufferEvery: 10_000,
+					// asyncActivation: 0.8,
 					model: getObserverModel,
 					messageTokens: obsThreshold,
 					modelSettings: {
@@ -236,6 +236,8 @@ function getDynamicMemory({
 				reflection: {
 					model: getReflectorModel,
 					observationTokens: refThreshold,
+					// bufferEvery: 20_000,
+					// asyncActivation: 0.8,
 				},
 			},
 		},

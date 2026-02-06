@@ -305,6 +305,7 @@ export type HarnessEvent =
 			toolCallId: string
 			agentType: string
 			task: string
+			modelId?: string
 	  }
 	| {
 			type: "subagent_tool_start"

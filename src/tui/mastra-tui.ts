@@ -1402,7 +1402,12 @@ ${instructions}`,
 
 			// Subagent / Task delegation events
 			case "subagent_start":
-				this.handleSubagentStart(event.toolCallId, event.agentType, event.task)
+				this.handleSubagentStart(
+					event.toolCallId,
+					event.agentType,
+					event.task,
+					event.modelId,
+				)
 				break
 
 			case "subagent_tool_start":
@@ -2528,9 +2533,15 @@ ${instructions}`,
 		toolCallId: string,
 		agentType: string,
 		task: string,
+		modelId?: string,
 	): void {
 		// Create a dedicated rendering component for this subagent run
-		const component = new SubagentExecutionComponent(agentType, task, this.ui)
+		const component = new SubagentExecutionComponent(
+			agentType,
+			task,
+			this.ui,
+			modelId,
+		)
 		this.pendingSubagents.set(toolCallId, component)
 		this.chatContainer.addChild(component)
 
@@ -4032,6 +4043,40 @@ Keyboard shortcuts:
 							accumulatedContent = []
 						}
 
+						// Find matching tool result
+						const toolResult = message.content.find(
+							(c) => c.type === "tool_result" && c.id === content.id,
+						)
+
+						// Render subagent tool calls with dedicated component
+						if (content.name === "subagent") {
+							const subArgs = content.args as
+								| {
+										agentType?: string
+										task?: string
+										modelId?: string
+								  }
+								| undefined
+							const resultText =
+								toolResult?.type === "tool_result"
+									? this.formatToolResult(toolResult.result)
+									: undefined
+							const isErr =
+								toolResult?.type === "tool_result" && toolResult.isError
+
+							const subComponent = new SubagentExecutionComponent(
+								subArgs?.agentType ?? "unknown",
+								subArgs?.task ?? "",
+								this.ui,
+								subArgs?.modelId,
+							)
+							// Mark as finished with result
+							subComponent.finish(isErr ?? false, 0, resultText)
+							this.chatContainer.addChild(subComponent)
+							this.allToolComponents.push(subComponent as any)
+							continue
+						}
+
 						// Render the tool call
 						const toolComponent = new ToolExecutionComponentEnhanced(
 							content.name,
@@ -4043,10 +4088,6 @@ Keyboard shortcuts:
 							this.ui,
 						)
 
-						// Find matching tool result
-						const toolResult = message.content.find(
-							(c) => c.type === "tool_result" && c.id === content.id,
-						)
 						if (toolResult && toolResult.type === "tool_result") {
 							toolComponent.updateResult(
 								{

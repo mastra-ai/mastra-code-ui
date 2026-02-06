@@ -1,17 +1,15 @@
 /**
  * Subagent execution rendering component.
- * Shows real-time activity from a delegated subagent task:
- *  - Agent type and task description
- *  - Live tool calls with names and abbreviated args
- *  - Final result or error with duration
- *
- * Always collapsible. Starts expanded while running so tool calls
- * are visible in real time. Auto-collapses to a summary when finished.
+ * Shows real-time activity from a delegated subagent task using
+ * the same bordered box style as shell/view tools:
+ *  - Top border
+ *  - Task description (always visible)
+ *  - Streaming tool call activity (capped rolling window)
+ *  - Bottom border with agent type, model, status, duration
  */
 
-import { Box, Container, Spacer, type TUI } from "@mariozechner/pi-tui"
+import { Container, Spacer, Text, type TUI } from "@mariozechner/pi-tui"
 import { theme } from "../theme.js"
-import { CollapsibleComponent } from "./collapsible.js"
 import type { IToolExecutionComponent } from "./tool-execution-interface.js"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,57 +28,40 @@ export interface SubagentToolCall {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
+const MAX_ACTIVITY_LINES = 10
+
 export class SubagentExecutionComponent
 	extends Container
 	implements IToolExecutionComponent
 {
-	private contentBox: Box
-	private collapsible: CollapsibleComponent
 	private ui: TUI
 
 	// State
 	private agentType: string
 	private task: string
+	private modelId?: string
 	private toolCalls: SubagentToolCall[] = []
 	private done = false
 	private isError = false
+	private startTime = Date.now()
 	private durationMs = 0
 	private finalResult?: string
 
-	constructor(agentType: string, task: string, ui: TUI) {
+	constructor(agentType: string, task: string, ui: TUI, modelId?: string) {
 		super()
 		this.agentType = agentType
 		this.task = task
+		this.modelId = modelId
 		this.ui = ui
 
-		this.addChild(new Spacer(1))
-
-		this.contentBox = new Box(1, 1, (text: string) =>
-			theme.bg("toolPendingBg", text),
-		)
-		this.addChild(this.contentBox)
-
-		// Create collapsible — starts expanded so live events are visible
-		this.collapsible = new CollapsibleComponent(
-			{
-				header: this.buildHeader(),
-				expanded: true,
-				collapsedLines: 0,
-				expandedLines: 200,
-				showLineCount: false,
-			},
-			this.ui,
-		)
-		this.contentBox.addChild(this.collapsible)
-
-		this.rebuildContent()
+		this.rebuild()
 	}
 
 	// ── Mutation API ──────────────────────────────────────────────────────
 
 	addToolStart(name: string, args: unknown): void {
 		this.toolCalls.push({ name, args, done: false })
-		this.refresh()
+		this.rebuild()
 	}
 
 	addToolEnd(name: string, result: unknown, isError: boolean): void {
@@ -93,7 +74,7 @@ export class SubagentExecutionComponent
 				break
 			}
 		}
-		this.refresh()
+		this.rebuild()
 	}
 
 	finish(isError: boolean, durationMs: number, result?: string): void {
@@ -101,63 +82,119 @@ export class SubagentExecutionComponent
 		this.isError = isError
 		this.durationMs = durationMs
 		this.finalResult = result
-
-		// Stay expanded so user can see what the subagent did
-		this.refresh()
+		this.rebuild()
 	}
 
-	setExpanded(expanded: boolean): void {
-		this.collapsible.setExpanded(expanded)
-		this.invalidate()
+	setExpanded(_expanded: boolean): void {
+		// No-op — bordered style doesn't use collapsible
 	}
 
 	toggleExpanded(): void {
-		this.collapsible.toggle()
-		this.invalidate()
+		// No-op
 	}
 
 	// IToolExecutionComponent interface methods
-	updateArgs(args: unknown): void {
-		// Not needed for subagent - args are set at creation
-	}
+	updateArgs(_args: unknown): void {}
+	updateResult(_result: unknown, _isPartial: boolean): void {}
 
-	updateResult(result: unknown, isPartial: boolean): void {
-		// Not needed for subagent - results come through finish()
-	}
+	// ── Rendering ──────────────────────────────────────────────────────────
 
-	// ── Internal ──────────────────────────────────────────────────────────
+	private rebuild(): void {
+		this.clear()
+		this.addChild(new Spacer(1))
 
-	private refresh(): void {
-		const bgColor = this.done
-			? this.isError
-				? "toolErrorBg"
-				: "toolSuccessBg"
-			: "toolPendingBg"
+		const border = (char: string) => theme.bold(theme.fg("accent", char))
+		const termWidth = process.stdout.columns || 80
+		const maxLineWidth = termWidth - 6
 
-		this.contentBox.setBgFn((text: string) => theme.bg(bgColor, text))
+		// ── Top border ──
+		this.addChild(new Text(border("┌──"), 0, 0))
 
-		// Recreate the collapsible with updated header + content
-		// (preserving its current expanded/collapsed state)
-		const wasExpanded = this.collapsible ? this.collapsible.isExpanded() : true
+		// ── Task description (always shown) ──
+		const taskLines = this.task.split("\n")
+		const wrappedTaskLines: string[] = []
+		for (const line of taskLines) {
+			if (line.length > maxLineWidth) {
+				// Word-wrap long lines
+				let remaining = line
+				while (remaining.length > maxLineWidth) {
+					const breakAt = remaining.lastIndexOf(" ", maxLineWidth)
+					const splitAt = breakAt > 0 ? breakAt : maxLineWidth
+					wrappedTaskLines.push(remaining.slice(0, splitAt))
+					remaining = remaining.slice(splitAt).trimStart()
+				}
+				if (remaining) wrappedTaskLines.push(remaining)
+			} else {
+				wrappedTaskLines.push(line)
+			}
+		}
+		const taskContent = wrappedTaskLines
+			.map((line) => `${border("│")} ${theme.fg("muted", line)}`)
+			.join("\n")
+		this.addChild(new Text(taskContent, 0, 0))
 
-		this.contentBox.clear()
-		this.collapsible = new CollapsibleComponent(
-			{
-				header: this.buildHeader(),
-				summary: this.buildSummary(),
-				expanded: wasExpanded,
-				collapsedLines: 0,
-				expandedLines: 200,
-				showLineCount: false,
-			},
-			this.ui,
-		)
-		this.rebuildContent()
-		this.contentBox.addChild(this.collapsible)
-	}
+		// ── Activity lines (tool calls — capped rolling window) ──
+		if (this.toolCalls.length > 0) {
+			// Separator between task and activity
+			this.addChild(
+				new Text(`${border("│")} ${theme.fg("muted", "───")}`, 0, 0),
+			)
 
-	private buildHeader(): string {
+			const activityLines = this.toolCalls.map((tc) =>
+				formatToolCallLine(tc, maxLineWidth),
+			)
+
+			// Cap to rolling window
+			let displayLines = activityLines
+			if (activityLines.length > MAX_ACTIVITY_LINES) {
+				const hidden = activityLines.length - MAX_ACTIVITY_LINES
+				displayLines = [
+					theme.fg("muted", `  ... ${hidden} more above`),
+					...activityLines.slice(-MAX_ACTIVITY_LINES),
+				]
+			}
+
+			const activityContent = displayLines
+				.map((line) => `${border("│")} ${line}`)
+				.join("\n")
+			this.addChild(new Text(activityContent, 0, 0))
+		}
+
+		// ── Final result (last 10 lines, shown after completion) ──
+		if (this.done && this.finalResult) {
+			this.addChild(
+				new Text(`${border("│")} ${theme.fg("muted", "───")}`, 0, 0),
+			)
+
+			const resultLines = this.finalResult.split("\n")
+			const maxResultLines = 10
+			const truncated = resultLines.length > maxResultLines
+			const displayLines = truncated
+				? resultLines.slice(-maxResultLines)
+				: resultLines
+
+			if (truncated) {
+				const hiddenLine = `${border("│")} ${theme.fg("muted", `  ... ${resultLines.length - maxResultLines} more lines above`)}`
+				this.addChild(new Text(hiddenLine, 0, 0))
+			}
+
+			const resultContent = displayLines
+				.map((line) => {
+					const truncatedLine =
+						line.length > maxLineWidth
+							? line.slice(0, maxLineWidth - 1) + "…"
+							: line
+					return `${border("│")} ${truncatedLine}`
+				})
+				.join("\n")
+			if (resultContent.trim()) {
+				this.addChild(new Text(resultContent, 0, 0))
+			}
+		}
+
+		// ── Bottom border with info ──
 		const typeLabel = theme.bold(theme.fg("accent", this.agentType))
+		const modelLabel = this.modelId ? theme.fg("muted", ` ${this.modelId}`) : ""
 		const statusIcon = this.done
 			? this.isError
 				? theme.fg("error", " ✗")
@@ -167,69 +204,11 @@ export class SubagentExecutionComponent
 			? theme.fg("muted", ` ${formatDuration(this.durationMs)}`)
 			: ""
 
-		return `${theme.bold(theme.fg("toolTitle", "🤖 subagent"))} ${typeLabel}${statusIcon}${durationStr}`
-	}
+		const footerText = `${theme.bold(theme.fg("toolTitle", "subagent"))} ${typeLabel}${modelLabel}${durationStr}${statusIcon}`
+		this.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 
-	private buildSummary(): string {
-		const taskPreview = truncate(this.task, 60)
-
-		// If we have a final result, show a preview of it
-		if (this.done && this.finalResult) {
-			const resultPreview = truncate(this.finalResult.replace(/\n/g, " "), 80)
-			return theme.fg("muted", `   ${resultPreview}`)
-		}
-
-		if (this.toolCalls.length === 0) {
-			return theme.fg("muted", `   ${taskPreview}`)
-		}
-		const errorCount = this.toolCalls.filter((tc) => tc.isError).length
-		const countStr =
-			errorCount > 0
-				? `${this.toolCalls.length} tool calls (${errorCount} failed)`
-				: `${this.toolCalls.length} tool calls`
-		return theme.fg("muted", `   ${taskPreview} — ${countStr}`)
-	}
-
-	private rebuildContent(): void {
-		const lines: string[] = []
-
-		// Task description - show full task, wrapped
-		const taskLines = this.task.split("\n")
-		for (const line of taskLines) {
-			lines.push(theme.fg("muted", `   ${line}`))
-		}
-		// Blank line after task (braille blank pattern renders as empty but takes space)
-		lines.push("\u2800")
-
-		// Tool calls
-		for (const tc of this.toolCalls) {
-			lines.push(formatToolCallLine(tc))
-		}
-
-		// Final result (if available) - show last 10 lines
-		if (this.done && this.finalResult) {
-			lines.push("") // blank line
-			lines.push(theme.fg("muted", "   ───"))
-			const resultLines = this.finalResult.split("\n")
-			const maxLines = 10
-			const truncated = resultLines.length > maxLines
-			const displayLines = truncated
-				? resultLines.slice(-maxLines)
-				: resultLines
-			if (truncated) {
-				lines.push(
-					theme.fg(
-						"muted",
-						`   ... ${resultLines.length - maxLines} more lines above`,
-					),
-				)
-			}
-			for (const line of displayLines) {
-				lines.push(`   ${line}`)
-			}
-		}
-
-		this.collapsible.setContent(lines)
+		this.invalidate()
+		this.ui.requestRender()
 	}
 }
 
@@ -237,7 +216,7 @@ export class SubagentExecutionComponent
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function formatToolCallLine(tc: SubagentToolCall): string {
+function formatToolCallLine(tc: SubagentToolCall, _maxWidth: number): string {
 	const icon = tc.done
 		? tc.isError
 			? theme.fg("error", "✗")
@@ -245,13 +224,7 @@ function formatToolCallLine(tc: SubagentToolCall): string {
 		: theme.fg("muted", "⋯")
 	const name = theme.fg("toolTitle", tc.name)
 	const argsSummary = summarizeArgs(tc.args)
-	return `   ${icon} ${name} ${argsSummary}`
-}
-
-function truncate(text: string, maxLen: number): string {
-	const oneLine = text.replace(/\n/g, " ").replace(/\s+/g, " ").trim()
-	if (oneLine.length <= maxLen) return oneLine
-	return `${oneLine.slice(0, maxLen - 1)}…`
+	return `${icon} ${name} ${argsSummary}`
 }
 
 function formatDuration(ms: number): string {
@@ -260,7 +233,7 @@ function formatDuration(ms: number): string {
 	return `${s}s`
 }
 
-function summarizeArgs(args: unknown, toolName?: string): string {
+function summarizeArgs(args: unknown): string {
 	if (!args || typeof args !== "object") return ""
 	const obj = args as Record<string, unknown>
 	const parts: string[] = []
@@ -272,39 +245,24 @@ function summarizeArgs(args: unknown, toolName?: string): string {
 			status?: string
 			activeForm?: string
 		}>
-
-		// Show task contents with status icons
 		const taskSummaries = todos.map((t) => {
 			const icon =
 				t.status === "completed" ? "✓" : t.status === "in_progress" ? "→" : "○"
 			const content = t.content || t.activeForm || "task"
 			return `${icon} ${content}`
 		})
-
-		// Join tasks, truncate if too long
-		const summary = taskSummaries.join(", ")
-		parts.push(summary.length > 80 ? `${summary.slice(0, 77)}…` : summary)
-	} else if (obj.path) {
-		parts.push(String(obj.path))
-	} else if (obj.pattern) {
-		parts.push(String(obj.pattern))
-	} else if (obj.command) {
-		parts.push(String(obj.command))
-	} else {
-		const firstKey = Object.keys(obj)[0]
-		if (firstKey) {
-			const val = obj[firstKey]
-			// Avoid [object Object] for arrays/objects
-			if (Array.isArray(val)) {
-				parts.push(`${val.length} items`)
-			} else if (typeof val === "object" && val !== null) {
-				parts.push(`{...}`)
-			} else {
-				const strVal = String(val)
-				parts.push(strVal.length > 60 ? `${strVal.slice(0, 59)}…` : strVal)
-			}
-		}
+		return theme.fg("muted", taskSummaries.join(", "))
 	}
 
-	return parts.length > 0 ? theme.fg("muted", parts.join(", ")) : ""
+	for (const [key, val] of Object.entries(obj)) {
+		if (typeof val === "string") {
+			const short = val.length > 40 ? val.slice(0, 40) + "…" : val
+			parts.push(theme.fg("muted", short))
+		} else if (Array.isArray(val)) {
+			parts.push(theme.fg("muted", `${val.length} items`))
+		} else if (typeof val === "object" && val !== null) {
+			parts.push(theme.fg("muted", "{...}"))
+		}
+	}
+	return parts.join(" ")
 }
