@@ -2581,6 +2581,7 @@ ${instructions}`,
 			modelId,
 		)
 		this.pendingSubagents.set(toolCallId, component)
+		this.allToolComponents.push(component as any)
 		this.chatContainer.addChild(component)
 
 		// Don't create a new AssistantMessageComponent here - it will be created
@@ -2624,7 +2625,6 @@ ${instructions}`,
 		if (component) {
 			component.finish(isError, durationMs, result)
 			this.pendingSubagents.delete(toolCallId)
-			this.allToolComponents.push(component as any) // Add to tool components for keyboard nav
 			this.ui.requestRender()
 		}
 	}
