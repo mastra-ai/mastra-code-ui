@@ -104,21 +104,24 @@ export class OMOutputComponent extends Container {
 		// Content lines with left border
 		const termWidth = process.stdout.columns || 80
 		const maxLineWidth = termWidth - 6
-
-		let displayLines = lines
 		let truncated = false
+		const borderedLines: string[] = []
+
 		if (!this.expanded && lines.length > COLLAPSED_LINES) {
-			displayLines = lines.slice(0, COLLAPSED_LINES)
-			truncated = true
-		}
-
-		const borderedLines = displayLines.map((line) => {
-			const truncatedLine = truncateAnsi(line, maxLineWidth)
-			return border("│") + " " + chalk.hex("#a1a1aa")(truncatedLine)
-		})
-
-		if (truncated) {
+			const headCount = Math.ceil(COLLAPSED_LINES / 2)
+			const tailCount = COLLAPSED_LINES - headCount
+			const headLines = lines.slice(0, headCount)
+			const tailLines = lines.slice(-tailCount)
 			const remaining = lines.length - COLLAPSED_LINES
+			truncated = true
+
+			for (const line of headLines) {
+				borderedLines.push(
+					border("│") +
+						" " +
+						chalk.hex("#a1a1aa")(truncateAnsi(line, maxLineWidth)),
+				)
+			}
 			borderedLines.push(
 				border("│") +
 					" " +
@@ -126,6 +129,21 @@ export class OMOutputComponent extends Container {
 						`... ${remaining} more lines (ctrl+e to expand)`,
 					),
 			)
+			for (const line of tailLines) {
+				borderedLines.push(
+					border("│") +
+						" " +
+						chalk.hex("#a1a1aa")(truncateAnsi(line, maxLineWidth)),
+				)
+			}
+		} else {
+			for (const line of lines) {
+				borderedLines.push(
+					border("│") +
+						" " +
+						chalk.hex("#a1a1aa")(truncateAnsi(line, maxLineWidth)),
+				)
+			}
 		}
 
 		const displayOutput = borderedLines.join("\n")
