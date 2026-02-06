@@ -910,8 +910,12 @@ function highlightCode(
 ): string {
 	let lines = content.split("\n").map((line) => line.trimEnd())
 
-	// Remove "Here's the result of running `cat -n`..." header if present
-	if (lines.length > 0 && lines[0].includes("Here's the result of running")) {
+	// Remove "[Truncated N tokens]" and "Here's the result of running `cat -n`..." headers
+	while (
+		lines.length > 0 &&
+		(lines[0].includes("Here's the result of running") ||
+			lines[0].match(/^\[Truncated \d+ tokens\]$/))
+	) {
 		lines = lines.slice(1)
 	}
 
