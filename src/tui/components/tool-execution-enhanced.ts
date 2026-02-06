@@ -523,6 +523,79 @@ export class ToolExecutionComponentEnhanced
 
 		// Bottom border with tool info
 		this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
+
+		// LSP diagnostics below the box
+		const diagnostics = this.parseLSPDiagnostics()
+		if (diagnostics && diagnostics.hasIssues) {
+			const maxLineWidth = termWidth - 4
+			for (const diag of diagnostics.entries) {
+				const color =
+					diag.severity === "error"
+						? "#e06c75"
+						: diag.severity === "warning"
+							? "#f59e0b"
+							: "#71717a"
+				const icon =
+					diag.severity === "error"
+						? "✗"
+						: diag.severity === "warning"
+							? "⚠"
+							: "ℹ"
+				const line = `  ${chalk.hex(color)(icon)} ${chalk.hex(color)(diag.location)} ${chalk.hex("#a1a1aa")(diag.message)}`
+				const truncated = truncateAnsi(line, maxLineWidth)
+				this.contentBox.addChild(new Text(truncated, 0, 0))
+			}
+		}
+	}
+
+	private parseLSPDiagnostics(): {
+		hasIssues: boolean
+		entries: Array<{
+			severity: "error" | "warning" | "info" | "hint"
+			location: string
+			message: string
+		}>
+	} | null {
+		const output = this.getFormattedOutput()
+		const lspIdx = output.indexOf("LSP Diagnostics:")
+		if (lspIdx === -1) return null
+
+		const lspText = output.slice(lspIdx + "LSP Diagnostics:".length)
+		if (lspText.includes("No errors or warnings")) {
+			return { hasIssues: false, entries: [] }
+		}
+
+		const entries: Array<{
+			severity: "error" | "warning" | "info" | "hint"
+			location: string
+			message: string
+		}> = []
+		let currentSeverity: "error" | "warning" | "info" | "hint" = "error"
+
+		for (const line of lspText.split("\n")) {
+			const trimmed = line.trim()
+			if (!trimmed) continue
+			if (trimmed === "Errors:") {
+				currentSeverity = "error"
+			} else if (trimmed === "Warnings:") {
+				currentSeverity = "warning"
+			} else if (trimmed === "Info:") {
+				currentSeverity = "info"
+			} else if (trimmed === "Hints:") {
+				currentSeverity = "hint"
+			} else {
+				const match = trimmed.match(/^(.+:\d+:\d+)\s*-\s*(.+)$/)
+				if (match) {
+					entries.push({
+						severity: currentSeverity,
+						location: match[1],
+						message: match[2],
+					})
+				}
+			}
+		}
+
+		return { hasIssues: entries.length > 0, entries }
 	}
 
 	private generateDiffLines(oldStr: string, newStr: string): string[] {
