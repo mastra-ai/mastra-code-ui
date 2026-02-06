@@ -522,6 +522,7 @@ const codeAgent = new Agent({
 			view: viewTool,
 			search_content: grepTool,
 			find_files: globTool,
+			execute_command: executeCommandTool,
 			// Subagent delegation — read-only in plan mode
 			subagent: modeId === "plan" ? subagentToolReadOnly : subagentTool,
 			// Todo tracking — always available (planning tool, not a write tool)
@@ -537,7 +538,6 @@ const codeAgent = new Agent({
 			tools.string_replace_lsp = stringReplaceLspTool
 			tools.ast_smart_edit = astSmartEditTool
 			tools.write_file = writeFileTool
-			tools.execute_command = executeCommandTool
 		}
 
 		// Plan submission — only available in plan mode
