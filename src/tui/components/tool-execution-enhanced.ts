@@ -527,24 +527,12 @@ export class ToolExecutionComponentEnhanced
 		// LSP diagnostics below the box
 		const diagnostics = this.parseLSPDiagnostics()
 		if (diagnostics && diagnostics.hasIssues) {
-			const MAX_DIAG_LINES = 8
-			let diagCount = 0
-			const totalDiags = diagnostics.entries.length
-			for (const diag of diagnostics.entries) {
-				if (diagCount >= MAX_DIAG_LINES) {
-					const remaining = totalDiags - MAX_DIAG_LINES
-					this.contentBox.addChild(
-						new Text(
-							chalk.hex("#71717a")(
-								`  ... ${remaining} more diagnostic${remaining > 1 ? "s" : ""}`,
-							),
-							0,
-							0,
-						),
-					)
-					break
-				}
-				diagCount++
+			const COLLAPSED_DIAG_LINES = 3
+			const maxDiags = this.expanded
+				? diagnostics.entries.length
+				: COLLAPSED_DIAG_LINES
+			const entriesToShow = diagnostics.entries.slice(0, maxDiags)
+			for (const diag of entriesToShow) {
 				const color =
 					diag.severity === "error"
 						? "#e06c75"
@@ -562,6 +550,18 @@ export class ToolExecutionComponentEnhanced
 					: ""
 				const line = `  ${chalk.hex(color)(icon)} ${location}${chalk.hex("#a1a1aa")(diag.message)}`
 				this.contentBox.addChild(new Text(line, 0, 0))
+			}
+			if (!this.expanded && diagnostics.entries.length > COLLAPSED_DIAG_LINES) {
+				const remaining = diagnostics.entries.length - COLLAPSED_DIAG_LINES
+				this.contentBox.addChild(
+					new Text(
+						chalk.hex("#71717a")(
+							`  ... ${remaining} more diagnostic${remaining > 1 ? "s" : ""} (ctrl+e to expand)`,
+						),
+						0,
+						0,
+					),
+				)
 			}
 		}
 	}
