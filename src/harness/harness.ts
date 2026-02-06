@@ -1808,6 +1808,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 						operationType:
 							(data.operationType as "observation" | "reflection") ??
 							"observation",
+						observations: (data.observations as string) ?? undefined,
+						currentTask: (data.currentTask as string) ?? undefined,
+						suggestedResponse: (data.suggestedResponse as string) ?? undefined,
 					})
 					break
 				}
@@ -2322,6 +2325,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 								cycleId: payload.cycleId,
 								durationMs: payload.durationMs ?? 0,
 								compressedTokens: payload.compressedTokens,
+								observations: payload.observations,
 							})
 						} else {
 							this.emit({
@@ -2330,6 +2334,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 								durationMs: payload.durationMs ?? 0,
 								tokensObserved: payload.tokensObserved ?? 0,
 								observationTokens: payload.observationTokens ?? 0,
+								observations: payload.observations,
+								currentTask: payload.currentTask,
+								suggestedResponse: payload.suggestedResponse,
 							})
 						}
 					}

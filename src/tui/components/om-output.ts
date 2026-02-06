@@ -1,0 +1,195 @@
+/**
+ * TUI component for rendering OM observation/reflection output in a bordered box.
+ * Uses observer (amber) color for observations and reflector (red) color for reflections.
+ * Collapsed to COLLAPSED_LINES by default, expandable with ctrl+e.
+ * Includes marker info (emoji, compression stats) in the footer.
+ */
+
+import { Container, Text, Spacer } from "@mariozechner/pi-tui"
+import chalk from "chalk"
+
+const OBSERVER_COLOR = "#f59e0b"
+const REFLECTOR_COLOR = "#ef4444"
+const COLLAPSED_LINES = 10
+
+function formatTokens(tokens: number): string {
+	if (tokens === 0) return "0"
+	const k = tokens / 1000
+	return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
+}
+
+/** Truncate a string with ANSI codes to a visible width */
+function truncateAnsi(str: string, maxWidth: number): string {
+	// eslint-disable-next-line no-control-regex
+	const ansiRegex = /\x1b\[[0-9;]*m/g
+	let visibleLength = 0
+	let result = ""
+	let lastIndex = 0
+	let match: RegExpExecArray | null
+
+	while ((match = ansiRegex.exec(str)) !== null) {
+		const textBefore = str.slice(lastIndex, match.index)
+		for (const char of textBefore) {
+			if (visibleLength >= maxWidth) break
+			result += char
+			visibleLength++
+		}
+		if (visibleLength >= maxWidth) break
+		result += match[0]
+		lastIndex = match.index + match[0].length
+	}
+
+	const remaining = str.slice(lastIndex)
+	for (const char of remaining) {
+		if (visibleLength >= maxWidth) break
+		result += char
+		visibleLength++
+	}
+
+	if (visibleLength >= maxWidth) {
+		result += "\x1b[0m"
+	}
+	return result
+}
+
+export type OMOutputType = "observation" | "reflection"
+
+export interface OMOutputData {
+	type: OMOutputType
+	observations: string
+	currentTask?: string
+	suggestedResponse?: string
+	durationMs?: number
+	tokensObserved?: number
+	observationTokens?: number
+	compressedTokens?: number
+}
+
+export class OMOutputComponent extends Container {
+	private data: OMOutputData
+	private expanded: boolean = false
+
+	constructor(data: OMOutputData) {
+		super()
+		this.data = data
+		this.rebuild()
+	}
+
+	setExpanded(expanded: boolean): void {
+		this.expanded = expanded
+		this.rebuild()
+	}
+
+	toggleExpanded(): void {
+		this.setExpanded(!this.expanded)
+	}
+
+	private rebuild(): void {
+		this.clear()
+		this.addChild(new Spacer(1))
+
+		const isReflection = this.data.type === "reflection"
+		const color = isReflection ? REFLECTOR_COLOR : OBSERVER_COLOR
+		const border = (char: string) => chalk.bold.hex(color)(char)
+
+		// Prepare content lines
+		const lines = this.data.observations.split("\n")
+
+		// Build footer text with marker info (emoji + compression stats)
+		const footerText = this.buildFooterText(color)
+
+		// Top border
+		this.addChild(new Text(border("┌──"), 0, 0))
+
+		// Content lines with left border
+		const termWidth = process.stdout.columns || 80
+		const maxLineWidth = termWidth - 6
+
+		let displayLines = lines
+		let truncated = false
+		if (!this.expanded && lines.length > COLLAPSED_LINES) {
+			displayLines = lines.slice(0, COLLAPSED_LINES)
+			truncated = true
+		}
+
+		const borderedLines = displayLines.map((line) => {
+			const truncatedLine = truncateAnsi(line, maxLineWidth)
+			return border("│") + " " + chalk.hex("#a1a1aa")(truncatedLine)
+		})
+
+		if (truncated) {
+			const remaining = lines.length - COLLAPSED_LINES
+			borderedLines.push(
+				border("│") +
+					" " +
+					chalk.hex("#71717a")(
+						`... ${remaining} more lines (ctrl+e to expand)`,
+					),
+			)
+		}
+
+		const displayOutput = borderedLines.join("\n")
+		if (displayOutput.trim()) {
+			this.addChild(new Text(displayOutput, 0, 0))
+		}
+
+		// Current task / suggested response sections
+		if (this.data.currentTask && (this.expanded || !truncated)) {
+			const taskLine =
+				border("│") +
+				" " +
+				chalk.hex(color).bold("Current task: ") +
+				chalk.hex("#d4d4d8")(this.data.currentTask)
+			this.addChild(new Text(truncateAnsi(taskLine, termWidth - 2), 0, 0))
+		}
+
+		if (this.data.suggestedResponse && (this.expanded || !truncated)) {
+			const sugLine =
+				border("│") +
+				" " +
+				chalk.hex(color).bold("Suggested response: ") +
+				chalk.hex("#d4d4d8")(this.data.suggestedResponse)
+			this.addChild(new Text(truncateAnsi(sugLine, termWidth - 2), 0, 0))
+		}
+
+		// Bottom border with footer
+		this.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
+	}
+
+	private buildFooterText(color: string): string {
+		const isReflection = this.data.type === "reflection"
+		const emoji = "🧠"
+
+		if (isReflection) {
+			// Reflection: "🧠 Reflected: Xk → Yk tokens (Zx compression) in Ns ✓"
+			const observed = formatTokens(this.data.tokensObserved ?? 0)
+			const compressed = formatTokens(
+				this.data.compressedTokens ?? this.data.observationTokens ?? 0,
+			)
+			const ratio =
+				(this.data.tokensObserved ?? 0) > 0 &&
+				(this.data.compressedTokens ?? this.data.observationTokens ?? 0) > 0
+					? `${Math.round((this.data.tokensObserved ?? 0) / (this.data.compressedTokens ?? this.data.observationTokens ?? 1))}x`
+					: ""
+			const durationStr = this.data.durationMs
+				? ` in ${(this.data.durationMs / 1000).toFixed(1)}s`
+				: ""
+			const ratioStr = ratio ? ` (${ratio} compression)` : ""
+			return `${emoji} ${chalk.hex(color)(`Reflected: ${observed} → ${compressed} tokens${ratioStr}${durationStr}`)} ${chalk.hex("#22c55e")("✓")}`
+		} else {
+			// Observation: "🧠 Observed: Xk → Yk tokens (Zx compression) in Ns ✓"
+			const observed = formatTokens(this.data.tokensObserved ?? 0)
+			const compressed = formatTokens(this.data.observationTokens ?? 0)
+			const ratio =
+				(this.data.tokensObserved ?? 0) > 0 &&
+				(this.data.observationTokens ?? 0) > 0
+					? `${Math.round((this.data.tokensObserved ?? 0) / (this.data.observationTokens ?? 1))}x`
+					: ""
+			const durationStr = this.data.durationMs
+				? ` in ${(this.data.durationMs / 1000).toFixed(1)}s`
+				: ""
+			const ratioStr = ratio ? ` (${ratio} compression)` : ""
+			return `${emoji} ${chalk.hex(color)(`Observed: ${observed} → ${compressed} tokens${ratioStr}${durationStr}`)} ${chalk.hex("#22c55e")("✓")}`
+		}
+	}
+}

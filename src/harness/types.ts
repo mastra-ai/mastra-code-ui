@@ -261,6 +261,9 @@ export type HarnessEvent =
 			durationMs: number
 			tokensObserved: number
 			observationTokens: number
+			observations?: string
+			currentTask?: string
+			suggestedResponse?: string
 	  }
 	| {
 			type: "om_observation_failed"
@@ -274,6 +277,7 @@ export type HarnessEvent =
 			cycleId: string
 			durationMs: number
 			compressedTokens: number
+			observations?: string
 	  }
 	| {
 			type: "om_reflection_failed"
@@ -423,6 +427,9 @@ export type HarnessMessageContent =
 			observationTokens: number
 			durationMs: number
 			operationType?: "observation" | "reflection"
+			observations?: string
+			currentTask?: string
+			suggestedResponse?: string
 	  }
 	| {
 			type: "om_observation_failed"

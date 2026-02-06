@@ -48,6 +48,7 @@ import {
 } from "./components/model-selector.js"
 import { ThreadSelectorComponent } from "./components/thread-selector.js"
 import { OMMarkerComponent, type OMMarkerData } from "./components/om-marker.js"
+import { OMOutputComponent } from "./components/om-output.js"
 import { OMSettingsComponent } from "./components/om-settings.js"
 
 import {
@@ -1353,13 +1354,15 @@ ${instructions}`,
 			case "om_observation_start":
 				this.handleOMObservationStart(event.cycleId, event.tokensToObserve)
 				break
-
 			case "om_observation_end":
 				this.handleOMObservationEnd(
 					event.cycleId,
 					event.durationMs,
 					event.tokensObserved,
 					event.observationTokens,
+					event.observations,
+					event.currentTask,
+					event.suggestedResponse,
 				)
 				break
 
@@ -1370,12 +1373,12 @@ ${instructions}`,
 			case "om_reflection_start":
 				this.handleOMReflectionStart(event.cycleId, event.tokensToReflect)
 				break
-
 			case "om_reflection_end":
 				this.handleOMReflectionEnd(
 					event.cycleId,
 					event.durationMs,
 					event.compressedTokens,
+					event.observations,
 				)
 				break
 
@@ -1579,6 +1582,18 @@ ${instructions}`,
 		this.chatContainer.addChild(marker)
 	}
 
+	private addOMOutputToChat(output: OMOutputComponent): void {
+		if (this.streamingComponent) {
+			const idx = this.chatContainer.children.indexOf(this.streamingComponent)
+			if (idx >= 0) {
+				this.chatContainer.children.splice(idx, 0, output)
+				this.chatContainer.invalidate()
+				return
+			}
+		}
+		this.chatContainer.addChild(output)
+	}
+
 	private handleOMProgress(event: {
 		pendingTokens: number
 		threshold: number
@@ -1632,12 +1647,14 @@ ${instructions}`,
 		this.updateStatusLine()
 		this.ui.requestRender()
 	}
-
 	private handleOMObservationEnd(
 		_cycleId: string,
 		durationMs: number,
 		tokensObserved: number,
 		observationTokens: number,
+		observations?: string,
+		currentTask?: string,
+		suggestedResponse?: string,
 	): void {
 		this.omProgress.status = "idle"
 		this.omProgress.cycleId = undefined
@@ -1646,20 +1663,26 @@ ${instructions}`,
 		// Messages have been observed — reset pending tokens
 		this.omProgress.pendingTokens = 0
 		this.omProgress.thresholdPercent = 0
-		// Update existing marker in-place, or create new one
-		const endData: OMMarkerData = {
-			type: "om_observation_end",
+		// Remove in-progress marker — the output box replaces it
+		if (this.activeOMMarker) {
+			const idx = this.chatContainer.children.indexOf(this.activeOMMarker)
+			if (idx >= 0) {
+				this.chatContainer.children.splice(idx, 1)
+				this.chatContainer.invalidate()
+			}
+			this.activeOMMarker = undefined
+		}
+		// Show observation output in a bordered box (includes marker info in footer)
+		const outputComponent = new OMOutputComponent({
+			type: "observation",
+			observations: observations ?? "",
+			currentTask,
+			suggestedResponse,
+			durationMs,
 			tokensObserved,
 			observationTokens,
-			durationMs,
-			operationType: "observation",
-		}
-		if (this.activeOMMarker) {
-			this.activeOMMarker.update(endData)
-			this.activeOMMarker = undefined
-		} else {
-			this.addOMMarkerToChat(new OMMarkerComponent(endData))
-		}
+		})
+		this.addOMOutputToChat(outputComponent)
 		this.updateStatusLine()
 		this.ui.requestRender()
 	}
@@ -1687,11 +1710,11 @@ ${instructions}`,
 		this.updateStatusLine()
 		this.ui.requestRender()
 	}
-
 	private handleOMReflectionEnd(
 		_cycleId: string,
 		durationMs: number,
 		compressedTokens: number,
+		observations?: string,
 	): void {
 		// Capture the pre-compression observation tokens for the marker display
 		const preCompressionTokens = this.omProgress.observationTokens
@@ -1704,16 +1727,24 @@ ${instructions}`,
 			this.omProgress.reflectionThreshold > 0
 				? (compressedTokens / this.omProgress.reflectionThreshold) * 100
 				: 0
-		// Show success marker in chat history
-		this.addOMMarkerToChat(
-			new OMMarkerComponent({
-				type: "om_observation_end",
-				tokensObserved: preCompressionTokens,
-				observationTokens: compressedTokens,
-				durationMs,
-				operationType: "reflection",
-			}),
-		)
+		// Remove in-progress marker — the output box replaces it
+		if (this.activeOMMarker) {
+			const idx = this.chatContainer.children.indexOf(this.activeOMMarker)
+			if (idx >= 0) {
+				this.chatContainer.children.splice(idx, 1)
+				this.chatContainer.invalidate()
+			}
+			this.activeOMMarker = undefined
+		}
+		// Show reflection output in a bordered box (includes marker info in footer)
+		const outputComponent = new OMOutputComponent({
+			type: "reflection",
+			observations: observations ?? "",
+			durationMs,
+			compressedTokens,
+			tokensObserved: preCompressionTokens,
+		})
+		this.addOMOutputToChat(outputComponent)
 		// Revert spinner to "Working..."
 		this.updateLoaderText("Working...")
 		this.ui.requestRender()
@@ -4229,8 +4260,26 @@ Keyboard shortcuts:
 							accumulatedContent = []
 						}
 
-						// Render OM marker (end or failed only)
-						this.chatContainer.addChild(new OMMarkerComponent(content))
+						if (content.type === "om_observation_end") {
+							// Render bordered output box with marker info in footer
+							const isReflection = content.operationType === "reflection"
+							const outputComponent = new OMOutputComponent({
+								type: isReflection ? "reflection" : "observation",
+								observations: content.observations ?? "",
+								currentTask: content.currentTask,
+								suggestedResponse: content.suggestedResponse,
+								durationMs: content.durationMs,
+								tokensObserved: content.tokensObserved,
+								observationTokens: content.observationTokens,
+								compressedTokens: isReflection
+									? content.observationTokens
+									: undefined,
+							})
+							this.chatContainer.addChild(outputComponent)
+						} else {
+							// Failed marker
+							this.chatContainer.addChild(new OMMarkerComponent(content))
+						}
 					}
 					// Skip tool_result - it's handled with tool_call above
 				}
