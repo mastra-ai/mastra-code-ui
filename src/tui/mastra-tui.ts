@@ -77,6 +77,7 @@ import {
 } from "./components/todo-progress.js"
 import { UserMessageComponent } from "./components/user-message.js"
 import { SystemReminderComponent } from "./components/system-reminder.js"
+import { ShellOutputComponent } from "./components/shell-output.js"
 import {
 	getEditorTheme,
 	getMarkdownTheme,
@@ -384,6 +385,12 @@ export class MastraTUI {
 					if (handled) continue
 				}
 
+				// Handle shell passthrough (! prefix)
+				if (userInput.startsWith("!")) {
+					await this.handleShellPassthrough(userInput.slice(1).trim())
+					continue
+				}
+
 				// Create thread lazily on first message (may load last-used model)
 				if (this.pendingNewThread) {
 					await this.harness.createThread()
@@ -593,7 +600,7 @@ export class MastraTUI {
 		const instructions = [
 			`${fg("muted", "Ctrl+C")} interrupt/clear  ${fg("muted", "Ctrl+C×2")} exit`,
 			`${fg("muted", "Enter")} while working → steer  ${fg("muted", "Ctrl+F")} → queue follow-up`,
-			`${fg("muted", "/")} commands  ${fg("muted", "Ctrl+T")} thinking  ${fg("muted", "Ctrl+E")} tools${this.harness.getModes().length > 1 ? `  ${fg("muted", "⇧Tab")} mode` : ""}`,
+			`${fg("muted", "/")} commands  ${fg("muted", "!")} shell  ${fg("muted", "Ctrl+T")} thinking  ${fg("muted", "Ctrl+E")} tools${this.harness.getModes().length > 1 ? `  ${fg("muted", "⇧Tab")} mode` : ""}`,
 		].join("\n")
 
 		this.ui.addChild(new Spacer(1))
@@ -1052,11 +1059,10 @@ ${instructions}`,
 		)
 		this.editor.setAutocompleteProvider(this.autocompleteProvider)
 	}
-
 	/**
 	 * Load custom slash commands from all sources:
-	 * - Global: ~/.opencode/command and ~/.mastra/commands
-	 * - Local: .opencode/command and .mastra/commands
+	 * - Global: ~/.opencode/command, ~/.claude/commands, and ~/.mastracode/commands
+	 * - Local: .opencode/command, .claude/commands, and .mastracode/commands
 	 */
 	private async loadCustomSlashCommands(): Promise<void> {
 		try {
@@ -3647,6 +3653,9 @@ ${modeList}`)
   /exit     - Exit the TUI
   /help     - Show this help${customCommandsHelp}
 
+Shell:
+  !<cmd>    - Run a shell command directly (e.g., !ls -la)
+
 Keyboard shortcuts:
   Ctrl+C    - Interrupt agent / clear input
   Ctrl+C×2  - Exit process (double-tap)
@@ -4268,6 +4277,43 @@ Keyboard shortcuts:
 				return "Check your internet connection"
 			default:
 				return null
+		}
+	}
+	/**
+	 * Run a shell command directly and display the output in the chat.
+	 * Triggered by the `!` prefix (e.g., `!ls -la`).
+	 */
+	private async handleShellPassthrough(command: string): Promise<void> {
+		if (!command) {
+			this.showInfo("Usage: !<command> (e.g., !ls -la)")
+			return
+		}
+
+		try {
+			const { execa } = await import("execa")
+			const result = await execa(command, {
+				shell: true,
+				cwd: process.cwd(),
+				reject: false,
+				timeout: 30_000,
+				env: {
+					...process.env,
+					FORCE_COLOR: "1",
+				},
+			})
+
+			const component = new ShellOutputComponent(
+				command,
+				result.stdout ?? "",
+				result.stderr ?? "",
+				result.exitCode ?? 0,
+			)
+			this.chatContainer.addChild(component)
+			this.ui.requestRender()
+		} catch (error) {
+			this.showError(
+				error instanceof Error ? error.message : "Shell command failed",
+			)
 		}
 	}
 

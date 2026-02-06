@@ -3,6 +3,7 @@
  * This is an example of how to wire up the Harness and TUI together.
  */
 import { Agent } from "@mastra/core/agent"
+import { noopLogger } from "@mastra/core/logger"
 import type { RequestContext } from "@mastra/core/request-context"
 import { ModelRouterLanguageModel } from "@mastra/core/llm"
 import {
@@ -30,7 +31,11 @@ import {
 import { AuthStorage } from "./auth/storage.js"
 import { HookManager } from "./hooks/index.js"
 import { MCPManager } from "./mcp/index.js"
-import { detectProject, getDatabasePath } from "./utils/project.js"
+import {
+	detectProject,
+	getDatabasePath,
+	getAppDataDir,
+} from "./utils/project.js"
 import { startGatewaySync } from "./utils/gateway-sync.js"
 import {
 	createViewTool,
@@ -561,6 +566,10 @@ const codeAgent = new Agent({
 	},
 })
 
+// Suppress @mastra/core's internal ConsoleLogger which dumps raw error objects
+// to the terminal. Our harness already catches and formats these errors properly.
+codeAgent.__setLogger(noopLogger)
+
 // =============================================================================
 // Anthropic Provider Tools (web search & fetch - zero implementation needed)
 // =============================================================================
@@ -694,9 +703,35 @@ const tui = new MastraTUI({
 			console.log(`MCP: Failed to connect to "${s.name}": ${s.error}`)
 		}
 	}
+	// Redirect console.error/warn to a log file once the TUI owns the terminal.
+	// @mastra/core internally uses console.error/warn to dump raw error objects
+	// (e.g., "Error in LLM execution", "Error in agent stream") which corrupt the
+	// TUI display. Our harness already catches and formats these errors properly.
+	const logFile = path.join(getAppDataDir(), "debug.log")
+	const logStream = fs.createWriteStream(logFile, { flags: "a" })
+	const fmt = (a: unknown): string => {
+		if (typeof a === "string") return a
+		if (a instanceof Error) return `${a.name}: ${a.message}`
+		try {
+			return JSON.stringify(a)
+		} catch {
+			return String(a)
+		}
+	}
+	const originalConsoleError = console.error.bind(console)
+	console.error = (...args: unknown[]) => {
+		logStream.write(
+			`[ERROR] ${new Date().toISOString()} ${args.map(fmt).join(" ")}\n`,
+		)
+	}
+	console.warn = (...args: unknown[]) => {
+		logStream.write(
+			`[WARN] ${new Date().toISOString()} ${args.map(fmt).join(" ")}\n`,
+		)
+	}
 
 	tui.run().catch((error) => {
-		console.error("Fatal error:", error)
+		originalConsoleError("Fatal error:", error)
 		process.exit(1)
 	})
 })()

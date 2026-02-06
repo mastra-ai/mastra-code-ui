@@ -131,10 +131,9 @@ export async function scanCommandDirectory(
 
 	return commands
 }
-
 /**
  * Load custom slash commands from all configured directories
- * Priority: mastra project > opencode project > mastra user > opencode user
+ * Priority: mastra project > claude project > opencode project > mastra user > claude user > opencode user
  */
 export async function loadCustomCommands(
 	projectDir?: string,
@@ -161,14 +160,21 @@ export async function loadCustomCommands(
 		addCommands(opencodeUserCommands)
 	}
 
-	// 2. Load from mastra user directory ~/.mastracode/commands
+	// 2. Load from claude user directory ~/.claude/commands (Claude Code compat)
+	if (homeDir) {
+		const claudeUserDir = path.join(homeDir, ".claude", "commands")
+		const claudeUserCommands = await scanCommandDirectory(claudeUserDir)
+		addCommands(claudeUserCommands)
+	}
+
+	// 3. Load from mastra user directory ~/.mastracode/commands
 	if (homeDir) {
 		const mastraUserDir = path.join(homeDir, ".mastracode", "commands")
 		const mastraUserCommands = await scanCommandDirectory(mastraUserDir)
 		addCommands(mastraUserCommands)
 	}
 
-	// 3. Load from opencode project directory .opencode/command
+	// 4. Load from opencode project directory .opencode/command
 	if (projectDir) {
 		const opencodeProjectDir = path.join(projectDir, ".opencode", "command")
 		const opencodeProjectCommands =
@@ -176,7 +182,14 @@ export async function loadCustomCommands(
 		addCommands(opencodeProjectCommands)
 	}
 
-	// 4. Load from mastra project directory .mastracode/commands (highest priority)
+	// 5. Load from claude project directory .claude/commands (Claude Code compat)
+	if (projectDir) {
+		const claudeProjectDir = path.join(projectDir, ".claude", "commands")
+		const claudeProjectCommands = await scanCommandDirectory(claudeProjectDir)
+		addCommands(claudeProjectCommands)
+	}
+
+	// 6. Load from mastra project directory .mastracode/commands (highest priority)
 	if (projectDir) {
 		const mastraProjectDir = path.join(projectDir, ".mastracode", "commands")
 		const mastraProjectCommands = await scanCommandDirectory(mastraProjectDir)
