@@ -2314,17 +2314,16 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					}
 					break
 				}
-
 				case "data-om-observation-end": {
 					const payload = (chunk as any).data as Record<string, any> | undefined
 					if (payload && payload.cycleId) {
-						// Check if this is a reflection end (has compressedTokens) or observation end
-						if (payload.compressedTokens !== undefined) {
+						// Use operationType to distinguish reflection from observation
+						if (payload.operationType === "reflection") {
 							this.emit({
 								type: "om_reflection_end",
 								cycleId: payload.cycleId,
 								durationMs: payload.durationMs ?? 0,
-								compressedTokens: payload.compressedTokens,
+								compressedTokens: payload.observationTokens ?? 0,
 								observations: payload.observations,
 							})
 						} else {
