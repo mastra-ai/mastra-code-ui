@@ -1329,6 +1329,27 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		return thread
 	}
 	/**
+	 * Rename the current thread.
+	 */
+	async renameThread(title: string): Promise<void> {
+		if (!this.currentThreadId) return
+
+		const memoryStorage = await this.getMemoryStorage()
+		const thread = await memoryStorage.getThreadById({
+			threadId: this.currentThreadId,
+		})
+		if (thread) {
+			await memoryStorage.saveThread({
+				thread: {
+					...thread,
+					title,
+					updatedAt: new Date(),
+				},
+			})
+		}
+	}
+
+	/**
 	 * Switch to a different thread.
 	 */
 	async switchThread(threadId: string): Promise<void> {
@@ -1354,22 +1375,32 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			previousThreadId,
 		})
 	}
-
 	/**
-	 * List threads. By default lists only current resource's threads.
+	 * List threads. By default lists only threads for the current resource AND project path.
 	 * Pass `allResources: true` to list threads across all resources.
+	 * Pass `allPaths: true` to list threads across all paths for the current resource.
 	 */
 	async listThreads(options?: {
 		allResources?: boolean
+		allPaths?: boolean
 	}): Promise<HarnessThread[]> {
 		const memoryStorage = await this.getMemoryStorage()
+		const projectPath = (this.state as any)?.projectPath as string | undefined
+
+		const filter:
+			| { resourceId?: string; metadata?: Record<string, unknown> }
+			| undefined = options?.allResources
+			? undefined
+			: {
+					resourceId: this.resourceId,
+					...(!options?.allPaths && projectPath
+						? { metadata: { projectPath } }
+						: {}),
+				}
+
 		const result = await memoryStorage.listThreads({
 			perPage: options?.allResources ? false : undefined,
-			filter: options?.allResources
-				? undefined
-				: {
-						resourceId: this.resourceId,
-					},
+			filter,
 		})
 
 		return result.threads.map((thread: StorageThreadType) => ({

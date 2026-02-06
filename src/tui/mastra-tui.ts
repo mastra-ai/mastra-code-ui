@@ -77,6 +77,8 @@ import {
 } from "./components/todo-progress.js"
 import { UserMessageComponent } from "./components/user-message.js"
 import { SystemReminderComponent } from "./components/system-reminder.js"
+import { ShellOutputComponent } from "./components/shell-output.js"
+import { DiffOutputComponent } from "./components/diff-output.js"
 import {
 	getEditorTheme,
 	getMarkdownTheme,
@@ -146,7 +148,6 @@ export class MastraTUI {
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
-	private pendingTagPrompt = false // True when we should prompt to tag a resumed thread with current dir
 	private lastAskUserComponent?: IToolExecutionComponent // Track the most recent ask_user tool for inline question placement
 
 	// Status line state
@@ -203,9 +204,19 @@ export class MastraTUI {
 	// Ctrl+C double-tap tracking
 	private lastCtrlCTime = 0
 	private static readonly DOUBLE_CTRL_C_MS = 500
-
 	// Track user-initiated aborts (Ctrl+C/Esc) vs system aborts (mode switch, etc.)
 	private userInitiatedAbort = false
+
+	// Track files modified during this session (for /diff command)
+	private modifiedFiles = new Map<
+		string,
+		{ operations: string[]; firstModified: Date }
+	>()
+	// Map toolCallId -> { toolName, filePath } for pending tool calls that modify files
+	private pendingFileTools = new Map<
+		string,
+		{ toolName: string; filePath: string }
+	>()
 
 	// Event handling
 	private unsubscribe?: () => void
@@ -385,6 +396,12 @@ export class MastraTUI {
 					if (handled) continue
 				}
 
+				// Handle shell passthrough (! prefix)
+				if (userInput.startsWith("!")) {
+					await this.handleShellPassthrough(userInput.slice(1).trim())
+					continue
+				}
+
 				// Create thread lazily on first message (may load last-used model)
 				if (this.pendingNewThread) {
 					await this.harness.createThread()
@@ -519,19 +536,8 @@ export class MastraTUI {
 
 		// Render existing messages
 		await this.renderExistingMessages()
-
 		// Render existing todos if any
 		await this.renderExistingTodos()
-
-		// If we resumed a thread that doesn't match the current directory,
-		// prompt the user to tag it so it auto-resumes next time
-		if (this.pendingTagPrompt) {
-			this.pendingTagPrompt = false
-			// Use setTimeout to let the UI render first
-			setTimeout(() => {
-				this.tagThreadWithDir()
-			}, 100)
-		}
 	}
 
 	/**
@@ -552,177 +558,30 @@ export class MastraTUI {
 			// Silently ignore todo rendering errors
 		}
 	}
-
 	/**
 	 * Prompt user to continue existing thread or start new one.
 	 * This runs before the TUI is fully initialized.
+	 * Threads are already scoped to the current project path by listThreads().
 	 */
 	private async promptForThreadSelection(): Promise<void> {
 		const threads = await this.harness.listThreads()
 
 		if (threads.length === 0) {
-			// No existing threads - defer creation until first message
+			// No existing threads for this path - defer creation until first message
 			this.pendingNewThread = true
 			return
 		}
-
-		// Get current project path from harness state
-		const currentPath = (this.harness.getState() as any)?.projectPath as
-			| string
-			| undefined
 
 		// Sort by most recent
 		const sortedThreads = [...threads].sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		)
 
-		// Prefer the most recent thread from the current directory.
-		// Fall back to the overall most recent thread if no directory match
-		// (handles old threads without projectPath metadata).
-		let mostRecent: (typeof sortedThreads)[0]
-		let isDirectoryMatch = false
-		if (currentPath) {
-			const dirThread = sortedThreads.find(
-				(t) => t.metadata?.projectPath === currentPath,
-			)
-			if (dirThread) {
-				mostRecent = dirThread
-				isDirectoryMatch = true
-			} else {
-				mostRecent = sortedThreads[0]
-			}
-		} else {
-			mostRecent = sortedThreads[0]
-		}
+		const mostRecent = sortedThreads[0]
 
-		// If the thread is tagged with this directory, auto-resume it
-		if (isDirectoryMatch) {
-			await this.harness.switchThread(mostRecent.id)
-			return
-		}
-
-		// Get first user message for preview
-		const firstUserMessage = await this.harness.getFirstUserMessageForThread(
-			mostRecent.id,
-		)
-		const previewText = firstUserMessage
-			? this.truncatePreview(this.extractTextContent(firstUserMessage))
-			: null
-
-		// Format the time ago
-		const timeAgo = this.formatTimeAgo(mostRecent.updatedAt)
-		const shortId = mostRecent.id.slice(-6)
-		const displayName = `${mostRecent.resourceId}/${shortId}`
-		const threadPath = mostRecent.metadata?.projectPath as string | undefined
-
-		// Show prompt in terminal (before TUI takes over)
-		console.log(fg("dim", "─".repeat(60)))
-		console.log()
-		console.log(fg("accent", "  Found existing conversation:"))
-		console.log(`  ${displayName} ${fg("dim", `(${timeAgo})`)}`)
-		if (threadPath) {
-			console.log(`  ${fg("dim", threadPath)}`)
-		}
-		if (previewText) {
-			console.log(`  ${fg("muted", `"${previewText}"`)}`)
-		}
-		console.log()
-
-		// Simple y/n prompt
-		const answer = await this.promptYesNo("  Continue this conversation?", true)
-
-		if (answer) {
-			// Resume the existing thread
-			await this.harness.switchThread(mostRecent.id)
-			// Prompt to tag with current directory so it auto-resumes next time
-			this.pendingTagPrompt = true
-		} else {
-			// Defer new thread creation until first message
-			this.pendingNewThread = true
-		}
-
-		// Clear the prompt lines
-		console.log()
+		// Auto-resume the most recent thread for this directory
+		await this.harness.switchThread(mostRecent.id)
 	}
-
-	/**
-	 * Simple yes/no prompt that works before TUI is initialized.
-	 */
-	private async promptYesNo(
-		question: string,
-		defaultYes: boolean,
-	): Promise<boolean> {
-		const hint = defaultYes ? "[Y/n]" : "[y/N]"
-		process.stdout.write(`${question} ${fg("dim", hint)} `)
-
-		// If not a TTY (piped input), use default
-		if (!process.stdin.isTTY) {
-			console.log(defaultYes ? "yes" : "no")
-			return defaultYes
-		}
-
-		return new Promise((resolve) => {
-			const stdin = process.stdin
-			const wasRaw = stdin.isRaw
-
-			stdin.setRawMode(true)
-			stdin.resume()
-			stdin.setEncoding("utf8")
-
-			const onData = (key: string) => {
-				stdin.setRawMode(wasRaw ?? false)
-				stdin.pause()
-				stdin.removeListener("data", onData)
-
-				// Handle the input
-				const char = key.toLowerCase()
-
-				if (char === "\r" || char === "\n" || char === " ") {
-					// Enter/space = use default
-					console.log(defaultYes ? "yes" : "no")
-					resolve(defaultYes)
-				} else if (char === "y") {
-					console.log("yes")
-					resolve(true)
-				} else if (char === "n") {
-					console.log("no")
-					resolve(false)
-				} else if (char === "\x03") {
-					// Ctrl+C
-					console.log()
-					process.exit(0)
-				} else {
-					// Invalid input, use default
-					console.log(defaultYes ? "yes" : "no")
-					resolve(defaultYes)
-				}
-			}
-
-			stdin.on("data", onData)
-		})
-	}
-
-	/**
-	 * Format a date as a relative time string.
-	 */
-	private formatTimeAgo(date: Date): string {
-		const now = new Date()
-		const diffMs = now.getTime() - date.getTime()
-		const diffMins = Math.floor(diffMs / 60000)
-		const diffHours = Math.floor(diffMs / 3600000)
-		const diffDays = Math.floor(diffMs / 86400000)
-
-		if (diffMins < 1) return "just now"
-		if (diffMins < 60)
-			return `${diffMins} minute${diffMins !== 1 ? "s" : ""} ago`
-		if (diffHours < 24)
-			return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`
-		if (diffDays === 1) return "1 day ago"
-		if (diffDays < 7) return `${diffDays} days ago`
-
-		return date.toLocaleDateString()
-	}
-
 	/**
 	 * Extract text content from a harness message.
 	 */
@@ -752,7 +611,7 @@ export class MastraTUI {
 		const instructions = [
 			`${fg("muted", "Ctrl+C")} interrupt/clear  ${fg("muted", "Ctrl+C×2")} exit`,
 			`${fg("muted", "Enter")} while working → steer  ${fg("muted", "Ctrl+F")} → queue follow-up`,
-			`${fg("muted", "/")} commands  ${fg("muted", "Ctrl+T")} thinking  ${fg("muted", "Ctrl+E")} tools${this.harness.getModes().length > 1 ? `  ${fg("muted", "⇧Tab")} mode` : ""}`,
+			`${fg("muted", "/")} commands  ${fg("muted", "!")} shell  ${fg("muted", "Ctrl+T")} thinking  ${fg("muted", "Ctrl+E")} tools${this.harness.getModes().length > 1 ? `  ${fg("muted", "⇧Tab")} mode` : ""}`,
 		].join("\n")
 
 		this.ui.addChild(new Spacer(1))
@@ -1146,6 +1005,8 @@ ${instructions}`,
 			{ name: "login", description: "Login with OAuth provider" },
 			{ name: "skills", description: "List available skills" },
 			{ name: "cost", description: "Show token usage and estimated costs" },
+			{ name: "diff", description: "Show modified files or git diff" },
+			{ name: "name", description: "Rename current thread" },
 			{ name: "logout", description: "Logout from OAuth provider" },
 			{ name: "hooks", description: "Show/reload configured hooks" },
 			{ name: "mcp", description: "Show/reload MCP server connections" },
@@ -1157,6 +1018,7 @@ ${instructions}`,
 				name: "sandbox",
 				description: "Manage allowed paths (add/remove directories)",
 			},
+			{ name: "review", description: "Review a GitHub pull request" },
 			{ name: "exit", description: "Exit the TUI" },
 			{ name: "help", description: "Show available commands" },
 		]
@@ -1182,11 +1044,10 @@ ${instructions}`,
 		)
 		this.editor.setAutocompleteProvider(this.autocompleteProvider)
 	}
-
 	/**
 	 * Load custom slash commands from all sources:
-	 * - Global: ~/.opencode/command and ~/.mastra/commands
-	 * - Local: .opencode/command and .mastra/commands
+	 * - Global: ~/.opencode/command, ~/.claude/commands, and ~/.mastracode/commands
+	 * - Local: .opencode/command, .claude/commands, and .mastracode/commands
 	 */
 	private async loadCustomSlashCommands(): Promise<void> {
 		try {
@@ -2074,10 +1935,19 @@ ${instructions}`,
 			if (toolName === "ask_user") {
 				this.lastAskUserComponent = component
 			}
-
 			// Track submit_plan tool components for inline plan approval placement
 			if (toolName === "submit_plan") {
 				this.lastSubmitPlanComponent = component
+			}
+
+			// Track file-modifying tools for /diff command
+			const FILE_TOOLS = ["string_replace_lsp", "write_file", "ast_smart_edit"]
+			if (FILE_TOOLS.includes(toolName)) {
+				const toolArgs = args as Record<string, unknown>
+				const filePath = toolArgs?.path as string
+				if (filePath) {
+					this.pendingFileTools.set(toolCallId, { toolName, filePath })
+				}
 			}
 
 			// Create a new post-tool AssistantMessageComponent so pre-tool text is preserved
@@ -2416,7 +2286,6 @@ ${instructions}`,
 			approvalComponent.focused = true
 		})
 	}
-
 	private handleToolEnd(
 		toolCallId: string,
 		result: unknown,
@@ -2431,6 +2300,21 @@ ${instructions}`,
 			// Store it temporarily
 			;(subagentComponent as any)._pendingResult = resultText
 		}
+
+		// Track successful file modifications for /diff command
+		const pendingFile = this.pendingFileTools.get(toolCallId)
+		if (pendingFile && !isError) {
+			const existing = this.modifiedFiles.get(pendingFile.filePath)
+			if (existing) {
+				existing.operations.push(pendingFile.toolName)
+			} else {
+				this.modifiedFiles.set(pendingFile.filePath, {
+					operations: [pendingFile.toolName],
+					firstModified: new Date(),
+				})
+			}
+		}
+		this.pendingFileTools.delete(toolCallId)
 
 		const component = this.pendingTools.get(toolCallId)
 		if (component) {
@@ -3639,6 +3523,8 @@ ${instructions}`,
 				this.chatContainer.clear()
 				this.pendingTools.clear()
 				this.allToolComponents = []
+				this.modifiedFiles.clear()
+				this.pendingFileTools.clear()
 				this.resetStatusLineState()
 				this.ui.requestRender()
 				this.showInfo("Ready for new conversation")
@@ -3728,9 +3614,28 @@ ${modeList}`)
 				await this.showLoginSelector("logout")
 				return true
 			}
-
 			case "cost": {
 				await this.showCostBreakdown()
+				return true
+			}
+
+			case "diff": {
+				await this.showDiff(args[0])
+				return true
+			}
+
+			case "name": {
+				const title = args.join(" ").trim()
+				if (!title) {
+					this.showInfo("Usage: /name <title>")
+					return true
+				}
+				if (!this.harness.getCurrentThreadId()) {
+					this.showInfo("No active thread. Send a message first.")
+					return true
+				}
+				await this.harness.renameThread(title)
+				this.showInfo(`Thread renamed to: ${title}`)
 				return true
 			}
 
@@ -3760,13 +3665,16 @@ ${modeList}`)
   /new       - Start a new thread
   /threads       - Switch between threads
   /thread:tag-dir - Tag thread with current directory
+  /name          - Rename current thread
   /skills        - List available skills
   /models    - Configure model (global/thread/mode)
   /subagents - Configure subagent model defaults
   /om       - Configure Observational Memory
   /think    - Set thinking level (Anthropic)
+  /review   - Review a GitHub pull request
   /yolo     - Toggle YOLO mode (auto-approve tools)
   /cost     - Show token usage and estimated costs
+  /diff     - Show modified files or git diff for a path
   /sandbox  - Manage sandbox allowed paths
   /hooks    - Show/reload configured hooks
   /mcp      - Show/reload MCP server connections
@@ -3774,6 +3682,9 @@ ${modeList}`)
   /logout   - Logout from OAuth provider${modeHelp}
   /exit     - Exit the TUI
   /help     - Show this help${customCommandsHelp}
+
+Shell:
+  !<cmd>    - Run a shell command directly (e.g., !ls -la)
 
 Keyboard shortcuts:
   Ctrl+C    - Interrupt agent / clear input
@@ -3937,6 +3848,10 @@ Keyboard shortcuts:
 				this.showInfo(lines.join("\n"))
 				return true
 			}
+			case "review": {
+				await this.handleReviewCommand(args)
+				return true
+			}
 
 			default: {
 				// Fall back to custom commands for single-slash input
@@ -3951,6 +3866,77 @@ Keyboard shortcuts:
 				return true
 			}
 		}
+	}
+	/**
+	 * Handle the /review command — send a PR review prompt to the agent.
+	 * With no args: lists open PRs. With a PR number: reviews that PR.
+	 */
+	private async handleReviewCommand(args: string[]): Promise<void> {
+		if (!this.harness.hasModelSelected()) {
+			this.showInfo(
+				"No model selected. Use /models to select a model, or /login to authenticate.",
+			)
+			return
+		}
+
+		// Ensure thread exists
+		if (this.pendingNewThread) {
+			await this.harness.createThread()
+			this.pendingNewThread = false
+			this.updateStatusLine()
+		}
+
+		const prNumber = args[0]
+		const focusArea = args.slice(1).join(" ")
+
+		let prompt: string
+
+		if (!prNumber) {
+			// No PR specified — list open PRs and ask
+			prompt =
+				`List the open pull requests for this repository using \`gh pr list --limit 20\`. ` +
+				`Present them in a clear table with PR number, title, and author. ` +
+				`Then ask me which PR I'd like you to review.`
+		} else {
+			// PR number given — do a thorough review
+			prompt =
+				`Do a thorough code review of PR #${prNumber}. Follow these steps:\n\n` +
+				`1. Run \`gh pr view ${prNumber}\` to get the PR description and metadata.\n` +
+				`2. Run \`gh pr diff ${prNumber}\` to get the full diff.\n` +
+				`3. Run \`gh pr checks ${prNumber}\` to check CI status.\n` +
+				`4. Read any relevant source files for full context on the changes.\n` +
+				`5. Provide a detailed code review covering:\n` +
+				`   - Overview of what the PR does\n` +
+				`   - Root cause analysis (if it's a fix)\n` +
+				`   - Code quality assessment\n` +
+				`   - Potential concerns or edge cases\n` +
+				`   - CI status\n` +
+				`   - Suggestions for improvement\n` +
+				`   - Final verdict (approve/request changes/comment)\n`
+
+			if (focusArea) {
+				prompt += `\nPay special attention to: ${focusArea}\n`
+			}
+		}
+
+		// Show what's happening
+		this.addUserMessage({
+			id: `user-${Date.now()}`,
+			role: "user",
+			content: [
+				{
+					type: "text",
+					text: prNumber ? `/review ${args.join(" ")}` : "/review",
+				},
+			],
+			createdAt: new Date(),
+		})
+		this.ui.requestRender()
+
+		// Send to the agent
+		this.harness.sendMessage(prompt).catch((error) => {
+			this.showError(error instanceof Error ? error.message : "Review failed")
+		})
 	}
 
 	/**
@@ -4396,6 +4382,140 @@ Keyboard shortcuts:
 				return "Check your internet connection"
 			default:
 				return null
+		}
+	}
+	/**
+	 * Show file changes tracked during this session.
+	 * With no args: shows summary of all modified files.
+	 * With a path: shows git diff for that specific file.
+	 */
+	private async showDiff(filePath?: string): Promise<void> {
+		if (filePath) {
+			// Show git diff for a specific file
+			try {
+				const { execa } = await import("execa")
+				const result = await execa("git", ["diff", filePath], {
+					cwd: process.cwd(),
+					reject: false,
+				})
+
+				if (!result.stdout.trim()) {
+					// Try staged diff
+					const staged = await execa("git", ["diff", "--cached", filePath], {
+						cwd: process.cwd(),
+						reject: false,
+					})
+					if (!staged.stdout.trim()) {
+						this.showInfo(`No changes detected for: ${filePath}`)
+						return
+					}
+					const component = new DiffOutputComponent(
+						`git diff --cached ${filePath}`,
+						staged.stdout,
+					)
+					this.chatContainer.addChild(component)
+					this.ui.requestRender()
+					return
+				}
+
+				const component = new DiffOutputComponent(
+					`git diff ${filePath}`,
+					result.stdout,
+				)
+				this.chatContainer.addChild(component)
+				this.ui.requestRender()
+			} catch (error) {
+				this.showError(
+					error instanceof Error ? error.message : "Failed to get diff",
+				)
+			}
+			return
+		}
+
+		// No path specified — show summary of all tracked modified files
+		if (this.modifiedFiles.size === 0) {
+			// Fall back to git diff --stat
+			try {
+				const { execa } = await import("execa")
+				const result = await execa("git", ["diff", "--stat"], {
+					cwd: process.cwd(),
+					reject: false,
+				})
+				const staged = await execa("git", ["diff", "--cached", "--stat"], {
+					cwd: process.cwd(),
+					reject: false,
+				})
+
+				const output = [result.stdout, staged.stdout].filter(Boolean).join("\n")
+				if (output.trim()) {
+					const component = new DiffOutputComponent("git diff --stat", output)
+					this.chatContainer.addChild(component)
+					this.ui.requestRender()
+				} else {
+					this.showInfo(
+						"No file changes detected in this session or working tree.",
+					)
+				}
+			} catch {
+				this.showInfo("No file changes tracked in this session.")
+			}
+			return
+		}
+
+		const lines: string[] = [`Modified files (${this.modifiedFiles.size}):`]
+		for (const [filePath, info] of this.modifiedFiles) {
+			const opCounts = new Map<string, number>()
+			for (const op of info.operations) {
+				opCounts.set(op, (opCounts.get(op) || 0) + 1)
+			}
+			const ops = Array.from(opCounts.entries())
+				.map(([op, count]) => (count > 1 ? `${op}×${count}` : op))
+				.join(", ")
+			lines.push(`  ${fg("path", filePath)} ${fg("muted", `(${ops})`)}`)
+		}
+		lines.push("")
+		lines.push(
+			fg("muted", "Use /diff <path> to see the git diff for a specific file."),
+		)
+
+		this.showInfo(lines.join("\n"))
+	}
+
+	/**
+	 * Run a shell command directly and display the output in the chat.
+	 * Triggered by the `!` prefix (e.g., `!ls -la`).
+	 */
+	private async handleShellPassthrough(command: string): Promise<void> {
+		if (!command) {
+			this.showInfo("Usage: !<command> (e.g., !ls -la)")
+			return
+		}
+
+		try {
+			const { execa } = await import("execa")
+			const result = await execa(command, {
+				shell: true,
+				cwd: process.cwd(),
+				reject: false,
+				timeout: 30_000,
+				env: {
+					...process.env,
+					FORCE_COLOR: "1",
+				},
+			})
+
+			const component = new ShellOutputComponent(
+				command,
+				result.stdout ?? "",
+				result.stderr ?? "",
+				result.exitCode ?? 0,
+			)
+			this.chatContainer.addChild(component)
+			this.ui.requestRender()
+		} catch (error) {
+			this.showError(
+				error instanceof Error ? error.message : "Shell command failed",
+			)
 		}
 	}
 

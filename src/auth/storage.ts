@@ -27,8 +27,8 @@ import type {
  * Used when auto-selecting a model after login.
  */
 export const PROVIDER_DEFAULT_MODELS: Record<OAuthProviderId, string> = {
-	anthropic: "anthropic/claude-opus-4-20250514",
-	"openai-codex": "openai/gpt-5.2-codex",
+	anthropic: "anthropic/claude-opus-4-6",
+	"openai-codex": "openai/gpt-5.3-codex",
 }
 
 // Provider registry

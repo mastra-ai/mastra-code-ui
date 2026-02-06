@@ -41,11 +41,9 @@ export interface SubagentToolDeps {
 }
 
 // Default model for subagent tasks — fast and cheap
-const DEFAULT_SUBAGENT_MODEL = "anthropic/claude-sonnet-4-6"
+const DEFAULT_SUBAGENT_MODEL = "anthropic/claude-opus-4-6"
 // Explore subagents can use Cerebras for speed when available
-const EXPLORE_SUBAGENT_MODEL = process.env.CEREBRAS_API_KEY
-	? "cerebras/zai-glm-4.7"
-	: DEFAULT_SUBAGENT_MODEL
+const EXPLORE_SUBAGENT_MODEL = DEFAULT_SUBAGENT_MODEL
 
 export function createSubagentTool(deps: SubagentToolDeps) {
 	const allAgentTypes = getSubagentIds()
