@@ -2239,6 +2239,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 								payload.observationTokensPercent ??
 								payload.reflectionThresholdPercent ??
 								0,
+							bufferedMessageTokens: payload.bufferedMessageTokens ?? 0,
+							bufferedObservationTokens: payload.bufferedObservationTokens ?? 0,
 						})
 					}
 					break

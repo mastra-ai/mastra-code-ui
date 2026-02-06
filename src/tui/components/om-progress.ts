@@ -16,6 +16,8 @@ export interface OMProgressState {
 	observationTokens: number
 	reflectionThreshold: number
 	reflectionThresholdPercent: number
+	bufferedMessageTokens: number
+	bufferedObservationTokens: number
 	cycleId?: string
 	startTime?: number
 }
@@ -33,6 +35,8 @@ export class OMProgressComponent extends Container {
 		observationTokens: 0,
 		reflectionThreshold: 40000,
 		reflectionThresholdPercent: 0,
+		bufferedMessageTokens: 0,
+		bufferedObservationTokens: 0,
 	}
 	private statusText: Text
 
@@ -196,12 +200,15 @@ export function formatObservationStatus(
 		return styleLabel("msg ") + pct
 	}
 	const label = compact === "full" ? "messages" : "msg"
+	const fraction = `${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`
+	const buffered =
+		state.bufferedMessageTokens > 0
+			? chalk.dim(`(-${formatTokensThreshold(state.bufferedMessageTokens)})`)
+			: ""
 	return (
 		styleLabel(`${label} `) +
-		colorByPercent(
-			`${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`,
-			percent,
-		) +
+		colorByPercent(fraction, percent) +
+		buffered +
 		" " +
 		pct
 	)
@@ -230,12 +237,17 @@ export function formatReflectionStatus(
 		return styleLabel("obs ") + pct
 	}
 	const label = compact === "full" ? "observations" : "obs"
+	const fraction = `${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`
+	const buffered =
+		state.bufferedObservationTokens > 0
+			? chalk.dim(
+					`(-${formatTokensThreshold(state.bufferedObservationTokens)})`,
+				)
+			: ""
 	return (
 		styleLabel(`${label} `) +
-		colorByPercent(
-			`${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`,
-			percent,
-		) +
+		colorByPercent(fraction, percent) +
+		buffered +
 		" " +
 		pct
 	)

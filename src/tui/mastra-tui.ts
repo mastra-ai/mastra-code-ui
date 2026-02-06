@@ -172,6 +172,8 @@ export class MastraTUI {
 		observationTokens: 0,
 		reflectionThreshold: 40000,
 		reflectionThresholdPercent: 0,
+		bufferedMessageTokens: 0,
+		bufferedObservationTokens: 0,
 	}
 	private omProgressComponent?: OMProgressComponent
 	private activeOMMarker?: OMMarkerComponent
@@ -1269,13 +1271,14 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
+				if (this.activeBufferingMarker) {
+					this.activeBufferingMarker.update({
+						type: "om_buffering_end",
+						operationType: event.operationType,
+						tokensBuffered: event.tokensBuffered,
+					})
+				}
 				this.activeBufferingMarker = undefined
-				const bufferEndMarker = new OMMarkerComponent({
-					type: "om_buffering_end",
-					operationType: event.operationType,
-					tokensBuffered: event.tokensBuffered,
-				})
-				this.addOMMarkerToChat(bufferEndMarker)
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
@@ -1286,13 +1289,14 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
+				if (this.activeBufferingMarker) {
+					this.activeBufferingMarker.update({
+						type: "om_buffering_failed",
+						operationType: event.operationType,
+						error: event.error,
+					})
+				}
 				this.activeBufferingMarker = undefined
-				const bufferFailedMarker = new OMMarkerComponent({
-					type: "om_buffering_failed",
-					operationType: event.operationType,
-					error: event.error,
-				})
-				this.addOMMarkerToChat(bufferFailedMarker)
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
@@ -1483,6 +1487,8 @@ ${instructions}`,
 			observationTokens: 0,
 			reflectionThreshold: this.omProgress.reflectionThreshold,
 			reflectionThresholdPercent: 0,
+			bufferedMessageTokens: 0,
+			bufferedObservationTokens: 0,
 		}
 		this.tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 		this.bufferingMessages = false
@@ -1522,7 +1528,6 @@ ${instructions}`,
 		}
 		this.chatContainer.addChild(output)
 	}
-
 	private handleOMProgress(event: {
 		pendingTokens: number
 		threshold: number
@@ -1530,6 +1535,8 @@ ${instructions}`,
 		observationTokens: number
 		reflectionThreshold: number
 		reflectionThresholdPercent: number
+		bufferedMessageTokens: number
+		bufferedObservationTokens: number
 	}): void {
 		// Don't let a pre-observation progress event overwrite the post-observation reset
 		if (
@@ -1544,6 +1551,9 @@ ${instructions}`,
 			this.omProgress.reflectionThresholdPercent =
 				event.reflectionThresholdPercent ??
 				this.omProgress.reflectionThresholdPercent
+			this.omProgress.bufferedMessageTokens = event.bufferedMessageTokens
+			this.omProgress.bufferedObservationTokens =
+				event.bufferedObservationTokens
 			this.updateStatusLine()
 			return
 		}
@@ -1556,6 +1566,8 @@ ${instructions}`,
 		this.omProgress.reflectionThresholdPercent =
 			event.reflectionThresholdPercent ??
 			this.omProgress.reflectionThresholdPercent
+		this.omProgress.bufferedMessageTokens = event.bufferedMessageTokens
+		this.omProgress.bufferedObservationTokens = event.bufferedObservationTokens
 		this.updateStatusLine()
 	}
 

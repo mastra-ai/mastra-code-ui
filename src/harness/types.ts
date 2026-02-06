@@ -248,6 +248,8 @@ export type HarnessEvent =
 			observationTokens: number
 			reflectionThreshold: number
 			reflectionThresholdPercent: number
+			bufferedMessageTokens: number
+			bufferedObservationTokens: number
 	  }
 	| {
 			type: "om_observation_start"
