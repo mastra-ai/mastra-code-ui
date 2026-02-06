@@ -527,8 +527,24 @@ export class ToolExecutionComponentEnhanced
 		// LSP diagnostics below the box
 		const diagnostics = this.parseLSPDiagnostics()
 		if (diagnostics && diagnostics.hasIssues) {
-			const maxLineWidth = termWidth - 4
+			const MAX_DIAG_LINES = 8
+			let diagCount = 0
+			const totalDiags = diagnostics.entries.length
 			for (const diag of diagnostics.entries) {
+				if (diagCount >= MAX_DIAG_LINES) {
+					const remaining = totalDiags - MAX_DIAG_LINES
+					this.contentBox.addChild(
+						new Text(
+							chalk.hex("#71717a")(
+								`  ... ${remaining} more diagnostic${remaining > 1 ? "s" : ""}`,
+							),
+							0,
+							0,
+						),
+					)
+					break
+				}
+				diagCount++
 				const color =
 					diag.severity === "error"
 						? "#e06c75"
@@ -541,21 +557,11 @@ export class ToolExecutionComponentEnhanced
 						: diag.severity === "warning"
 							? "⚠"
 							: "ℹ"
-				// Truncate file path from the beginning to preserve the error message
-				const prefix = `  ${icon} `
-				const messagePart = ` ${diag.message}`
-				const availableForLocation =
-					maxLineWidth - prefix.length - messagePart.length
-				let location = diag.location
-				if (
-					availableForLocation > 10 &&
-					location.length > availableForLocation
-				) {
-					location = "…" + location.slice(-(availableForLocation - 1))
-				}
-				const line = `  ${chalk.hex(color)(icon)} ${chalk.hex(color)(location)} ${chalk.hex("#a1a1aa")(diag.message)}`
-				const truncated = truncateAnsi(line, maxLineWidth)
-				this.contentBox.addChild(new Text(truncated, 0, 0))
+				const location = diag.location
+					? chalk.hex(color)(diag.location) + " "
+					: ""
+				const line = `  ${chalk.hex(color)(icon)} ${location}${chalk.hex("#a1a1aa")(diag.message)}`
+				this.contentBox.addChild(new Text(line, 0, 0))
 			}
 		}
 	}
@@ -596,7 +602,7 @@ export class ToolExecutionComponentEnhanced
 			} else if (trimmed === "Hints:") {
 				currentSeverity = "hint"
 			} else {
-				const match = trimmed.match(/^(.+:\d+:\d+)\s*-\s*(.+)$/)
+				const match = trimmed.match(/^((?:.*:)?\d+:\d+)\s*-\s*(.+)$/)
 				if (match) {
 					entries.push({
 						severity: currentSeverity,

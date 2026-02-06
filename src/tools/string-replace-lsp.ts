@@ -27,25 +27,19 @@ Usage notes:
 		new_str: z.string().optional(),
 		start_line: z.number().optional(),
 	}),
-    async execute(context, toolContext) {
-        const { path: filePath, old_str, new_str, start_line } = context
+	async execute(context, toolContext) {
+		const { path: filePath, old_str, new_str, start_line } = context
 
-        try {
-            // Convert relative paths to absolute (same logic as validatePath in utils.ts)
-            const absoluteFilePath = path.isAbsolute(filePath)
-                ? filePath
-                : path.join(process.cwd(), filePath)
+		try {
+			// Convert relative paths to absolute (same logic as validatePath in utils.ts)
+			const absoluteFilePath = path.isAbsolute(filePath)
+				? filePath
+				: path.join(process.cwd(), filePath)
 
-            // Security: ensure the path is within the project root or allowed paths
-            const root = process.cwd()
-            const allowedPaths = getAllowedPathsFromContext(toolContext)
-            assertPathAllowed(absoluteFilePath, root, allowedPaths)
-
-            // Create relative path for display
-            const cwd = process.cwd()
-            const relativeFilePath = absoluteFilePath.startsWith(cwd)
-                ? "./" + absoluteFilePath.slice(cwd.length + 1)
-                : filePath
+			// Security: ensure the path is within the project root or allowed paths
+			const root = process.cwd()
+			const allowedPaths = getAllowedPathsFromContext(toolContext)
+			assertPathAllowed(absoluteFilePath, root, allowedPaths)
 
 			// Call the FileEditor strReplace method
 			const result = await sharedFileEditor.strReplace({
@@ -76,43 +70,40 @@ Usage notes:
 						.catch(() => [])
 
 					if (diagnostics.length > 0) {
-						const errors = diagnostics.filter((d) => d.severity === 1)
-						const warnings = diagnostics.filter((d) => d.severity === 2)
-						const info = diagnostics.filter((d) => d.severity === 3)
-						const hints = diagnostics.filter((d) => d.severity === 4)
+						// Deduplicate diagnostics by location + message
+						const seen = new Set<string>()
+						const dedup = diagnostics.filter((d) => {
+							const key = `${d.severity}:${d.range.start.line}:${d.range.start.character}:${d.message}`
+							if (seen.has(key)) return false
+							seen.add(key)
+							return true
+						})
+
+						const errors = dedup.filter((d) => d.severity === 1)
+						const warnings = dedup.filter((d) => d.severity === 2)
+						const info = dedup.filter((d) => d.severity === 3)
+						const hints = dedup.filter((d) => d.severity === 4)
+
+						const formatDiags = (items: typeof dedup) =>
+							items
+								.map(
+									(d) =>
+										`  ${d.range.start.line + 1}:${d.range.start.character + 1} - ${d.message}`,
+								)
+								.join("\n")
 
 						let diagnosticText = ""
 						if (errors.length > 0) {
-							diagnosticText += `\nErrors:\n${errors
-								.map(
-									(d) =>
-										`  ${relativeFilePath}:${d.range.start.line + 1}:${d.range.start.character + 1} - ${d.message}`,
-								)
-								.join("\n")}`
+							diagnosticText += `\nErrors:\n${formatDiags(errors)}`
 						}
 						if (warnings.length > 0) {
-							diagnosticText += `\nWarnings:\n${warnings
-								.map(
-									(d) =>
-										`  ${relativeFilePath}:${d.range.start.line + 1}:${d.range.start.character + 1} - ${d.message}`,
-								)
-								.join("\n")}`
+							diagnosticText += `\nWarnings:\n${formatDiags(warnings)}`
 						}
 						if (info.length > 0) {
-							diagnosticText += `\nInfo:\n${info
-								.map(
-									(d) =>
-										`  ${relativeFilePath}:${d.range.start.line + 1}:${d.range.start.character + 1} - ${d.message}`,
-								)
-								.join("\n")}`
+							diagnosticText += `\nInfo:\n${formatDiags(info)}`
 						}
 						if (hints.length > 0) {
-							diagnosticText += `\nHints:\n${hints
-								.map(
-									(d) =>
-										`  ${relativeFilePath}:${d.range.start.line + 1}:${d.range.start.character + 1} - ${d.message}`,
-								)
-								.join("\n")}`
+							diagnosticText += `\nHints:\n${formatDiags(hints)}`
 						}
 
 						if (diagnosticText) {
