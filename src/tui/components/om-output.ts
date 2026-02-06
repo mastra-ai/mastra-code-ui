@@ -52,6 +52,44 @@ function truncateAnsi(str: string, maxWidth: number): string {
 	return result
 }
 
+/**
+ * Soft-wrap an array of lines to fit within maxWidth, preserving words where possible.
+ * Returns groups where each group corresponds to one original line split into wrapped segments.
+ */
+function softWrapLines(
+	lines: string[],
+	maxWidth: number,
+): { groups: string[][]; flat: string[] } {
+	const groups: string[][] = []
+	const flat: string[] = []
+	for (const line of lines) {
+		if (line.length <= maxWidth) {
+			groups.push([line])
+			flat.push(line)
+			continue
+		}
+		// Word-wrap: break at spaces when possible
+		const group: string[] = []
+		let remaining = line
+		while (remaining.length > maxWidth) {
+			let breakAt = remaining.lastIndexOf(" ", maxWidth)
+			if (breakAt <= 0) {
+				breakAt = maxWidth
+			}
+			const segment = remaining.slice(0, breakAt)
+			group.push(segment)
+			flat.push(segment)
+			remaining = remaining.slice(breakAt).replace(/^ /, "")
+		}
+		if (remaining.length > 0) {
+			group.push(remaining)
+			flat.push(remaining)
+		}
+		groups.push(group)
+	}
+	return { groups, flat }
+}
+
 export type OMOutputType = "observation" | "reflection"
 
 export interface OMOutputData {
@@ -83,7 +121,6 @@ export class OMOutputComponent extends Container {
 	toggleExpanded(): void {
 		this.setExpanded(!this.expanded)
 	}
-
 	private rebuild(): void {
 		this.clear()
 		this.addChild(new Spacer(1))
@@ -92,8 +129,16 @@ export class OMOutputComponent extends Container {
 		const color = isReflection ? REFLECTOR_COLOR : OBSERVER_COLOR
 		const border = (char: string) => chalk.bold.hex(color)(char)
 
-		// Prepare content lines
-		const lines = this.data.observations.split("\n")
+		const termWidth = process.stdout.columns || 80
+		const maxLineWidth = termWidth - 6 // "│ " prefix + buffer
+		// Soft-wrap all original lines to terminal width
+		const originalLines = this.data.observations.split("\n")
+		const { groups, flat: wrappedLines } = softWrapLines(
+			originalLines,
+			maxLineWidth,
+		)
+		const originalLineCount = originalLines.length
+		const wrappedLineCount = wrappedLines.length
 
 		// Build footer text with marker info (emoji + compression stats)
 		const footerText = this.buildFooterText(color)
@@ -102,47 +147,63 @@ export class OMOutputComponent extends Container {
 		this.addChild(new Text(border("┌──"), 0, 0))
 
 		// Content lines with left border
-		const termWidth = process.stdout.columns || 80
-		const maxLineWidth = termWidth - 6
 		let truncated = false
 		const borderedLines: string[] = []
-
-		if (!this.expanded && lines.length > COLLAPSED_LINES) {
-			const headCount = Math.ceil(COLLAPSED_LINES / 2)
-			const tailCount = COLLAPSED_LINES - headCount
-			const headLines = lines.slice(0, headCount)
-			const tailLines = lines.slice(-tailCount)
-			const remaining = lines.length - COLLAPSED_LINES
-			truncated = true
-
-			for (const line of headLines) {
-				borderedLines.push(
-					border("│") +
-						" " +
-						chalk.hex("#a1a1aa")(truncateAnsi(line, maxLineWidth)),
+		if (!this.expanded && wrappedLineCount > COLLAPSED_LINES + 1) {
+			// Collect head groups until we hit ~half the budget
+			const headBudget = Math.ceil(COLLAPSED_LINES / 2)
+			const headLines: string[] = []
+			let headGroupCount = 0
+			for (const group of groups) {
+				if (
+					headLines.length + group.length > headBudget &&
+					headLines.length > 0
 				)
+					break
+				headLines.push(...group)
+				headGroupCount++
 			}
-			borderedLines.push(
-				border("│") +
-					" " +
-					chalk.hex("#71717a")(
-						`... ${remaining} more lines (ctrl+e to expand)`,
-					),
-			)
-			for (const line of tailLines) {
+
+			// Collect tail groups from the end until we hit the other half
+			const tailBudget = COLLAPSED_LINES - headLines.length
+			const tailLines: string[] = []
+			let tailGroupStart = groups.length
+			for (let i = groups.length - 1; i >= headGroupCount; i--) {
+				if (
+					tailLines.length + groups[i].length > tailBudget &&
+					tailLines.length > 0
+				)
+					break
+				tailLines.unshift(...groups[i])
+				tailGroupStart = i
+			}
+
+			const hiddenGroups = tailGroupStart - headGroupCount
+			truncated = hiddenGroups > 0
+
+			if (truncated) {
+				for (const line of headLines) {
+					borderedLines.push(border("│") + " " + chalk.hex("#a1a1aa")(line))
+				}
 				borderedLines.push(
 					border("│") +
 						" " +
-						chalk.hex("#a1a1aa")(truncateAnsi(line, maxLineWidth)),
+						chalk.hex("#71717a")(
+							`... ${originalLineCount} lines total (ctrl+e to expand)`,
+						),
 				)
+				for (const line of tailLines) {
+					borderedLines.push(border("│") + " " + chalk.hex("#a1a1aa")(line))
+				}
+			} else {
+				// Edge case: all groups fit when snapped to boundaries
+				for (const line of wrappedLines) {
+					borderedLines.push(border("│") + " " + chalk.hex("#a1a1aa")(line))
+				}
 			}
 		} else {
-			for (const line of lines) {
-				borderedLines.push(
-					border("│") +
-						" " +
-						chalk.hex("#a1a1aa")(truncateAnsi(line, maxLineWidth)),
-				)
+			for (const line of wrappedLines) {
+				borderedLines.push(border("│") + " " + chalk.hex("#a1a1aa")(line))
 			}
 		}
 
