@@ -136,10 +136,10 @@ describe("FileEditor.strReplace whitespace-agnostic matching", () => {
 		expect(content).toContain("const a = 1")
 		expect(content).toContain("const c = 3")
 	})
-	it("re-indents new_str from spaces to tabs when file uses tabs", async () => {
+	it("uses new_str as-is without reindenting when whitespace-agnostic match", async () => {
 		// File uses tabs
 		const filePath = writeTmpFile(
-			"reindent-to-tabs.ts",
+			"no-reindent.ts",
 			[
 				"class Foo {",
 				"\tprivate bar() {",
@@ -151,7 +151,7 @@ describe("FileEditor.strReplace whitespace-agnostic matching", () => {
 			].join("\n"),
 		)
 
-		// old_str and new_str both use spaces (LLM sends spaces)
+		// old_str uses spaces (won't exact-match), new_str uses tabs
 		const result = await sharedFileEditor.strReplace({
 			path: filePath,
 			old_str: [
@@ -159,48 +159,6 @@ describe("FileEditor.strReplace whitespace-agnostic matching", () => {
 				"        const x = 1",
 				"        return x",
 				"    }",
-			].join("\n"),
-			new_str: [
-				"    private bar() {",
-				"        const x = 1",
-				"        const y = 2",
-				"        return x + y",
-				"    }",
-			].join("\n"),
-		})
-
-		expect(result).toContain("has been edited")
-		const content = fs.readFileSync(filePath, "utf-8")
-		// new_str should have been re-indented to tabs
-		expect(content).toContain("\t\tconst y = 2")
-		expect(content).toContain("\t\treturn x + y")
-		// Should NOT contain space-indented lines from new_str
-		expect(content).not.toContain("        const y = 2")
-	})
-
-	it("re-indents new_str from tabs to spaces when file uses spaces", async () => {
-		// File uses 2-space indentation
-		const filePath = writeTmpFile(
-			"reindent-to-spaces.ts",
-			[
-				"class Foo {",
-				"  private bar() {",
-				"    const x = 1",
-				"    return x",
-				"  }",
-				"}",
-				"",
-			].join("\n"),
-		)
-
-		// old_str and new_str use tabs (LLM sends tabs)
-		const result = await sharedFileEditor.strReplace({
-			path: filePath,
-			old_str: [
-				"\tprivate bar() {",
-				"\t\tconst x = 1",
-				"\t\treturn x",
-				"\t}",
 			].join("\n"),
 			new_str: [
 				"\tprivate bar() {",
@@ -213,29 +171,9 @@ describe("FileEditor.strReplace whitespace-agnostic matching", () => {
 
 		expect(result).toContain("has been edited")
 		const content = fs.readFileSync(filePath, "utf-8")
-		// new_str should have been re-indented to 2-space
-		expect(content).toContain("    const y = 2")
-		expect(content).toContain("    return x + y")
-		// Should NOT contain tab-indented lines
-		expect(content).not.toContain("\t\tconst y = 2")
-	})
-
-	it("preserves indentation when new_str already matches file style", async () => {
-		// File uses tabs, new_str also uses tabs — no conversion needed
-		const filePath = writeTmpFile(
-			"no-reindent.ts",
-			["function foo() {", "\tconst a = 1", "\treturn a", "}", ""].join("\n"),
-		)
-
-		const result = await sharedFileEditor.strReplace({
-			path: filePath,
-			old_str: ["    const a = 1", "    return a"].join("\n"),
-			new_str: ["\tconst a = 10", "\treturn a"].join("\n"),
-		})
-
-		expect(result).toContain("has been edited")
-		const content = fs.readFileSync(filePath, "utf-8")
-		expect(content).toContain("\tconst a = 10")
+		// new_str used as-is (tabs)
+		expect(content).toContain("\t\tconst y = 2")
+		expect(content).toContain("\t\treturn x + y")
 	})
 
 	it("handles a realistic 30+ line block with tab/space mismatch", async () => {
