@@ -1402,21 +1402,19 @@ ${instructions}`,
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
-
 			case "om_buffering_end":
 				if (event.operationType === "observation") {
 					this.bufferingMessages = false
 				} else {
 					this.bufferingObservations = false
 				}
-				if (this.activeBufferingMarker) {
-					this.activeBufferingMarker.update({
-						type: "om_buffering_end",
-						operationType: event.operationType,
-						tokensBuffered: event.tokensBuffered,
-					})
-					this.activeBufferingMarker = undefined
-				}
+				this.activeBufferingMarker = undefined
+				const bufferEndMarker = new OMMarkerComponent({
+					type: "om_buffering_end",
+					operationType: event.operationType,
+					tokensBuffered: event.tokensBuffered,
+				})
+				this.addOMMarkerToChat(bufferEndMarker)
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
@@ -1427,14 +1425,13 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
-				if (this.activeBufferingMarker) {
-					this.activeBufferingMarker.update({
-						type: "om_buffering_failed",
-						operationType: event.operationType,
-						error: event.error,
-					})
-					this.activeBufferingMarker = undefined
-				}
+				this.activeBufferingMarker = undefined
+				const bufferFailedMarker = new OMMarkerComponent({
+					type: "om_buffering_failed",
+					operationType: event.operationType,
+					error: event.error,
+				})
+				this.addOMMarkerToChat(bufferFailedMarker)
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
