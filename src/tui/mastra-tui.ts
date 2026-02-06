@@ -1445,14 +1445,15 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
-				if (this.activeBufferingMarker) {
-					this.activeBufferingMarker.update({
-						type: "om_activation",
-						operationType: event.operationType,
-						tokensActivated: event.tokensActivated,
-					})
-					this.activeBufferingMarker = undefined
-				}
+				// Always create a new inline marker for activation
+				const activationMarker = new OMMarkerComponent({
+					type: "om_activation",
+					operationType: event.operationType,
+					tokensActivated: event.tokensActivated,
+					observationTokens: event.observationTokens,
+				})
+				this.addOMMarkerToChat(activationMarker)
+				this.activeBufferingMarker = undefined
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
