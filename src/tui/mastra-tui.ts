@@ -2438,10 +2438,10 @@ ${instructions}`,
 		const container = new Container()
 		container.addChild(new Spacer(1))
 		container.addChild(new Text(headerText, 0, 0))
-
 		const MAX_VISIBLE = 4
-		const visible = collapsed ? todos.slice(0, MAX_VISIBLE) : todos
-		const remaining = collapsed ? todos.length - MAX_VISIBLE : 0
+		const shouldCollapse = collapsed && todos.length > MAX_VISIBLE + 1
+		const visible = shouldCollapse ? todos.slice(0, MAX_VISIBLE) : todos
+		const remaining = shouldCollapse ? todos.length - MAX_VISIBLE : 0
 
 		for (const todo of visible) {
 			const icon = chalk.green("\u2713")

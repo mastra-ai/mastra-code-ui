@@ -131,10 +131,9 @@ export class SubagentExecutionComponent
 				wrappedTaskLines.push(line)
 			}
 		}
-
 		const maxTaskLines = 5
 		const taskTruncated =
-			!this.expanded && wrappedTaskLines.length > maxTaskLines
+			!this.expanded && wrappedTaskLines.length > maxTaskLines + 1
 		const displayTaskLines = taskTruncated
 			? wrappedTaskLines.slice(0, maxTaskLines)
 			: wrappedTaskLines
@@ -167,8 +166,8 @@ export class SubagentExecutionComponent
 			const cap = this.done ? COLLAPSED_LINES : MAX_ACTIVITY_LINES
 			let displayLines = activityLines
 			let hiddenCount = 0
-
-			if (!this.expanded && activityLines.length > cap) {
+			const minHidden = this.done ? 2 : 1
+			if (!this.expanded && activityLines.length > cap + minHidden - 1) {
 				hiddenCount = activityLines.length - cap
 				if (this.done) {
 					// Show first N lines when collapsed (completed)
@@ -209,10 +208,10 @@ export class SubagentExecutionComponent
 			this.addChild(
 				new Text(`${border("│")} ${theme.fg("muted", "───")}`, 0, 0),
 			)
-
 			const resultLines = this.finalResult!.split("\n")
 			const maxResultLines = this.expanded ? resultLines.length : 10
-			const truncated = resultLines.length > maxResultLines
+			const truncated =
+				!this.expanded && resultLines.length > maxResultLines + 1
 			const displayLines = truncated
 				? resultLines.slice(-maxResultLines)
 				: resultLines

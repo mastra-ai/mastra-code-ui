@@ -290,7 +290,7 @@ export class ToolExecutionComponentEnhanced
 			// Limit lines when collapsed
 			const collapsedLines = 20
 			const totalLines = lines.length
-			const hasMore = !this.expanded && totalLines > collapsedLines
+			const hasMore = !this.expanded && totalLines > collapsedLines + 1
 
 			if (hasMore) {
 				lines = lines.slice(0, collapsedLines)
@@ -477,7 +477,7 @@ export class ToolExecutionComponentEnhanced
 			// Limit lines when collapsed
 			const collapsedLines = 15
 			const totalLines = diffLines.length
-			const hasMore = !this.expanded && totalLines > collapsedLines
+			const hasMore = !this.expanded && totalLines > collapsedLines + 1
 
 			let linesToShow = diffLines
 			if (hasMore) {
@@ -528,9 +528,11 @@ export class ToolExecutionComponentEnhanced
 		const diagnostics = this.parseLSPDiagnostics()
 		if (diagnostics && diagnostics.hasIssues) {
 			const COLLAPSED_DIAG_LINES = 3
-			const maxDiags = this.expanded
-				? diagnostics.entries.length
-				: COLLAPSED_DIAG_LINES
+			const shouldCollapse =
+				!this.expanded && diagnostics.entries.length > COLLAPSED_DIAG_LINES + 1
+			const maxDiags = shouldCollapse
+				? COLLAPSED_DIAG_LINES
+				: diagnostics.entries.length
 			const entriesToShow = diagnostics.entries.slice(0, maxDiags)
 			for (const diag of entriesToShow) {
 				const color =
@@ -551,7 +553,7 @@ export class ToolExecutionComponentEnhanced
 				const line = `  ${chalk.hex(color)(icon)} ${location}${chalk.hex("#a1a1aa")(diag.message)}`
 				this.contentBox.addChild(new Text(line, 0, 0))
 			}
-			if (!this.expanded && diagnostics.entries.length > COLLAPSED_DIAG_LINES) {
+			if (shouldCollapse) {
 				const remaining = diagnostics.entries.length - COLLAPSED_DIAG_LINES
 				this.contentBox.addChild(
 					new Text(
