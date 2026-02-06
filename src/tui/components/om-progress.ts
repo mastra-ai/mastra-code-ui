@@ -128,7 +128,7 @@ export class OMProgressComponent extends Container {
 	}
 
 	private renderProgressBar(percent: number, width: number): string {
-		const filled = Math.round((percent / 100) * width)
+		const filled = Math.min(width, Math.round((percent / 100) * width))
 		const empty = width - filled
 		const bar = "█".repeat(filled) + "░".repeat(empty)
 
@@ -188,7 +188,7 @@ export function formatObservationStatus(
 	labelStyler?: (label: string) => string,
 ): string {
 	// Status is now shown in the mode badge, so just show the metrics
-	const percent = Math.min(100, Math.round(state.thresholdPercent))
+	const percent = Math.round(state.thresholdPercent)
 	const pct = colorByPercent(`${percent}%`, percent)
 	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
 	const styleLabel = labelStyler ?? defaultStyler
@@ -222,7 +222,7 @@ export function formatReflectionStatus(
 	labelStyler?: (label: string) => string,
 ): string {
 	// Status is now shown in the mode badge, so just show the metrics
-	const percent = Math.min(100, Math.round(state.reflectionThresholdPercent))
+	const percent = Math.round(state.reflectionThresholdPercent)
 	const pct = colorByPercent(`${percent}%`, percent)
 	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
 	const styleLabel = labelStyler ?? defaultStyler
