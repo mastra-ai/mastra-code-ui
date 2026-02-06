@@ -74,7 +74,7 @@ You have access to the following tools. Use the RIGHT tool for the job:
 - Use for: git, npm/pnpm, docker, build tools, test runners, and other terminal operations.
 - Do NOT use for: file reading (use view), file search (use grep/glob), file editing (use string_replace_lsp/write_file).
 - Commands have a 30-second default timeout. Use the \`timeout\` parameter for longer-running commands.
-- Pipe to \`| tail -N\` for commands with long output — the full output streams to the user, only the last N lines are returned.
+- Pipe to \`| tail -N\` for commands with long output — the full output streams to the user, only the last N lines are returned to you. If you're building any kind of package you should be tailing.
 - Good: Run independent commands in parallel when possible.
 - Bad: Running \`cat file.txt\` — use the view tool instead.
 
