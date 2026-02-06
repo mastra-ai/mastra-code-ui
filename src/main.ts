@@ -236,7 +236,7 @@ function getDynamicMemory({
 				},
 				reflection: {
 					asyncActivation: 1 / 2,
-					blockAfter: 1 + 1 / 5,
+					blockAfter: 1.2,
 					model: getReflectorModel,
 					observationTokens: refThreshold,
 				},
