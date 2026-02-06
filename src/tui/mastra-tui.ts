@@ -146,7 +146,6 @@ export class MastraTUI {
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
-	private pendingTagPrompt = false // True when we should prompt to tag a resumed thread with current dir
 	private lastAskUserComponent?: IToolExecutionComponent // Track the most recent ask_user tool for inline question placement
 
 	// Status line state
@@ -519,19 +518,8 @@ export class MastraTUI {
 
 		// Render existing messages
 		await this.renderExistingMessages()
-
 		// Render existing todos if any
 		await this.renderExistingTodos()
-
-		// If we resumed a thread that doesn't match the current directory,
-		// prompt the user to tag it so it auto-resumes next time
-		if (this.pendingTagPrompt) {
-			this.pendingTagPrompt = false
-			// Use setTimeout to let the UI render first
-			setTimeout(() => {
-				this.tagThreadWithDir()
-			}, 100)
-		}
 	}
 
 	/**
@@ -552,177 +540,30 @@ export class MastraTUI {
 			// Silently ignore todo rendering errors
 		}
 	}
-
 	/**
 	 * Prompt user to continue existing thread or start new one.
 	 * This runs before the TUI is fully initialized.
+	 * Threads are already scoped to the current project path by listThreads().
 	 */
 	private async promptForThreadSelection(): Promise<void> {
 		const threads = await this.harness.listThreads()
 
 		if (threads.length === 0) {
-			// No existing threads - defer creation until first message
+			// No existing threads for this path - defer creation until first message
 			this.pendingNewThread = true
 			return
 		}
-
-		// Get current project path from harness state
-		const currentPath = (this.harness.getState() as any)?.projectPath as
-			| string
-			| undefined
 
 		// Sort by most recent
 		const sortedThreads = [...threads].sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		)
 
-		// Prefer the most recent thread from the current directory.
-		// Fall back to the overall most recent thread if no directory match
-		// (handles old threads without projectPath metadata).
-		let mostRecent: (typeof sortedThreads)[0]
-		let isDirectoryMatch = false
-		if (currentPath) {
-			const dirThread = sortedThreads.find(
-				(t) => t.metadata?.projectPath === currentPath,
-			)
-			if (dirThread) {
-				mostRecent = dirThread
-				isDirectoryMatch = true
-			} else {
-				mostRecent = sortedThreads[0]
-			}
-		} else {
-			mostRecent = sortedThreads[0]
-		}
+		const mostRecent = sortedThreads[0]
 
-		// If the thread is tagged with this directory, auto-resume it
-		if (isDirectoryMatch) {
-			await this.harness.switchThread(mostRecent.id)
-			return
-		}
-
-		// Get first user message for preview
-		const firstUserMessage = await this.harness.getFirstUserMessageForThread(
-			mostRecent.id,
-		)
-		const previewText = firstUserMessage
-			? this.truncatePreview(this.extractTextContent(firstUserMessage))
-			: null
-
-		// Format the time ago
-		const timeAgo = this.formatTimeAgo(mostRecent.updatedAt)
-		const shortId = mostRecent.id.slice(-6)
-		const displayName = `${mostRecent.resourceId}/${shortId}`
-		const threadPath = mostRecent.metadata?.projectPath as string | undefined
-
-		// Show prompt in terminal (before TUI takes over)
-		console.log(fg("dim", "─".repeat(60)))
-		console.log()
-		console.log(fg("accent", "  Found existing conversation:"))
-		console.log(`  ${displayName} ${fg("dim", `(${timeAgo})`)}`)
-		if (threadPath) {
-			console.log(`  ${fg("dim", threadPath)}`)
-		}
-		if (previewText) {
-			console.log(`  ${fg("muted", `"${previewText}"`)}`)
-		}
-		console.log()
-
-		// Simple y/n prompt
-		const answer = await this.promptYesNo("  Continue this conversation?", true)
-
-		if (answer) {
-			// Resume the existing thread
-			await this.harness.switchThread(mostRecent.id)
-			// Prompt to tag with current directory so it auto-resumes next time
-			this.pendingTagPrompt = true
-		} else {
-			// Defer new thread creation until first message
-			this.pendingNewThread = true
-		}
-
-		// Clear the prompt lines
-		console.log()
+		// Auto-resume the most recent thread for this directory
+		await this.harness.switchThread(mostRecent.id)
 	}
-
-	/**
-	 * Simple yes/no prompt that works before TUI is initialized.
-	 */
-	private async promptYesNo(
-		question: string,
-		defaultYes: boolean,
-	): Promise<boolean> {
-		const hint = defaultYes ? "[Y/n]" : "[y/N]"
-		process.stdout.write(`${question} ${fg("dim", hint)} `)
-
-		// If not a TTY (piped input), use default
-		if (!process.stdin.isTTY) {
-			console.log(defaultYes ? "yes" : "no")
-			return defaultYes
-		}
-
-		return new Promise((resolve) => {
-			const stdin = process.stdin
-			const wasRaw = stdin.isRaw
-
-			stdin.setRawMode(true)
-			stdin.resume()
-			stdin.setEncoding("utf8")
-
-			const onData = (key: string) => {
-				stdin.setRawMode(wasRaw ?? false)
-				stdin.pause()
-				stdin.removeListener("data", onData)
-
-				// Handle the input
-				const char = key.toLowerCase()
-
-				if (char === "\r" || char === "\n" || char === " ") {
-					// Enter/space = use default
-					console.log(defaultYes ? "yes" : "no")
-					resolve(defaultYes)
-				} else if (char === "y") {
-					console.log("yes")
-					resolve(true)
-				} else if (char === "n") {
-					console.log("no")
-					resolve(false)
-				} else if (char === "\x03") {
-					// Ctrl+C
-					console.log()
-					process.exit(0)
-				} else {
-					// Invalid input, use default
-					console.log(defaultYes ? "yes" : "no")
-					resolve(defaultYes)
-				}
-			}
-
-			stdin.on("data", onData)
-		})
-	}
-
-	/**
-	 * Format a date as a relative time string.
-	 */
-	private formatTimeAgo(date: Date): string {
-		const now = new Date()
-		const diffMs = now.getTime() - date.getTime()
-		const diffMins = Math.floor(diffMs / 60000)
-		const diffHours = Math.floor(diffMs / 3600000)
-		const diffDays = Math.floor(diffMs / 86400000)
-
-		if (diffMins < 1) return "just now"
-		if (diffMins < 60)
-			return `${diffMins} minute${diffMins !== 1 ? "s" : ""} ago`
-		if (diffHours < 24)
-			return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`
-		if (diffDays === 1) return "1 day ago"
-		if (diffDays < 7) return `${diffDays} days ago`
-
-		return date.toLocaleDateString()
-	}
-
 	/**
 	 * Extract text content from a harness message.
 	 */
