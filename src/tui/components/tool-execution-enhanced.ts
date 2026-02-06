@@ -541,7 +541,19 @@ export class ToolExecutionComponentEnhanced
 						: diag.severity === "warning"
 							? "⚠"
 							: "ℹ"
-				const line = `  ${chalk.hex(color)(icon)} ${chalk.hex(color)(diag.location)} ${chalk.hex("#a1a1aa")(diag.message)}`
+				// Truncate file path from the beginning to preserve the error message
+				const prefix = `  ${icon} `
+				const messagePart = ` ${diag.message}`
+				const availableForLocation =
+					maxLineWidth - prefix.length - messagePart.length
+				let location = diag.location
+				if (
+					availableForLocation > 10 &&
+					location.length > availableForLocation
+				) {
+					location = "…" + location.slice(-(availableForLocation - 1))
+				}
+				const line = `  ${chalk.hex(color)(icon)} ${chalk.hex(color)(location)} ${chalk.hex("#a1a1aa")(diag.message)}`
 				const truncated = truncateAnsi(line, maxLineWidth)
 				this.contentBox.addChild(new Text(truncated, 0, 0))
 			}
