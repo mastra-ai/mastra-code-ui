@@ -1464,10 +1464,9 @@ ${instructions}`,
 						todos &&
 						todos.length > 0 &&
 						todos.every((t) => t.status === "completed")
-
 					if (allCompleted) {
-						// Show full completed list
-						this.renderCompletedTodosInline(todos, insertIndex)
+						// Show collapsed completed list (pinned/live)
+						this.renderCompletedTodosInline(todos, insertIndex, true)
 					} else if (todos && todos.length > 0) {
 						// Show inline status of what changed
 						this.renderTodoUpdateInline(todos, this.previousTodos, insertIndex)
@@ -2399,6 +2398,7 @@ ${instructions}`,
 	private renderCompletedTodosInline(
 		todos: TodoItem[],
 		insertIndex = -1,
+		collapsed = false,
 	): void {
 		const headerText =
 			bold(fg("accent", "Tasks")) +
@@ -2408,10 +2408,26 @@ ${instructions}`,
 		container.addChild(new Spacer(1))
 		container.addChild(new Text(headerText, 0, 0))
 
-		for (const todo of todos) {
+		const MAX_VISIBLE = 4
+		const visible = collapsed ? todos.slice(0, MAX_VISIBLE) : todos
+		const remaining = collapsed ? todos.length - MAX_VISIBLE : 0
+
+		for (const todo of visible) {
 			const icon = chalk.green("\u2713")
 			const text = chalk.green(todo.content)
 			container.addChild(new Text(`  ${icon} ${text}`, 0, 0))
+		}
+		if (remaining > 0) {
+			container.addChild(
+				new Text(
+					fg(
+						"dim",
+						`  ... ${remaining} more completed task${remaining > 1 ? "s" : ""} (ctrl+e to expand)`,
+					),
+					0,
+					0,
+				),
+			)
 		}
 
 		if (insertIndex >= 0) {

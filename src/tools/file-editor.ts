@@ -3,6 +3,107 @@ import { exec } from "child_process"
 import { promisify } from "util"
 import { distance } from "fastest-levenshtein"
 
+interface IndentStyle {
+	type: "tabs" | "spaces"
+	size: number // spaces per indent level (1 for tabs)
+}
+
+/**
+ * Detect the indentation style used in a file by examining leading whitespace.
+ */
+function detectIndent(content: string): IndentStyle {
+	let tabLines = 0
+	let spaceLines = 0
+	const spaceCounts: number[] = []
+
+	for (const line of content.split("\n")) {
+		if (!line || !line.trim()) continue
+		const leadingMatch = line.match(/^(\s+)/)
+		if (!leadingMatch) continue
+		const leading = leadingMatch[1]
+		if (leading[0] === "\t") {
+			tabLines++
+		} else {
+			spaceLines++
+			spaceCounts.push(leading.length)
+		}
+	}
+
+	if (tabLines > spaceLines) {
+		return { type: "tabs", size: 1 }
+	}
+
+	// Detect indent size from GCDs of space counts
+	if (spaceCounts.length > 0) {
+		const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
+		const nonZero = spaceCounts.filter((n) => n > 0)
+		const indentSize = nonZero.length > 0 ? nonZero.reduce(gcd) : 4
+		// Clamp to common values
+		return {
+			type: "spaces",
+			size: indentSize <= 0 ? 4 : Math.min(indentSize, 8),
+		}
+	}
+
+	return { type: "spaces", size: 4 }
+}
+
+/**
+ * Get the indent level of a line given an indent style.
+ * Returns fractional levels if the line doesn't align perfectly.
+ */
+function getIndentLevel(line: string, style: IndentStyle): number {
+	const match = line.match(/^(\s*)/)
+	if (!match || !match[1]) return 0
+	const leading = match[1]
+	if (style.type === "tabs") {
+		// Count tabs, treat spaces as fractional
+		let tabs = 0
+		for (const ch of leading) {
+			if (ch === "\t") tabs++
+			else break
+		}
+		return tabs
+	}
+	// Count spaces
+	let spaces = 0
+	for (const ch of leading) {
+		if (ch === " ") spaces++
+		else break
+	}
+	return spaces / style.size
+}
+
+/**
+ * Re-indent a string from one indent style to another.
+ * Detects indent style of `str`, then converts each line to use `targetStyle`.
+ */
+function reindent(str: string, targetStyle: IndentStyle): string {
+	if (!str) return str
+	const sourceStyle = detectIndent(str)
+	// If styles already match, no conversion needed
+	if (
+		sourceStyle.type === targetStyle.type &&
+		sourceStyle.size === targetStyle.size
+	) {
+		return str
+	}
+
+	const targetChar = targetStyle.type === "tabs" ? "\t" : " "
+	const targetRepeat = targetStyle.type === "tabs" ? 1 : targetStyle.size
+
+	return str
+		.split("\n")
+		.map((line) => {
+			if (!line.trim()) return line // preserve blank lines
+			const level = getIndentLevel(line, sourceStyle)
+			const content = line.trimStart()
+			const indentCount = Math.round(level) * targetRepeat
+			return targetChar.repeat(indentCount) + content
+		})
+		.join("\n")
+}
+
 function removeWhitespace(str: string): string {
 	return str
 		.replace(/\t/g, "") // tabs to spaces
@@ -177,14 +278,16 @@ export class FileEditor {
 					}
 					if (bestMatch.start !== -1) break
 				}
-
 				if (bestMatch.start !== -1) {
-					// Found the match! Replace it while preserving the structure
+					// Found the match! Re-indent new_str to match the file's style
+					const fileIndent = detectIndent(fileContent)
+					const reindented = reindent(args.new_str || "", fileIndent)
+
 					const beforeLines = lines.slice(0, bestMatch.start)
 					const afterLines = lines.slice(bestMatch.end + 1)
 					const newFileContent = [
 						...beforeLines,
-						args.new_str || "",
+						reindented,
 						...afterLines,
 					].join("\n")
 
