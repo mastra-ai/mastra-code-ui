@@ -252,6 +252,7 @@ export type HarnessEvent =
 						status: "idle" | "running" | "complete"
 						chunks: number
 						messageTokens: number
+						projectedMessageRemoval: number
 						observationTokens: number
 					}
 					reflection: {

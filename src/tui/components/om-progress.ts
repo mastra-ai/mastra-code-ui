@@ -24,6 +24,7 @@ export interface OMProgressState {
 			status: OMBufferedStatus
 			chunks: number
 			messageTokens: number
+			projectedMessageRemoval: number
 			observationTokens: number
 		}
 		reflection: {
@@ -52,6 +53,7 @@ export function defaultOMProgressState(): OMProgressState {
 				status: "idle",
 				chunks: 0,
 				messageTokens: 0,
+				projectedMessageRemoval: 0,
 				observationTokens: 0,
 			},
 			reflection: {
@@ -235,9 +237,9 @@ export function formatObservationStatus(
 	const label = compact === "full" ? "messages" : "msg"
 	const fraction = `${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`
 	const buffered =
-		state.buffered.observations.messageTokens > 0
+		state.buffered.observations.projectedMessageRemoval > 0
 			? chalk.hex("#555")(
-					` ↓${formatTokensThreshold(state.buffered.observations.messageTokens)}`,
+					` ↓${formatTokensThreshold(state.buffered.observations.projectedMessageRemoval)}`,
 				)
 			: ""
 	return (

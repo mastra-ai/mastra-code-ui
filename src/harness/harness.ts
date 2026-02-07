@@ -1182,6 +1182,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				status: "idle" as "idle" | "running" | "complete",
 				chunks: 0,
 				messageTokens: 0,
+				projectedMessageRemoval: 0,
 				observationTokens: 0,
 			}
 			let bufferedRef = {
@@ -1230,6 +1231,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 								status: bo.status ?? "idle",
 								chunks: bo.chunks ?? 0,
 								messageTokens: bo.messageTokens ?? 0,
+								projectedMessageRemoval: bo.projectedMessageRemoval ?? 0,
 								observationTokens: bo.observationTokens ?? 0,
 							}
 						}
@@ -2289,6 +2291,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 										status: buffObs.status ?? "idle",
 										chunks: buffObs.chunks ?? 0,
 										messageTokens: buffObs.messageTokens ?? 0,
+										projectedMessageRemoval:
+											buffObs.projectedMessageRemoval ?? 0,
 										observationTokens: buffObs.observationTokens ?? 0,
 									},
 									reflection: {
