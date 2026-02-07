@@ -234,7 +234,7 @@ function getDynamicMemory({
 					asyncActivation: 2 / 3,
 					model: getObserverModel,
 					messageTokens: obsThreshold,
-					blockAfter: 1 + 1 / 2,
+					blockAfter: 1.75,
 					modelSettings: {
 						maxOutputTokens: 60000,
 					},
