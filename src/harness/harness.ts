@@ -1132,9 +1132,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			this.tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 		}
 	}
-
 	/**
-	 * Load Observational Memory progress from storage and emit an om_progress event.
+	 * Load Observational Memory status from storage and emit an om_status event.
 	 * Called on thread load/switch so the TUI status line reflects current state.
 	 * Also callable by the TUI after subscribing to ensure initial state is populated.
 	 */
@@ -1176,11 +1175,24 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				40_000,
 			)
 
-			// Try to get accurate counts from the most recent data-om-progress part in messages
-			let pendingTokens = record.pendingMessageTokens ?? 0
+			// Defaults from the OM record
+			let messageTokens = record.pendingMessageTokens ?? 0
 			let observationTokens = record.observationTokenCount ?? 0
+			let bufferedObs = {
+				status: "idle" as "idle" | "running" | "complete",
+				chunks: 0,
+				messageTokens: 0,
+				observationTokens: 0,
+			}
+			let bufferedRef = {
+				status: "idle" as "idle" | "running" | "complete",
+				inputObservationTokens: 0,
+				observationTokens: 0,
+			}
+			let generationCount = 0
+			let stepNumber = 0
 
-			// Scan recent messages for data-om-progress parts which have accurate counts
+			// Scan recent messages for the most recent data-om-status part
 			const messagesResult = await memoryStorage.listMessages({
 				threadId: this.currentThreadId,
 				perPage: 70,
@@ -1188,53 +1200,79 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				orderBy: { field: "createdAt", direction: "DESC" },
 			})
 			const messages = messagesResult.messages
-
+			let foundStatus = false
 			for (const msg of messages) {
 				if (msg.role !== "assistant") continue
-				// MastraDBMessage content is MastraMessageContentV2: { format: 2, parts: [...] }
 				const content = msg.content as MastraMessageContentV2 | string
 				if (typeof content === "string" || !content?.parts) continue
 
-				// Find the last data-om-progress part in this message
 				for (let i = content.parts.length - 1; i >= 0; i--) {
 					const part = content.parts[i] as {
 						type?: string
 						data?: Record<string, any>
 					}
-					if (part.type === "data-om-progress" && part.data) {
-						if (part.data.pendingTokens !== undefined) {
-							pendingTokens = part.data.pendingTokens
+					if (part.type === "data-om-status" && part.data?.windows) {
+						const w = part.data.windows
+						messageTokens = w.active?.messages?.tokens ?? messageTokens
+						observationTokens =
+							w.active?.observations?.tokens ?? observationTokens
+						// Override thresholds if present in the status
+						const msgThresh = w.active?.messages?.threshold
+						const obsThresh = w.active?.observations?.threshold
+						if (msgThresh)
+							Object.assign(config ?? {}, { observationThreshold: msgThresh })
+						if (obsThresh)
+							Object.assign(config ?? {}, { reflectionThreshold: obsThresh })
+						// Buffered state
+						const bo = w.buffered?.observations
+						if (bo) {
+							bufferedObs = {
+								status: bo.status ?? "idle",
+								chunks: bo.chunks ?? 0,
+								messageTokens: bo.messageTokens ?? 0,
+								observationTokens: bo.observationTokens ?? 0,
+							}
 						}
-						if (part.data.observationTokens !== undefined) {
-							observationTokens = part.data.observationTokens
+						const br = w.buffered?.reflection
+						if (br) {
+							bufferedRef = {
+								status: br.status ?? "idle",
+								inputObservationTokens: br.inputObservationTokens ?? 0,
+								observationTokens: br.observationTokens ?? 0,
+							}
 						}
+						generationCount = part.data.generationCount ?? 0
+						stepNumber = part.data.stepNumber ?? 0
+						foundStatus = true
 						break
 					}
 				}
-				// Stop once we've found OM progress data
-				if (pendingTokens !== (record.pendingMessageTokens ?? 0)) break
+				if (foundStatus) break
 			}
 
-			const thresholdPercent =
-				observationThreshold > 0
-					? (pendingTokens / observationThreshold) * 100
-					: 0
-			const reflectionThresholdPercent =
-				reflectionThreshold > 0
-					? (observationTokens / reflectionThreshold) * 100
-					: 0
-
 			this.emit({
-				type: "om_progress",
-				pendingTokens,
-				threshold: observationThreshold,
-				thresholdPercent,
-				observationTokens,
-				reflectionThreshold,
-				reflectionThresholdPercent,
-				bufferedMessageTokens: 0,
-				bufferedObservationTokens: 0,
-			} as HarnessEvent)
+				type: "om_status",
+				windows: {
+					active: {
+						messages: {
+							tokens: messageTokens,
+							threshold: observationThreshold,
+						},
+						observations: {
+							tokens: observationTokens,
+							threshold: reflectionThreshold,
+						},
+					},
+					buffered: {
+						observations: bufferedObs,
+						reflection: bufferedRef,
+					},
+				},
+				recordId: (record as any).id ?? "",
+				threadId: this.currentThreadId,
+				stepNumber,
+				generationCount,
+			})
 		} catch {
 			// OM not available or not initialized — that's fine
 		}
@@ -1832,7 +1870,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					})
 					break
 				}
-				// Skip other part types (step-start, data-om-progress, etc.)
+				// Skip other part types (step-start, data-om-status, etc.)
 			}
 		}
 
@@ -2220,34 +2258,54 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					}
 					break
 				}
-
 				// Observational Memory data parts
 				// NOTE: OM data parts arrive as { type, data: { ... } } — NOT { type, payload }
-				case "data-om-progress": {
-					const payload = (chunk as any).data as Record<string, any> | undefined
-					if (payload && payload.pendingTokens !== undefined) {
+				case "data-om-status": {
+					const d = (chunk as any).data as Record<string, any> | undefined
+					if (d?.windows) {
+						const w = d.windows
+						const active = w.active ?? {}
+						const msgs = active.messages ?? {}
+						const obs = active.observations ?? {}
+						const buffObs = w.buffered?.observations ?? {}
+						const buffRef = w.buffered?.reflection ?? {}
+
+						// Emit new om_status event
 						this.emit({
-							type: "om_progress",
-							pendingTokens: payload.pendingTokens,
-							threshold: payload.messageTokens ?? payload.threshold ?? 0,
-							thresholdPercent:
-								payload.messageTokensPercent ?? payload.thresholdPercent ?? 0,
-							observationTokens: payload.observationTokens ?? 0,
-							reflectionThreshold:
-								payload.observationTokensThreshold ??
-								payload.reflectionThreshold ??
-								0,
-							reflectionThresholdPercent:
-								payload.observationTokensPercent ??
-								payload.reflectionThresholdPercent ??
-								0,
-							bufferedMessageTokens: payload.bufferedMessageTokens ?? 0,
-							bufferedObservationTokens: payload.bufferedObservationTokens ?? 0,
+							type: "om_status",
+							windows: {
+								active: {
+									messages: {
+										tokens: msgs.tokens ?? 0,
+										threshold: msgs.threshold ?? 0,
+									},
+									observations: {
+										tokens: obs.tokens ?? 0,
+										threshold: obs.threshold ?? 0,
+									},
+								},
+								buffered: {
+									observations: {
+										status: buffObs.status ?? "idle",
+										chunks: buffObs.chunks ?? 0,
+										messageTokens: buffObs.messageTokens ?? 0,
+										observationTokens: buffObs.observationTokens ?? 0,
+									},
+									reflection: {
+										status: buffRef.status ?? "idle",
+										inputObservationTokens: buffRef.inputObservationTokens ?? 0,
+										observationTokens: buffRef.observationTokens ?? 0,
+									},
+								},
+							},
+							recordId: d.recordId ?? "",
+							threadId: d.threadId ?? "",
+							stepNumber: d.stepNumber ?? 0,
+							generationCount: d.generationCount ?? 0,
 						})
 					}
 					break
 				}
-
 				case "data-om-observation-start": {
 					const payload = (chunk as any).data as Record<string, any> | undefined
 					if (payload && payload.cycleId) {
@@ -2339,6 +2397,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 							cycleId: payload.cycleId,
 							operationType: payload.operationType ?? "observation",
 							tokensBuffered: payload.tokensBuffered ?? 0,
+							bufferedTokens: payload.bufferedTokens ?? 0,
 							observations: payload.observations,
 						})
 					}
@@ -2365,8 +2424,11 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 							type: "om_activation",
 							cycleId: payload.cycleId,
 							operationType: payload.operationType ?? "observation",
+							chunksActivated: payload.chunksActivated ?? 0,
 							tokensActivated: payload.tokensActivated ?? 0,
 							observationTokens: payload.observationTokens ?? 0,
+							messagesActivated: payload.messagesActivated ?? 0,
+							generationCount: payload.generationCount ?? 0,
 						})
 					}
 					break

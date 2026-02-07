@@ -241,15 +241,30 @@ export type HarnessEvent =
 	  }
 	// Observational Memory events
 	| {
-			type: "om_progress"
-			pendingTokens: number
-			threshold: number
-			thresholdPercent: number
-			observationTokens: number
-			reflectionThreshold: number
-			reflectionThresholdPercent: number
-			bufferedMessageTokens: number
-			bufferedObservationTokens: number
+			type: "om_status"
+			windows: {
+				active: {
+					messages: { tokens: number; threshold: number }
+					observations: { tokens: number; threshold: number }
+				}
+				buffered: {
+					observations: {
+						status: "idle" | "running" | "complete"
+						chunks: number
+						messageTokens: number
+						observationTokens: number
+					}
+					reflection: {
+						status: "idle" | "running" | "complete"
+						inputObservationTokens: number
+						observationTokens: number
+					}
+				}
+			}
+			recordId: string
+			threadId: string
+			stepNumber: number
+			generationCount: number
 	  }
 	| {
 			type: "om_observation_start"
@@ -304,6 +319,7 @@ export type HarnessEvent =
 			cycleId: string
 			operationType: "observation" | "reflection"
 			tokensBuffered: number
+			bufferedTokens: number
 			observations?: string
 	  }
 	| {
@@ -316,8 +332,11 @@ export type HarnessEvent =
 			type: "om_activation"
 			cycleId: string
 			operationType: "observation" | "reflection"
+			chunksActivated: number
 			tokensActivated: number
 			observationTokens: number
+			messagesActivated: number
+			generationCount: number
 	  }
 	| { type: "follow_up_queued"; count: number }
 	// Workspace events

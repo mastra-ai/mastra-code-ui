@@ -54,6 +54,7 @@ import { OMSettingsComponent } from "./components/om-settings.js"
 import {
 	OMProgressComponent,
 	type OMProgressState,
+	defaultOMProgressState,
 	formatObservationStatus,
 	formatReflectionStatus,
 } from "./components/om-progress.js"
@@ -162,22 +163,12 @@ export class MastraTUI {
 	private modelAuthStatus: { hasAuth: boolean; apiKeyEnvVar?: string } = {
 		hasAuth: true,
 	}
-
 	// Observational Memory state
-	private omProgress: OMProgressState = {
-		status: "idle",
-		pendingTokens: 0,
-		threshold: 30000,
-		thresholdPercent: 0,
-		observationTokens: 0,
-		reflectionThreshold: 40000,
-		reflectionThresholdPercent: 0,
-		bufferedMessageTokens: 0,
-		bufferedObservationTokens: 0,
-	}
+	private omProgress: OMProgressState = defaultOMProgressState()
 	private omProgressComponent?: OMProgressComponent
 	private activeOMMarker?: OMMarkerComponent
 	private activeBufferingMarker?: OMMarkerComponent
+	private activeActivationMarker?: OMMarkerComponent
 	// Buffering state — drives statusline label animation
 	private bufferingMessages = false
 	private bufferingObservations = false
@@ -1210,10 +1201,9 @@ ${instructions}`,
 			case "usage_update":
 				this.handleUsageUpdate(event.usage)
 				break
-
 			// Observational Memory events
-			case "om_progress":
-				this.handleOMProgress(event)
+			case "om_status":
+				this.handleOMStatus(event)
 				break
 
 			case "om_observation_start":
@@ -1256,6 +1246,7 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = true
 				}
+				this.activeActivationMarker = undefined
 				this.activeBufferingMarker = new OMMarkerComponent({
 					type: "om_buffering_start",
 					operationType: event.operationType,
@@ -1300,21 +1291,25 @@ ${instructions}`,
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
-
 			case "om_activation":
 				if (event.operationType === "observation") {
 					this.bufferingMessages = false
 				} else {
 					this.bufferingObservations = false
 				}
-				// Always create a new inline marker for activation
-				const activationMarker = new OMMarkerComponent({
+				// Deduplicate: update existing activation marker in-place if one exists
+				const activationData: OMMarkerData = {
 					type: "om_activation",
 					operationType: event.operationType,
 					tokensActivated: event.tokensActivated,
 					observationTokens: event.observationTokens,
-				})
-				this.addOMMarkerToChat(activationMarker)
+				}
+				if (this.activeActivationMarker) {
+					this.activeActivationMarker.update(activationData)
+				} else {
+					this.activeActivationMarker = new OMMarkerComponent(activationData)
+					this.addOMMarkerToChat(this.activeActivationMarker)
+				}
 				this.activeBufferingMarker = undefined
 				this.updateStatusLine()
 				this.ui.requestRender()
@@ -1477,18 +1472,13 @@ ${instructions}`,
 				: 0
 		this.updateStatusLine()
 	}
-
 	private resetStatusLineState(): void {
+		const prev = this.omProgress
 		this.omProgress = {
-			status: "idle",
-			pendingTokens: 0,
-			threshold: this.omProgress.threshold,
-			thresholdPercent: 0,
-			observationTokens: 0,
-			reflectionThreshold: this.omProgress.reflectionThreshold,
-			reflectionThresholdPercent: 0,
-			bufferedMessageTokens: 0,
-			bufferedObservationTokens: 0,
+			...defaultOMProgressState(),
+			// Preserve thresholds across resets
+			threshold: prev.threshold,
+			reflectionThreshold: prev.reflectionThreshold,
 		}
 		this.tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 		this.bufferingMessages = false
@@ -1528,46 +1518,38 @@ ${instructions}`,
 		}
 		this.chatContainer.addChild(output)
 	}
-	private handleOMProgress(event: {
-		pendingTokens: number
-		threshold: number
-		thresholdPercent: number
-		observationTokens: number
-		reflectionThreshold: number
-		reflectionThresholdPercent: number
-		bufferedMessageTokens: number
-		bufferedObservationTokens: number
-	}): void {
-		// Don't let a pre-observation progress event overwrite the post-observation reset
-		if (
-			this.omProgress.status === "observing" ||
-			this.omProgress.status === "reflecting"
-		) {
-			// Only update thresholds and observation tokens, not pending counts
-			this.omProgress.threshold = event.threshold
-			this.omProgress.observationTokens = event.observationTokens
-			this.omProgress.reflectionThreshold =
-				event.reflectionThreshold ?? this.omProgress.reflectionThreshold
-			this.omProgress.reflectionThresholdPercent =
-				event.reflectionThresholdPercent ??
-				this.omProgress.reflectionThresholdPercent
-			this.omProgress.bufferedMessageTokens = event.bufferedMessageTokens
-			this.omProgress.bufferedObservationTokens =
-				event.bufferedObservationTokens
-			this.updateStatusLine()
-			return
-		}
-		this.omProgress.pendingTokens = event.pendingTokens
-		this.omProgress.threshold = event.threshold
-		this.omProgress.thresholdPercent = event.thresholdPercent
-		this.omProgress.observationTokens = event.observationTokens
-		this.omProgress.reflectionThreshold =
-			event.reflectionThreshold ?? this.omProgress.reflectionThreshold
+	private handleOMStatus(
+		event: Extract<HarnessEvent, { type: "om_status" }>,
+	): void {
+		const { windows, generationCount, stepNumber } = event
+		const { active, buffered } = windows
+
+		// Update active window state
+		this.omProgress.pendingTokens = active.messages.tokens
+		this.omProgress.threshold = active.messages.threshold
+		this.omProgress.thresholdPercent =
+			active.messages.threshold > 0
+				? (active.messages.tokens / active.messages.threshold) * 100
+				: 0
+		this.omProgress.observationTokens = active.observations.tokens
+		this.omProgress.reflectionThreshold = active.observations.threshold
 		this.omProgress.reflectionThresholdPercent =
-			event.reflectionThresholdPercent ??
-			this.omProgress.reflectionThresholdPercent
-		this.omProgress.bufferedMessageTokens = event.bufferedMessageTokens
-		this.omProgress.bufferedObservationTokens = event.bufferedObservationTokens
+			active.observations.threshold > 0
+				? (active.observations.tokens / active.observations.threshold) * 100
+				: 0
+
+		// Update buffered state
+		this.omProgress.buffered = {
+			observations: { ...buffered.observations },
+			reflection: { ...buffered.reflection },
+		}
+		this.omProgress.generationCount = generationCount
+		this.omProgress.stepNumber = stepNumber
+
+		// Drive buffering animation from status fields
+		this.bufferingMessages = buffered.observations.status === "running"
+		this.bufferingObservations = buffered.reflection.status === "running"
+
 		this.updateStatusLine()
 	}
 
