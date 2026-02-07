@@ -4073,8 +4073,10 @@ Keyboard shortcuts:
 			this.chatContainer.addChild(userComponent)
 
 			// Track follow-up components sent while streaming so tool calls
-			// can be inserted before them (keeping them anchored at bottom)
-			if (this.isAgentActive) {
+			// can be inserted before them (keeping them anchored at bottom).
+			// Only track if the agent is already streaming a response — otherwise
+			// this is the initial message that triggers the response, not a follow-up.
+			if (this.isAgentActive && this.streamingComponent) {
 				this.followUpComponents.push(userComponent)
 			}
 		}
