@@ -198,13 +198,15 @@ export class OMProgressComponent extends Container {
 function formatTokensValue(n: number): string {
 	if (n === 0) return "0"
 	const k = n / 1000
-	return k % 1 === 0 ? String(k) : k.toFixed(1)
+	const s = k.toFixed(1)
+	return s.endsWith(".0") ? s.slice(0, -2) : s
 }
 
 /** Format token threshold with k suffix (e.g., 30000 -> "30k", 40000 -> "40k") */
 function formatTokensThreshold(n: number): string {
 	const k = n / 1000
-	return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
+	const s = k.toFixed(1)
+	return (s.endsWith(".0") ? s.slice(0, -2) : s) + "k"
 }
 
 function colorByPercent(text: string, percent: number): string {
