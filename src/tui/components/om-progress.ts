@@ -236,7 +236,7 @@ export function formatObservationStatus(
 	if (compact === "percentOnly") {
 		return styleLabel("msg ") + pct
 	}
-	const label = compact === "full" ? "messages" : "msg"
+	const label = "messages"
 	const fraction = `${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`
 	const buffered =
 		state.buffered.observations.projectedMessageRemoval > 0
@@ -244,13 +244,7 @@ export function formatObservationStatus(
 					` ↓${formatTokensThreshold(state.buffered.observations.projectedMessageRemoval)}`,
 				)
 			: ""
-	return (
-		styleLabel(`${label} `) +
-		colorByPercent(fraction, percent) +
-		" " +
-		pct +
-		buffered
-	)
+	return styleLabel(`${label} `) + colorByPercent(fraction, percent) + buffered
 }
 /**
  * Format OM reflection threshold for status bar.
@@ -273,18 +267,12 @@ export function formatReflectionStatus(
 	const pct = colorByPercent(`${percent}%`, percent)
 	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
 	const styleLabel = labelStyler ?? defaultStyler
-
-	const genCount =
-		state.generationCount > 1
-			? chalk.hex("#555")(`${state.generationCount}`)
-			: ""
-	const label = styleLabel("memory") + genCount + " "
-
+	const label = styleLabel("memory") + " "
 	if (compact === "percentOnly") {
 		return label + pct
 	}
 	const fraction = `${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`
-	return label + colorByPercent(fraction, percent) + " " + pct
+	return label + colorByPercent(fraction, percent)
 }
 
 /**
