@@ -144,6 +144,7 @@ export class MastraTUI {
 	private streamingMessage?: HarnessMessage
 	private pendingTools = new Map<string, IToolExecutionComponent>()
 	private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
+	private subagentToolCallIds = new Set<string>() // Track subagent tool call IDs to skip in trailing content logic
 	private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
 	private pendingSubagents = new Map<string, SubagentExecutionComponent>() // Track active subagent tasks
 	private toolOutputExpanded = false
@@ -1812,8 +1813,35 @@ ${instructions}`,
 		// Check for new tool calls
 		for (const content of message.content) {
 			if (content.type === "tool_call") {
+				// For subagent calls, freeze the current streaming component
+				// with content before the tool call, then create a new one.
+				// SubagentExecutionComponent handles the visual rendering.
+				// Check subagentToolCallIds separately since handleToolStart
+				// may have already added the ID to seenToolCallIds.
+				if (
+					content.name === "subagent" &&
+					!this.subagentToolCallIds.has(content.id)
+				) {
+					this.seenToolCallIds.add(content.id)
+					this.subagentToolCallIds.add(content.id)
+					// Freeze current component with pre-subagent content
+					const preContent = this.getContentBeforeToolCall(message, content.id)
+					this.streamingComponent.updateContent({
+						...message,
+						content: preContent,
+					})
+					this.streamingComponent = new AssistantMessageComponent(
+						undefined,
+						this.hideThinkingBlock,
+						getMarkdownTheme(),
+					)
+					this.addChildBeforeFollowUps(this.streamingComponent)
+					continue
+				}
+
 				if (!this.seenToolCallIds.has(content.id)) {
 					this.seenToolCallIds.add(content.id)
+
 					this.addChildBeforeFollowUps(new Text("", 0, 0))
 					const component = new ToolExecutionComponentEnhanced(
 						content.name,
@@ -1872,6 +1900,35 @@ ${instructions}`,
 		// Return everything after the last tool-related part
 		return message.content.slice(lastToolIndex + 1)
 	}
+	/**
+	 * Get content parts between the last processed tool call and this one (text/thinking only).
+	 */
+	private getContentBeforeToolCall(
+		message: HarnessMessage,
+		toolCallId: string,
+	): HarnessMessage["content"] {
+		const idx = message.content.findIndex(
+			(c) => c.type === "tool_call" && c.id === toolCallId,
+		)
+		if (idx === -1) return message.content
+
+		// Find the start: after the last tool_call/tool_result that we've already seen
+		let startIdx = 0
+		for (let i = idx - 1; i >= 0; i--) {
+			const c = message.content[i]
+			if (
+				(c.type === "tool_call" && this.seenToolCallIds.has(c.id)) ||
+				(c.type === "tool_result" && this.seenToolCallIds.has(c.id))
+			) {
+				startIdx = i + 1
+				break
+			}
+		}
+
+		return message.content
+			.slice(startIdx, idx)
+			.filter((c) => c.type === "text" || c.type === "thinking")
+	}
 
 	private handleMessageEnd(message: HarnessMessage): void {
 		if (message.role === "user") return
@@ -1898,6 +1955,7 @@ ${instructions}`,
 			this.streamingComponent = undefined
 			this.streamingMessage = undefined
 			this.seenToolCallIds.clear()
+			this.subagentToolCallIds.clear()
 		}
 		this.ui.requestRender()
 	}
@@ -2481,10 +2539,22 @@ ${instructions}`,
 		)
 		this.pendingSubagents.set(toolCallId, component)
 		this.allToolComponents.push(component as any)
-		this.chatContainer.addChild(component)
 
-		// Don't create a new AssistantMessageComponent here - it will be created
-		// when the next text delta arrives after the subagent completes
+		// Insert before the current streamingComponent so subagent box
+		// appears between pre-subagent text and post-subagent text
+		if (this.streamingComponent) {
+			const idx = this.chatContainer.children.indexOf(
+				this.streamingComponent as any,
+			)
+			if (idx >= 0) {
+				;(this.chatContainer.children as unknown[]).splice(idx, 0, component)
+				this.chatContainer.invalidate()
+			} else {
+				this.chatContainer.addChild(component)
+			}
+		} else {
+			this.chatContainer.addChild(component)
+		}
 
 		this.ui.requestRender()
 	}
