@@ -2,9 +2,9 @@
  * Main TUI class for Mastra Code.
  * Wires the Harness to pi-tui components for a full interactive experience.
  */
-
 import {
 	CombinedAutocompleteProvider,
+	type Component,
 	Container,
 	Markdown,
 	Spacer,
@@ -193,6 +193,9 @@ export class MastraTUI {
 	// Active inline plan approval component
 	private activeInlinePlanApproval?: PlanApprovalInlineComponent
 	private lastSubmitPlanComponent?: IToolExecutionComponent
+	// Follow-up messages sent via Ctrl+F while streaming
+	// These must stay anchored at the bottom of the chat stream
+	private followUpComponents: UserMessageComponent[] = []
 
 	// Ctrl+C double-tap tracking
 	private lastCtrlCTime = 0
@@ -1714,7 +1717,6 @@ ${instructions}`,
 		this.gradientAnimator.start()
 		this.updateStatusLine()
 	}
-
 	private handleAgentEnd(): void {
 		this.isAgentActive = false
 		if (this.gradientAnimator) {
@@ -1727,6 +1729,7 @@ ${instructions}`,
 			this.streamingMessage = undefined
 		}
 
+		this.followUpComponents = []
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after agent completes
 	}
@@ -1754,6 +1757,7 @@ ${instructions}`,
 		}
 		this.userInitiatedAbort = false
 
+		this.followUpComponents = []
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after interruption
 		this.ui.requestRender()
@@ -1771,6 +1775,7 @@ ${instructions}`,
 			this.streamingMessage = undefined
 		}
 
+		this.followUpComponents = []
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after errors
 	}
@@ -1782,14 +1787,13 @@ ${instructions}`,
 			// Clear tool component references when starting a new assistant message
 			this.lastAskUserComponent = undefined
 			this.lastSubmitPlanComponent = undefined
-
 			if (!this.streamingComponent) {
 				this.streamingComponent = new AssistantMessageComponent(
 					undefined,
 					this.hideThinkingBlock,
 					getMarkdownTheme(),
 				)
-				this.chatContainer.addChild(this.streamingComponent)
+				this.addChildBeforeFollowUps(this.streamingComponent)
 				this.streamingMessage = message
 				const trailingParts = this.getTrailingContentParts(message)
 				this.streamingComponent.updateContent({
@@ -1805,13 +1809,12 @@ ${instructions}`,
 		if (!this.streamingComponent || message.role !== "assistant") return
 
 		this.streamingMessage = message
-
 		// Check for new tool calls
 		for (const content of message.content) {
 			if (content.type === "tool_call") {
 				if (!this.seenToolCallIds.has(content.id)) {
 					this.seenToolCallIds.add(content.id)
-					this.chatContainer.addChild(new Text("", 0, 0))
+					this.addChildBeforeFollowUps(new Text("", 0, 0))
 					const component = new ToolExecutionComponentEnhanced(
 						content.name,
 						content.args,
@@ -1819,7 +1822,7 @@ ${instructions}`,
 						this.ui,
 					)
 					component.setExpanded(this.toolOutputExpanded)
-					this.chatContainer.addChild(component)
+					this.addChildBeforeFollowUps(component)
 					this.pendingTools.set(content.id, component)
 					this.allToolComponents.push(component)
 
@@ -1828,7 +1831,7 @@ ${instructions}`,
 						this.hideThinkingBlock,
 						getMarkdownTheme(),
 					)
-					this.chatContainer.addChild(this.streamingComponent)
+					this.addChildBeforeFollowUps(this.streamingComponent)
 				} else {
 					const component = this.pendingTools.get(content.id)
 					if (component) {
@@ -1898,6 +1901,22 @@ ${instructions}`,
 		}
 		this.ui.requestRender()
 	}
+	/**
+	 * Insert a child into the chat container before any follow-up user messages.
+	 * If no follow-ups are pending, appends to end.
+	 */
+	private addChildBeforeFollowUps(child: Component): void {
+		if (this.followUpComponents.length > 0) {
+			const firstFollowUp = this.followUpComponents[0]
+			const idx = this.chatContainer.children.indexOf(firstFollowUp as any)
+			if (idx >= 0) {
+				;(this.chatContainer.children as unknown[]).splice(idx, 0, child)
+				this.chatContainer.invalidate()
+				return
+			}
+		}
+		this.chatContainer.addChild(child)
+	}
 
 	private handleToolStart(
 		toolCallId: string,
@@ -1913,7 +1932,7 @@ ${instructions}`,
 				return
 			}
 
-			this.chatContainer.addChild(new Text("", 0, 0))
+			this.addChildBeforeFollowUps(new Text("", 0, 0))
 			const component = new ToolExecutionComponentEnhanced(
 				toolName,
 				args,
@@ -1921,7 +1940,7 @@ ${instructions}`,
 				this.ui,
 			)
 			component.setExpanded(this.toolOutputExpanded)
-			this.chatContainer.addChild(component)
+			this.addChildBeforeFollowUps(component)
 			this.pendingTools.set(toolCallId, component)
 			this.allToolComponents.push(component)
 
@@ -1950,7 +1969,7 @@ ${instructions}`,
 				this.hideThinkingBlock,
 				getMarkdownTheme(),
 			)
-			this.chatContainer.addChild(this.streamingComponent)
+			this.addChildBeforeFollowUps(this.streamingComponent)
 
 			this.ui.requestRender()
 		}
@@ -4003,29 +4022,17 @@ Keyboard shortcuts:
 
 		const prefix =
 			imageCount > 0 ? `[${imageCount} image${imageCount > 1 ? "s" : ""}] ` : ""
-
 		if (displayText || prefix) {
 			const userComponent = new UserMessageComponent(prefix + displayText)
 
-			// If agent is streaming, insert after the streaming component
-			// so the message appears in the right chronological position
-			if (this.streamingComponent) {
-				const streamingIdx = this.chatContainer.children.indexOf(
-					this.streamingComponent,
-				)
-				if (streamingIdx >= 0) {
-					// Insert after streaming component
-					;(this.chatContainer.children as unknown[]).splice(
-						streamingIdx + 1,
-						0,
-						userComponent,
-					)
-					return
-				}
-			}
-
-			// Default: add to end
+			// Always append to end — follow-ups should stay at the bottom
 			this.chatContainer.addChild(userComponent)
+
+			// Track follow-up components sent while streaming so tool calls
+			// can be inserted before them (keeping them anchored at bottom)
+			if (this.isAgentActive) {
+				this.followUpComponents.push(userComponent)
+			}
 		}
 	}
 
