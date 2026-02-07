@@ -856,7 +856,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	getThinkingLevel(): string {
 		const state = this.getState() as { thinkingLevel?: string }
-		return state.thinkingLevel ?? "off"
+		return state.thinkingLevel ?? "high"
 	}
 
 	/**
@@ -891,6 +891,10 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
 		const budgetTokens = budgetMap[level]
 		if (!budgetTokens) return undefined
+		// Opus 4-6 uses adaptive thinking natively; SDK doesn't support type: "adaptive" yet
+		if (modelId.includes("claude-opus-4-6")) {
+			return undefined
+		}
 
 		return {
 			anthropic: {

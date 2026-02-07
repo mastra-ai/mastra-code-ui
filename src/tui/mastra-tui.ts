@@ -748,10 +748,6 @@ ${instructions}`,
 			? fullModelId.slice(fullModelId.indexOf("/") + 1)
 			: fullModelId
 
-		const thinkingLevel = this.harness.getThinkingLevel()
-		const showThinking =
-			thinkingLevel !== "off" && fullModelId.startsWith("anthropic/")
-
 		const homedir = process.env.HOME || process.env.USERPROFILE || ""
 		let displayPath = this.projectInfo.rootPath
 		if (homedir && displayPath.startsWith(homedir)) {
@@ -823,10 +819,8 @@ ${instructions}`,
 			modelId: string
 			memCompact?: "percentOnly" | "full"
 			showDir: boolean
-			showThinking: boolean
 		}): { plain: string; styled: string } | null => {
 			const parts: Array<{ plain: string; styled: string }> = []
-
 			// Model ID (always present) — styleModelId adds padding spaces
 			parts.push({
 				plain: ` ${opts.modelId} `,
@@ -869,13 +863,6 @@ ${instructions}`,
 			if (ref) {
 				parts.push({ plain: ref, styled: ref })
 			}
-
-			// Thinking
-			if (opts.showThinking && showThinking) {
-				const s = `think: ${thinkingLevel}`
-				parts.push({ plain: s, styled: fg("muted", s) })
-			}
-
 			// Directory (lowest priority on line 1)
 			if (opts.showDir) {
 				parts.push({
@@ -929,49 +916,36 @@ ${instructions}`,
 			}
 			return { plain: "", styled: styledLine }
 		}
-
 		// Try progressively more compact layouts
 		const result =
-			// Full: long labels ("history"/"observations"), dir, everything
+			// Full: long labels, dir
 			buildLine({
 				modelId: fullModelId,
 				memCompact: "full",
 				showDir: true,
-				showThinking: true,
 			}) ??
 			// Drop directory, keep long labels
 			buildLine({
 				modelId: fullModelId,
 				memCompact: "full",
 				showDir: false,
-				showThinking: true,
 			}) ??
-			// Short labels ("msg"/"obs")
+			// Short labels ("msg"/"mem")
 			buildLine({
 				modelId: fullModelId,
 				showDir: false,
-				showThinking: true,
 			}) ??
-			// Percent only ("msg 42%  obs 21%")
+			// Percent only ("msg 42%  mem 21%")
 			buildLine({
 				modelId: fullModelId,
 				memCompact: "percentOnly",
 				showDir: false,
-				showThinking: true,
 			}) ??
 			// Drop provider prefix
 			buildLine({
 				modelId: shortModelId,
 				memCompact: "percentOnly",
 				showDir: false,
-				showThinking: true,
-			}) ??
-			// Last resort: short model, no thinking
-			buildLine({
-				modelId: shortModelId,
-				memCompact: "percentOnly",
-				showDir: false,
-				showThinking: false,
 			})
 
 		this.statusLine.setText(

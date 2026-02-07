@@ -126,7 +126,7 @@ const stateSchema = z.object({
 	observationThreshold: z.number().default(30_000),
 	reflectionThreshold: z.number().default(40_000),
 	// Thinking level for extended thinking (Anthropic models)
-	thinkingLevel: z.string().default("off"),
+	thinkingLevel: z.string().default("high"),
 	// YOLO mode — auto-approve all tool calls
 	yolo: z.boolean().default(true),
 	// Smart editing mode — use AST-based analysis for code edits
