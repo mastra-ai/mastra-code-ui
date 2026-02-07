@@ -272,7 +272,14 @@ export function formatReflectionStatus(
 		return label + pct
 	}
 	const fraction = `${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`
-	return label + colorByPercent(fraction, percent)
+	const savings =
+		state.buffered.reflection.inputObservationTokens -
+		state.buffered.reflection.observationTokens
+	const buffered =
+		state.buffered.reflection.status === "complete"
+			? chalk.hex("#555")(` ↓${formatTokensThreshold(savings)}`)
+			: ""
+	return label + colorByPercent(fraction, percent) + buffered
 }
 
 /**
