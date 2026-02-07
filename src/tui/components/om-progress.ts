@@ -252,9 +252,11 @@ export function formatObservationStatus(
 }
 /**
  * Format OM reflection threshold for status bar.
- * full:        observations 8.2k/40.0k 21%
- * default:     obs 8.2k/40.0k 21%
- * percentOnly: obs 21%
+ * full:        memory 8.2k/40.0k 21%
+ * default:     memory 8.2k/40.0k 21%
+ * percentOnly: memory 21%
+ *
+ * Shows generation count as ×N suffix when generationCount > 1.
  *
  * @param labelStyler - Optional function to style the label text (for animation).
  *                      Receives the raw label string, returns styled string.
@@ -270,24 +272,17 @@ export function formatReflectionStatus(
 	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
 	const styleLabel = labelStyler ?? defaultStyler
 
-	// Show generation count if reflected more than once
-	const genSuffix =
+	const genCount =
 		state.generationCount > 1
-			? chalk.hex("#555")(` ×${state.generationCount}`)
+			? chalk.hex("#555")(`${state.generationCount}`)
 			: ""
+	const label = styleLabel("memory") + genCount + " "
 
 	if (compact === "percentOnly") {
-		return styleLabel("obs ") + pct + genSuffix
+		return label + pct
 	}
-	const label = compact === "full" ? "observations" : "obs"
 	const fraction = `${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`
-	return (
-		styleLabel(`${label} `) +
-		colorByPercent(fraction, percent) +
-		" " +
-		pct +
-		genSuffix
-	)
+	return label + colorByPercent(fraction, percent) + " " + pct
 }
 
 /**
