@@ -231,7 +231,7 @@ function getDynamicMemory({
 				scope: "thread",
 				observation: {
 					bufferEvery: 1 / 5,
-					asyncActivation: 2 / 3,
+					asyncActivation: 3 / 5,
 					model: getObserverModel,
 					messageTokens: obsThreshold,
 					blockAfter: 1.75,
