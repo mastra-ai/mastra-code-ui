@@ -2,9 +2,9 @@
  * Main TUI class for Mastra Code.
  * Wires the Harness to pi-tui components for a full interactive experience.
  */
-
 import {
 	CombinedAutocompleteProvider,
+	type Component,
 	Container,
 	Markdown,
 	Spacer,
@@ -54,6 +54,7 @@ import { OMSettingsComponent } from "./components/om-settings.js"
 import {
 	OMProgressComponent,
 	type OMProgressState,
+	defaultOMProgressState,
 	formatObservationStatus,
 	formatReflectionStatus,
 } from "./components/om-progress.js"
@@ -143,6 +144,7 @@ export class MastraTUI {
 	private streamingMessage?: HarnessMessage
 	private pendingTools = new Map<string, IToolExecutionComponent>()
 	private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
+	private subagentToolCallIds = new Set<string>() // Track subagent tool call IDs to skip in trailing content logic
 	private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
 	private pendingSubagents = new Map<string, SubagentExecutionComponent>() // Track active subagent tasks
 	private toolOutputExpanded = false
@@ -162,20 +164,12 @@ export class MastraTUI {
 	private modelAuthStatus: { hasAuth: boolean; apiKeyEnvVar?: string } = {
 		hasAuth: true,
 	}
-
 	// Observational Memory state
-	private omProgress: OMProgressState = {
-		status: "idle",
-		pendingTokens: 0,
-		threshold: 30000,
-		thresholdPercent: 0,
-		observationTokens: 0,
-		reflectionThreshold: 40000,
-		reflectionThresholdPercent: 0,
-	}
+	private omProgress: OMProgressState = defaultOMProgressState()
 	private omProgressComponent?: OMProgressComponent
 	private activeOMMarker?: OMMarkerComponent
 	private activeBufferingMarker?: OMMarkerComponent
+	private activeActivationMarker?: OMMarkerComponent
 	// Buffering state — drives statusline label animation
 	private bufferingMessages = false
 	private bufferingObservations = false
@@ -200,6 +194,9 @@ export class MastraTUI {
 	// Active inline plan approval component
 	private activeInlinePlanApproval?: PlanApprovalInlineComponent
 	private lastSubmitPlanComponent?: IToolExecutionComponent
+	// Follow-up messages sent via Ctrl+F while streaming
+	// These must stay anchored at the bottom of the chat stream
+	private followUpComponents: UserMessageComponent[] = []
 
 	// Ctrl+C double-tap tracking
 	private lastCtrlCTime = 0
@@ -1208,10 +1205,9 @@ ${instructions}`,
 			case "usage_update":
 				this.handleUsageUpdate(event.usage)
 				break
-
 			// Observational Memory events
-			case "om_progress":
-				this.handleOMProgress(event)
+			case "om_status":
+				this.handleOMStatus(event)
 				break
 
 			case "om_observation_start":
@@ -1254,6 +1250,7 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = true
 				}
+				this.activeActivationMarker = undefined
 				this.activeBufferingMarker = new OMMarkerComponent({
 					type: "om_buffering_start",
 					operationType: event.operationType,
@@ -1269,13 +1266,14 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
+				if (this.activeBufferingMarker) {
+					this.activeBufferingMarker.update({
+						type: "om_buffering_end",
+						operationType: event.operationType,
+						tokensBuffered: event.tokensBuffered,
+					})
+				}
 				this.activeBufferingMarker = undefined
-				const bufferEndMarker = new OMMarkerComponent({
-					type: "om_buffering_end",
-					operationType: event.operationType,
-					tokensBuffered: event.tokensBuffered,
-				})
-				this.addOMMarkerToChat(bufferEndMarker)
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
@@ -1286,31 +1284,36 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
+				if (this.activeBufferingMarker) {
+					this.activeBufferingMarker.update({
+						type: "om_buffering_failed",
+						operationType: event.operationType,
+						error: event.error,
+					})
+				}
 				this.activeBufferingMarker = undefined
-				const bufferFailedMarker = new OMMarkerComponent({
-					type: "om_buffering_failed",
-					operationType: event.operationType,
-					error: event.error,
-				})
-				this.addOMMarkerToChat(bufferFailedMarker)
 				this.updateStatusLine()
 				this.ui.requestRender()
 				break
-
 			case "om_activation":
 				if (event.operationType === "observation") {
 					this.bufferingMessages = false
 				} else {
 					this.bufferingObservations = false
 				}
-				// Always create a new inline marker for activation
-				const activationMarker = new OMMarkerComponent({
+				// Deduplicate: update existing activation marker in-place if one exists
+				const activationData: OMMarkerData = {
 					type: "om_activation",
 					operationType: event.operationType,
 					tokensActivated: event.tokensActivated,
 					observationTokens: event.observationTokens,
-				})
-				this.addOMMarkerToChat(activationMarker)
+				}
+				if (this.activeActivationMarker) {
+					this.activeActivationMarker.update(activationData)
+				} else {
+					this.activeActivationMarker = new OMMarkerComponent(activationData)
+					this.addOMMarkerToChat(this.activeActivationMarker)
+				}
 				this.activeBufferingMarker = undefined
 				this.updateStatusLine()
 				this.ui.requestRender()
@@ -1473,16 +1476,13 @@ ${instructions}`,
 				: 0
 		this.updateStatusLine()
 	}
-
 	private resetStatusLineState(): void {
+		const prev = this.omProgress
 		this.omProgress = {
-			status: "idle",
-			pendingTokens: 0,
-			threshold: this.omProgress.threshold,
-			thresholdPercent: 0,
-			observationTokens: 0,
-			reflectionThreshold: this.omProgress.reflectionThreshold,
-			reflectionThresholdPercent: 0,
+			...defaultOMProgressState(),
+			// Preserve thresholds across resets
+			threshold: prev.threshold,
+			reflectionThreshold: prev.reflectionThreshold,
 		}
 		this.tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 		this.bufferingMessages = false
@@ -1522,40 +1522,38 @@ ${instructions}`,
 		}
 		this.chatContainer.addChild(output)
 	}
+	private handleOMStatus(
+		event: Extract<HarnessEvent, { type: "om_status" }>,
+	): void {
+		const { windows, generationCount, stepNumber } = event
+		const { active, buffered } = windows
 
-	private handleOMProgress(event: {
-		pendingTokens: number
-		threshold: number
-		thresholdPercent: number
-		observationTokens: number
-		reflectionThreshold: number
-		reflectionThresholdPercent: number
-	}): void {
-		// Don't let a pre-observation progress event overwrite the post-observation reset
-		if (
-			this.omProgress.status === "observing" ||
-			this.omProgress.status === "reflecting"
-		) {
-			// Only update thresholds and observation tokens, not pending counts
-			this.omProgress.threshold = event.threshold
-			this.omProgress.observationTokens = event.observationTokens
-			this.omProgress.reflectionThreshold =
-				event.reflectionThreshold ?? this.omProgress.reflectionThreshold
-			this.omProgress.reflectionThresholdPercent =
-				event.reflectionThresholdPercent ??
-				this.omProgress.reflectionThresholdPercent
-			this.updateStatusLine()
-			return
-		}
-		this.omProgress.pendingTokens = event.pendingTokens
-		this.omProgress.threshold = event.threshold
-		this.omProgress.thresholdPercent = event.thresholdPercent
-		this.omProgress.observationTokens = event.observationTokens
-		this.omProgress.reflectionThreshold =
-			event.reflectionThreshold ?? this.omProgress.reflectionThreshold
+		// Update active window state
+		this.omProgress.pendingTokens = active.messages.tokens
+		this.omProgress.threshold = active.messages.threshold
+		this.omProgress.thresholdPercent =
+			active.messages.threshold > 0
+				? (active.messages.tokens / active.messages.threshold) * 100
+				: 0
+		this.omProgress.observationTokens = active.observations.tokens
+		this.omProgress.reflectionThreshold = active.observations.threshold
 		this.omProgress.reflectionThresholdPercent =
-			event.reflectionThresholdPercent ??
-			this.omProgress.reflectionThresholdPercent
+			active.observations.threshold > 0
+				? (active.observations.tokens / active.observations.threshold) * 100
+				: 0
+
+		// Update buffered state
+		this.omProgress.buffered = {
+			observations: { ...buffered.observations },
+			reflection: { ...buffered.reflection },
+		}
+		this.omProgress.generationCount = generationCount
+		this.omProgress.stepNumber = stepNumber
+
+		// Drive buffering animation from status fields
+		this.bufferingMessages = buffered.observations.status === "running"
+		this.bufferingObservations = buffered.reflection.status === "running"
+
 		this.updateStatusLine()
 	}
 
@@ -1720,7 +1718,6 @@ ${instructions}`,
 		this.gradientAnimator.start()
 		this.updateStatusLine()
 	}
-
 	private handleAgentEnd(): void {
 		this.isAgentActive = false
 		if (this.gradientAnimator) {
@@ -1733,6 +1730,7 @@ ${instructions}`,
 			this.streamingMessage = undefined
 		}
 
+		this.followUpComponents = []
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after agent completes
 	}
@@ -1760,6 +1758,7 @@ ${instructions}`,
 		}
 		this.userInitiatedAbort = false
 
+		this.followUpComponents = []
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after interruption
 		this.ui.requestRender()
@@ -1777,6 +1776,7 @@ ${instructions}`,
 			this.streamingMessage = undefined
 		}
 
+		this.followUpComponents = []
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after errors
 	}
@@ -1788,14 +1788,13 @@ ${instructions}`,
 			// Clear tool component references when starting a new assistant message
 			this.lastAskUserComponent = undefined
 			this.lastSubmitPlanComponent = undefined
-
 			if (!this.streamingComponent) {
 				this.streamingComponent = new AssistantMessageComponent(
 					undefined,
 					this.hideThinkingBlock,
 					getMarkdownTheme(),
 				)
-				this.chatContainer.addChild(this.streamingComponent)
+				this.addChildBeforeFollowUps(this.streamingComponent)
 				this.streamingMessage = message
 				const trailingParts = this.getTrailingContentParts(message)
 				this.streamingComponent.updateContent({
@@ -1811,13 +1810,39 @@ ${instructions}`,
 		if (!this.streamingComponent || message.role !== "assistant") return
 
 		this.streamingMessage = message
-
 		// Check for new tool calls
 		for (const content of message.content) {
 			if (content.type === "tool_call") {
+				// For subagent calls, freeze the current streaming component
+				// with content before the tool call, then create a new one.
+				// SubagentExecutionComponent handles the visual rendering.
+				// Check subagentToolCallIds separately since handleToolStart
+				// may have already added the ID to seenToolCallIds.
+				if (
+					content.name === "subagent" &&
+					!this.subagentToolCallIds.has(content.id)
+				) {
+					this.seenToolCallIds.add(content.id)
+					this.subagentToolCallIds.add(content.id)
+					// Freeze current component with pre-subagent content
+					const preContent = this.getContentBeforeToolCall(message, content.id)
+					this.streamingComponent.updateContent({
+						...message,
+						content: preContent,
+					})
+					this.streamingComponent = new AssistantMessageComponent(
+						undefined,
+						this.hideThinkingBlock,
+						getMarkdownTheme(),
+					)
+					this.addChildBeforeFollowUps(this.streamingComponent)
+					continue
+				}
+
 				if (!this.seenToolCallIds.has(content.id)) {
 					this.seenToolCallIds.add(content.id)
-					this.chatContainer.addChild(new Text("", 0, 0))
+
+					this.addChildBeforeFollowUps(new Text("", 0, 0))
 					const component = new ToolExecutionComponentEnhanced(
 						content.name,
 						content.args,
@@ -1825,7 +1850,7 @@ ${instructions}`,
 						this.ui,
 					)
 					component.setExpanded(this.toolOutputExpanded)
-					this.chatContainer.addChild(component)
+					this.addChildBeforeFollowUps(component)
 					this.pendingTools.set(content.id, component)
 					this.allToolComponents.push(component)
 
@@ -1834,7 +1859,7 @@ ${instructions}`,
 						this.hideThinkingBlock,
 						getMarkdownTheme(),
 					)
-					this.chatContainer.addChild(this.streamingComponent)
+					this.addChildBeforeFollowUps(this.streamingComponent)
 				} else {
 					const component = this.pendingTools.get(content.id)
 					if (component) {
@@ -1875,6 +1900,35 @@ ${instructions}`,
 		// Return everything after the last tool-related part
 		return message.content.slice(lastToolIndex + 1)
 	}
+	/**
+	 * Get content parts between the last processed tool call and this one (text/thinking only).
+	 */
+	private getContentBeforeToolCall(
+		message: HarnessMessage,
+		toolCallId: string,
+	): HarnessMessage["content"] {
+		const idx = message.content.findIndex(
+			(c) => c.type === "tool_call" && c.id === toolCallId,
+		)
+		if (idx === -1) return message.content
+
+		// Find the start: after the last tool_call/tool_result that we've already seen
+		let startIdx = 0
+		for (let i = idx - 1; i >= 0; i--) {
+			const c = message.content[i]
+			if (
+				(c.type === "tool_call" && this.seenToolCallIds.has(c.id)) ||
+				(c.type === "tool_result" && this.seenToolCallIds.has(c.id))
+			) {
+				startIdx = i + 1
+				break
+			}
+		}
+
+		return message.content
+			.slice(startIdx, idx)
+			.filter((c) => c.type === "text" || c.type === "thinking")
+	}
 
 	private handleMessageEnd(message: HarnessMessage): void {
 		if (message.role === "user") return
@@ -1901,8 +1955,25 @@ ${instructions}`,
 			this.streamingComponent = undefined
 			this.streamingMessage = undefined
 			this.seenToolCallIds.clear()
+			this.subagentToolCallIds.clear()
 		}
 		this.ui.requestRender()
+	}
+	/**
+	 * Insert a child into the chat container before any follow-up user messages.
+	 * If no follow-ups are pending, appends to end.
+	 */
+	private addChildBeforeFollowUps(child: Component): void {
+		if (this.followUpComponents.length > 0) {
+			const firstFollowUp = this.followUpComponents[0]
+			const idx = this.chatContainer.children.indexOf(firstFollowUp as any)
+			if (idx >= 0) {
+				;(this.chatContainer.children as unknown[]).splice(idx, 0, child)
+				this.chatContainer.invalidate()
+				return
+			}
+		}
+		this.chatContainer.addChild(child)
 	}
 
 	private handleToolStart(
@@ -1919,7 +1990,7 @@ ${instructions}`,
 				return
 			}
 
-			this.chatContainer.addChild(new Text("", 0, 0))
+			this.addChildBeforeFollowUps(new Text("", 0, 0))
 			const component = new ToolExecutionComponentEnhanced(
 				toolName,
 				args,
@@ -1927,7 +1998,7 @@ ${instructions}`,
 				this.ui,
 			)
 			component.setExpanded(this.toolOutputExpanded)
-			this.chatContainer.addChild(component)
+			this.addChildBeforeFollowUps(component)
 			this.pendingTools.set(toolCallId, component)
 			this.allToolComponents.push(component)
 
@@ -1956,7 +2027,7 @@ ${instructions}`,
 				this.hideThinkingBlock,
 				getMarkdownTheme(),
 			)
-			this.chatContainer.addChild(this.streamingComponent)
+			this.addChildBeforeFollowUps(this.streamingComponent)
 
 			this.ui.requestRender()
 		}
@@ -2468,10 +2539,22 @@ ${instructions}`,
 		)
 		this.pendingSubagents.set(toolCallId, component)
 		this.allToolComponents.push(component as any)
-		this.chatContainer.addChild(component)
 
-		// Don't create a new AssistantMessageComponent here - it will be created
-		// when the next text delta arrives after the subagent completes
+		// Insert before the current streamingComponent so subagent box
+		// appears between pre-subagent text and post-subagent text
+		if (this.streamingComponent) {
+			const idx = this.chatContainer.children.indexOf(
+				this.streamingComponent as any,
+			)
+			if (idx >= 0) {
+				;(this.chatContainer.children as unknown[]).splice(idx, 0, component)
+				this.chatContainer.invalidate()
+			} else {
+				this.chatContainer.addChild(component)
+			}
+		} else {
+			this.chatContainer.addChild(component)
+		}
 
 		this.ui.requestRender()
 	}
@@ -4009,29 +4092,17 @@ Keyboard shortcuts:
 
 		const prefix =
 			imageCount > 0 ? `[${imageCount} image${imageCount > 1 ? "s" : ""}] ` : ""
-
 		if (displayText || prefix) {
 			const userComponent = new UserMessageComponent(prefix + displayText)
 
-			// If agent is streaming, insert after the streaming component
-			// so the message appears in the right chronological position
-			if (this.streamingComponent) {
-				const streamingIdx = this.chatContainer.children.indexOf(
-					this.streamingComponent,
-				)
-				if (streamingIdx >= 0) {
-					// Insert after streaming component
-					;(this.chatContainer.children as unknown[]).splice(
-						streamingIdx + 1,
-						0,
-						userComponent,
-					)
-					return
-				}
-			}
-
-			// Default: add to end
+			// Always append to end — follow-ups should stay at the bottom
 			this.chatContainer.addChild(userComponent)
+
+			// Track follow-up components sent while streaming so tool calls
+			// can be inserted before them (keeping them anchored at bottom)
+			if (this.isAgentActive) {
+				this.followUpComponents.push(userComponent)
+			}
 		}
 	}
 

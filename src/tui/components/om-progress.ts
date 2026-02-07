@@ -5,27 +5,42 @@
 import { Container, Text } from "@mariozechner/pi-tui"
 import chalk from "chalk"
 import { fg } from "../theme.js"
-
 export type OMStatus = "idle" | "observing" | "reflecting"
+
+export type OMBufferedStatus = "idle" | "running" | "complete"
 
 export interface OMProgressState {
 	status: OMStatus
+	// Active window tokens/thresholds (from data-om-status)
 	pendingTokens: number
 	threshold: number
 	thresholdPercent: number
 	observationTokens: number
 	reflectionThreshold: number
 	reflectionThresholdPercent: number
+	// Buffered state (from data-om-status)
+	buffered: {
+		observations: {
+			status: OMBufferedStatus
+			chunks: number
+			messageTokens: number
+			projectedMessageRemoval: number
+			observationTokens: number
+		}
+		reflection: {
+			status: OMBufferedStatus
+			inputObservationTokens: number
+			observationTokens: number
+		}
+	}
+	generationCount: number
+	stepNumber: number
 	cycleId?: string
 	startTime?: number
 }
 
-/**
- * Component that displays OM progress in the status line area.
- * Shows a compact indicator when observation/reflection is happening.
- */
-export class OMProgressComponent extends Container {
-	private state: OMProgressState = {
+export function defaultOMProgressState(): OMProgressState {
+	return {
 		status: "idle",
 		pendingTokens: 0,
 		threshold: 30000,
@@ -33,7 +48,31 @@ export class OMProgressComponent extends Container {
 		observationTokens: 0,
 		reflectionThreshold: 40000,
 		reflectionThresholdPercent: 0,
+		buffered: {
+			observations: {
+				status: "idle",
+				chunks: 0,
+				messageTokens: 0,
+				projectedMessageRemoval: 0,
+				observationTokens: 0,
+			},
+			reflection: {
+				status: "idle",
+				inputObservationTokens: 0,
+				observationTokens: 0,
+			},
+		},
+		generationCount: 0,
+		stepNumber: 0,
 	}
+}
+
+/**
+ * Component that displays OM progress in the status line area.
+ * Shows a compact indicator when observation/reflection is happening.
+ */
+export class OMProgressComponent extends Container {
+	private state: OMProgressState = defaultOMProgressState()
 	private statusText: Text
 
 	constructor() {
@@ -159,13 +198,15 @@ export class OMProgressComponent extends Container {
 function formatTokensValue(n: number): string {
 	if (n === 0) return "0"
 	const k = n / 1000
-	return k % 1 === 0 ? String(k) : k.toFixed(1)
+	const s = k.toFixed(1)
+	return s.endsWith(".0") ? s.slice(0, -2) : s
 }
 
 /** Format token threshold with k suffix (e.g., 30000 -> "30k", 40000 -> "40k") */
 function formatTokensThreshold(n: number): string {
 	const k = n / 1000
-	return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`
+	const s = k.toFixed(1)
+	return (s.endsWith(".0") ? s.slice(0, -2) : s) + "k"
 }
 
 function colorByPercent(text: string, percent: number): string {
@@ -195,23 +236,23 @@ export function formatObservationStatus(
 	if (compact === "percentOnly") {
 		return styleLabel("msg ") + pct
 	}
-	const label = compact === "full" ? "messages" : "msg"
-	return (
-		styleLabel(`${label} `) +
-		colorByPercent(
-			`${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`,
-			percent,
-		) +
-		" " +
-		pct
-	)
+	const label = "messages"
+	const fraction = `${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`
+	const buffered =
+		state.buffered.observations.projectedMessageRemoval > 0
+			? chalk.hex("#555")(
+					` ↓${formatTokensThreshold(state.buffered.observations.projectedMessageRemoval)}`,
+				)
+			: ""
+	return styleLabel(`${label} `) + colorByPercent(fraction, percent) + buffered
 }
-
 /**
  * Format OM reflection threshold for status bar.
- * full:        observations 8.2k/40.0k 21%
- * default:     obs 8.2k/40.0k 21%
- * percentOnly: obs 21%
+ * full:        memory 8.2k/40.0k 21%
+ * default:     memory 8.2k/40.0k 21%
+ * percentOnly: memory 21%
+ *
+ * Shows generation count as ×N suffix when generationCount > 1.
  *
  * @param labelStyler - Optional function to style the label text (for animation).
  *                      Receives the raw label string, returns styled string.
@@ -226,19 +267,12 @@ export function formatReflectionStatus(
 	const pct = colorByPercent(`${percent}%`, percent)
 	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
 	const styleLabel = labelStyler ?? defaultStyler
+	const label = styleLabel("memory") + " "
 	if (compact === "percentOnly") {
-		return styleLabel("obs ") + pct
+		return label + pct
 	}
-	const label = compact === "full" ? "observations" : "obs"
-	return (
-		styleLabel(`${label} `) +
-		colorByPercent(
-			`${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`,
-			percent,
-		) +
-		" " +
-		pct
-	)
+	const fraction = `${formatTokensValue(state.observationTokens)}/${formatTokensThreshold(state.reflectionThreshold)}`
+	return label + colorByPercent(fraction, percent)
 }
 
 /**
