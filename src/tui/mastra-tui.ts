@@ -437,6 +437,8 @@ export class MastraTUI {
 
 				if (this.harness.isRunning()) {
 					// Agent is streaming → steer (abort + resend)
+					// Clear follow-up tracking since steer replaces the current response
+					this.followUpComponents = []
 					this.harness.steer(userInput).catch((error) => {
 						this.showError(
 							error instanceof Error ? error.message : "Steer failed",
