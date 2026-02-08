@@ -130,11 +130,13 @@ function formatMarker(data: OMMarkerData): string {
 			)
 		}
 		case "om_activation": {
+			const kind =
+				data.operationType === "reflection" ? "reflection" : "observations"
 			const msgTokens = formatTokens(data.tokensActivated)
 			const obsTokens = formatTokens(data.observationTokens)
 			return fg(
 				"success",
-				`  ✓ Activated: -${msgTokens} msg tokens, +${obsTokens} obs tokens`,
+				`  ✓ Activated ${kind}: -${msgTokens} msg tokens, +${obsTokens} obs tokens`,
 			)
 		}
 	}
