@@ -216,16 +216,18 @@ function colorByPercent(text: string, percent: number): string {
 }
 /**
  * Format OM observation threshold for status bar.
- * full:        history 12.5k/30.0k 42%
- * default:     msg 12.5k/30.0k 42%
- * percentOnly: msg 42%
+ * Compact levels (most → least info):
+ *   "full":        messages 12.5k/30k ↓2.1k
+ *   undefined:     msg 12.5k/30k ↓2.1k
+ *   "noBuffer":    msg 12.5k/30k
+ *   "percentOnly": msg 42%
  *
  * @param labelStyler - Optional function to style the label text (for animation).
  *                      Receives the raw label string, returns styled string.
  */
 export function formatObservationStatus(
 	state: OMProgressState,
-	compact?: "percentOnly" | "full",
+	compact?: "percentOnly" | "noBuffer" | "full",
 	labelStyler?: (label: string) => string,
 ): string {
 	// Status is now shown in the mode badge, so just show the metrics
@@ -236,9 +238,10 @@ export function formatObservationStatus(
 	if (compact === "percentOnly") {
 		return styleLabel("msg ") + pct
 	}
-	const label = "messages"
+	const label = compact === "full" ? "messages" : "msg"
 	const fraction = `${formatTokensValue(state.pendingTokens)}/${formatTokensThreshold(state.threshold)}`
 	const buffered =
+		compact !== "noBuffer" &&
 		state.buffered.observations.projectedMessageRemoval > 0
 			? chalk.hex("#555")(
 					` ↓${formatTokensThreshold(state.buffered.observations.projectedMessageRemoval)}`,
@@ -248,18 +251,18 @@ export function formatObservationStatus(
 }
 /**
  * Format OM reflection threshold for status bar.
- * full:        memory 8.2k/40.0k 21%
- * default:     memory 8.2k/40.0k 21%
- * percentOnly: memory 21%
- *
- * Shows generation count as ×N suffix when generationCount > 1.
+ * Compact levels (most → least info):
+ *   "full":        memory 8.2k/40k ↓1.2k
+ *   undefined:     mem 8.2k/40k ↓1.2k
+ *   "noBuffer":    mem 8.2k/40k
+ *   "percentOnly": mem 21%
  *
  * @param labelStyler - Optional function to style the label text (for animation).
  *                      Receives the raw label string, returns styled string.
  */
 export function formatReflectionStatus(
 	state: OMProgressState,
-	compact?: "percentOnly" | "full",
+	compact?: "percentOnly" | "noBuffer" | "full",
 	labelStyler?: (label: string) => string,
 ): string {
 	// Status is now shown in the mode badge, so just show the metrics
@@ -267,7 +270,7 @@ export function formatReflectionStatus(
 	const pct = colorByPercent(`${percent}%`, percent)
 	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
 	const styleLabel = labelStyler ?? defaultStyler
-	const label = styleLabel("memory") + " "
+	const label = styleLabel(compact === "full" ? "memory" : "mem") + " "
 	if (compact === "percentOnly") {
 		return label + pct
 	}
@@ -276,7 +279,7 @@ export function formatReflectionStatus(
 		state.buffered.reflection.inputObservationTokens -
 		state.buffered.reflection.observationTokens
 	const buffered =
-		state.buffered.reflection.status === "complete"
+		compact !== "noBuffer" && state.buffered.reflection.status === "complete"
 			? chalk.hex("#555")(` ↓${formatTokensThreshold(savings)}`)
 			: ""
 	return label + colorByPercent(fraction, percent) + buffered

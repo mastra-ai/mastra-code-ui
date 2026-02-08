@@ -652,8 +652,7 @@ ${instructions}`,
 	 */
 	private updateStatusLine(): void {
 		if (!this.statusLine) return
-
-		const termWidth = (process.stdout.columns || 80) - 2 // buffer to prevent jitter
+		const termWidth = (process.stdout.columns || 80) - 1 // buffer to prevent jitter
 		const SEP = "  " // double-space separator between parts
 
 		// --- Determine if we're showing observer/reflector instead of main mode ---
@@ -749,6 +748,8 @@ ${instructions}`,
 		const shortModelId = fullModelId.includes("/")
 			? fullModelId.slice(fullModelId.indexOf("/") + 1)
 			: fullModelId
+		// e.g. "claude-opus-4-6" → "opus-4-6"
+		const tinyModelId = shortModelId.replace(/^claude-/, "")
 
 		const homedir = process.env.HOME || process.env.USERPROFILE || ""
 		let displayPath = this.projectInfo.rootPath
@@ -812,15 +813,51 @@ ${instructions}`,
 			}
 			return chalk.hex("#a1a1aa").bold(id)
 		}
-
 		// --- Build line with progressive reduction ---
-		// Strategy: try full → drop dir → percentOnly mem → drop provider
+		// Strategy: progressively drop less-important elements to fit terminal width.
 		// Each attempt assembles plain-text parts, measures, and if it fits, styles and renders.
+
+		// Short badge: first letter only (e.g., "build" → "b", "observe" → "o")
+		let shortModeBadge = ""
+		let shortModeBadgeWidth = 0
+		if (badgeName && modeColor) {
+			const shortName = badgeName.toLowerCase().charAt(0)
+			const [mcr, mcg, mcb] = [
+				parseInt(modeColor.slice(1, 3), 16),
+				parseInt(modeColor.slice(3, 5), 16),
+				parseInt(modeColor.slice(5, 7), 16),
+			]
+			let sBadgeBrightness = 0.9
+			if (this.gradientAnimator?.isRunning()) {
+				const fade = this.gradientAnimator.getFadeProgress()
+				if (fade < 1) {
+					const offset = this.gradientAnimator.getOffset() % 1
+					const animBrightness =
+						0.65 + 0.3 * (0.5 + 0.5 * Math.sin(offset * Math.PI * 2 + Math.PI))
+					sBadgeBrightness = animBrightness + (0.9 - animBrightness) * fade
+				}
+			}
+			const [sr, sg, sb] = [
+				Math.floor(mcr * sBadgeBrightness),
+				Math.floor(mcg * sBadgeBrightness),
+				Math.floor(mcb * sBadgeBrightness),
+			]
+			shortModeBadge = chalk
+				.bgRgb(sr, sg, sb)
+				.hex("#0a0a0a")
+				.bold(` ${shortName} `)
+			shortModeBadgeWidth = shortName.length + 2
+		} else if (badgeName) {
+			const shortName = badgeName.toLowerCase().charAt(0)
+			shortModeBadge = fg("dim", shortName) + " "
+			shortModeBadgeWidth = shortName.length + 1
+		}
 
 		const buildLine = (opts: {
 			modelId: string
-			memCompact?: "percentOnly" | "full"
+			memCompact?: "percentOnly" | "noBuffer" | "full"
 			showDir: boolean
+			badge?: "full" | "short"
 		}): { plain: string; styled: string } | null => {
 			const parts: Array<{ plain: string; styled: string }> = []
 			// Model ID (always present) — styleModelId adds padding spaces
@@ -828,6 +865,9 @@ ${instructions}`,
 				plain: ` ${opts.modelId} `,
 				styled: styleModelId(opts.modelId),
 			})
+			const useBadge = opts.badge === "short" ? shortModeBadge : modeBadge
+			const useBadgeWidth =
+				opts.badge === "short" ? shortModeBadgeWidth : modeBadgeWidth
 			// Memory info — animate label text when buffering is active
 			const msgLabelStyler =
 				this.bufferingMessages && this.gradientAnimator?.isRunning()
@@ -872,9 +912,8 @@ ${instructions}`,
 					styled: fg("dim", displayPath),
 				})
 			}
-
 			const totalPlain =
-				modeBadgeWidth +
+				useBadgeWidth +
 				parts.reduce(
 					(sum, p, i) => sum + visibleWidth(p.plain) + (i > 0 ? SEP.length : 0),
 					0,
@@ -889,7 +928,7 @@ ${instructions}`,
 				const centerParts = parts.slice(1, -1) // mem, tokens, thinking
 				const dirPart = parts[parts.length - 1]! // dir
 
-				const leftWidth = modeBadgeWidth + visibleWidth(leftPart.plain)
+				const leftWidth = useBadgeWidth + visibleWidth(leftPart.plain)
 				const centerWidth = centerParts.reduce(
 					(sum, p, i) => sum + visibleWidth(p.plain) + (i > 0 ? SEP.length : 0),
 					0,
@@ -901,7 +940,7 @@ ${instructions}`,
 				const gapRight = freeSpace - gapLeft
 
 				styledLine =
-					modeBadge +
+					useBadge +
 					leftPart.styled +
 					" ".repeat(Math.max(gapLeft, 1)) +
 					centerParts.map((p) => p.styled).join(SEP) +
@@ -909,49 +948,57 @@ ${instructions}`,
 					dirPart.styled
 			} else if (opts.showDir && parts.length === 2) {
 				// Just model + dir, right-align dir
-				const mainStr = modeBadge + parts[0]!.styled
+				const mainStr = useBadge + parts[0]!.styled
 				const dirPart = parts[parts.length - 1]!
 				const gap = termWidth - totalPlain
 				styledLine = mainStr + " ".repeat(gap + SEP.length) + dirPart.styled
 			} else {
-				styledLine = modeBadge + parts.map((p) => p.styled).join(SEP)
+				styledLine = useBadge + parts.map((p) => p.styled).join(SEP)
 			}
 			return { plain: "", styled: styledLine }
 		}
-		// Try progressively more compact layouts
+		// Try progressively more compact layouts.
+		// Priority: token fractions + buffer > labels > provider > badge > model prefix > buffer > fractions
 		const result =
-			// Full: long labels, dir
-			buildLine({
-				modelId: fullModelId,
-				memCompact: "full",
-				showDir: true,
-			}) ??
-			// Drop directory, keep long labels
-			buildLine({
-				modelId: fullModelId,
-				memCompact: "full",
-				showDir: false,
-			}) ??
-			// Short labels ("msg"/"mem")
-			buildLine({
-				modelId: fullModelId,
-				showDir: false,
-			}) ??
-			// Percent only ("msg 42%  mem 21%")
-			buildLine({
-				modelId: fullModelId,
-				memCompact: "percentOnly",
-				showDir: false,
-			}) ??
-			// Drop provider prefix
+			// 1. Full badge + full model + long labels + fractions + buffer + dir
+			buildLine({ modelId: fullModelId, memCompact: "full", showDir: true }) ??
+			// 2. Drop directory
+			buildLine({ modelId: fullModelId, memCompact: "full", showDir: false }) ??
+			// 3. Drop provider prefix, keep full labels + fractions + buffer
 			buildLine({
 				modelId: shortModelId,
+				memCompact: "full",
+				showDir: false,
+			}) ??
+			// 4. Short labels (msg/mem) + fractions + buffer
+			buildLine({ modelId: shortModelId, showDir: false }) ??
+			// 5. Short badge + short labels + fractions + buffer
+			buildLine({ modelId: shortModelId, showDir: false, badge: "short" }) ??
+			// 6. Tiny model (drop "claude-") + short labels + fractions + buffer
+			buildLine({ modelId: tinyModelId, showDir: false, badge: "short" }) ??
+			// 7. Tiny model + short labels + fractions (drop buffer indicator)
+			buildLine({
+				modelId: tinyModelId,
+				memCompact: "noBuffer",
+				showDir: false,
+				badge: "short",
+			}) ??
+			// 8. Full badge + percent only
+			buildLine({
+				modelId: tinyModelId,
 				memCompact: "percentOnly",
 				showDir: false,
+			}) ??
+			// 9. Short badge + percent only
+			buildLine({
+				modelId: tinyModelId,
+				memCompact: "percentOnly",
+				showDir: false,
+				badge: "short",
 			})
 
 		this.statusLine.setText(
-			result?.styled ?? modeBadge + styleModelId(shortModelId),
+			result?.styled ?? shortModeBadge + styleModelId(tinyModelId),
 		)
 
 		// Line 2: hidden — dir only shows on line 1 when it fits
