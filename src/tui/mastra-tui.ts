@@ -1320,19 +1320,14 @@ ${instructions}`,
 				} else {
 					this.bufferingObservations = false
 				}
-				// Deduplicate: update existing activation marker in-place if one exists
 				const activationData: OMMarkerData = {
 					type: "om_activation",
 					operationType: event.operationType,
 					tokensActivated: event.tokensActivated,
 					observationTokens: event.observationTokens,
 				}
-				if (this.activeActivationMarker) {
-					this.activeActivationMarker.update(activationData)
-				} else {
-					this.activeActivationMarker = new OMMarkerComponent(activationData)
-					this.addOMMarkerToChat(this.activeActivationMarker)
-				}
+				this.activeActivationMarker = new OMMarkerComponent(activationData)
+				this.addOMMarkerToChat(this.activeActivationMarker)
 				this.activeBufferingMarker = undefined
 				this.updateStatusLine()
 				this.ui.requestRender()
