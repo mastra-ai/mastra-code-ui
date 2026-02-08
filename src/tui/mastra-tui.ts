@@ -958,38 +958,32 @@ ${instructions}`,
 			return { plain: "", styled: styledLine }
 		}
 		// Try progressively more compact layouts.
-		// Priority: token fractions + buffer > labels > provider > badge > model prefix > buffer > fractions
+		// Priority: token fractions + buffer > labels > provider > badge > buffer > fractions
 		const result =
 			// 1. Full badge + full model + long labels + fractions + buffer + dir
 			buildLine({ modelId: fullModelId, memCompact: "full", showDir: true }) ??
 			// 2. Drop directory
 			buildLine({ modelId: fullModelId, memCompact: "full", showDir: false }) ??
-			// 3. Drop provider prefix, keep full labels + fractions + buffer
-			buildLine({
-				modelId: shortModelId,
-				memCompact: "full",
-				showDir: false,
-			}) ??
+			// 3. Drop provider + "claude-" prefix, keep full labels + fractions + buffer
+			buildLine({ modelId: tinyModelId, memCompact: "full", showDir: false }) ??
 			// 4. Short labels (msg/mem) + fractions + buffer
-			buildLine({ modelId: shortModelId, showDir: false }) ??
+			buildLine({ modelId: tinyModelId, showDir: false }) ??
 			// 5. Short badge + short labels + fractions + buffer
-			buildLine({ modelId: shortModelId, showDir: false, badge: "short" }) ??
-			// 6. Tiny model (drop "claude-") + short labels + fractions + buffer
 			buildLine({ modelId: tinyModelId, showDir: false, badge: "short" }) ??
-			// 7. Tiny model + short labels + fractions (drop buffer indicator)
+			// 6. Short badge + fractions (drop buffer indicator)
 			buildLine({
 				modelId: tinyModelId,
 				memCompact: "noBuffer",
 				showDir: false,
 				badge: "short",
 			}) ??
-			// 8. Full badge + percent only
+			// 7. Full badge + percent only
 			buildLine({
 				modelId: tinyModelId,
 				memCompact: "percentOnly",
 				showDir: false,
 			}) ??
-			// 9. Short badge + percent only
+			// 8. Short badge + percent only
 			buildLine({
 				modelId: tinyModelId,
 				memCompact: "percentOnly",
