@@ -748,8 +748,10 @@ ${instructions}`,
 		const shortModelId = fullModelId.includes("/")
 			? fullModelId.slice(fullModelId.indexOf("/") + 1)
 			: fullModelId
-		// e.g. "claude-opus-4-6" → "opus-4-6"
-		const tinyModelId = shortModelId.replace(/^claude-/, "")
+		// e.g. "claude-opus-4-6" → "opus 4.6", "claude-sonnet-4-20250514" → "sonnet-4-20250514"
+		const tinyModelId = shortModelId
+			.replace(/^claude-/, "")
+			.replace(/^(\w+)-(\d+)-(\d{1,2})$/, "$1 $2.$3")
 
 		const homedir = process.env.HOME || process.env.USERPROFILE || ""
 		let displayPath = this.projectInfo.rootPath
