@@ -131,6 +131,8 @@ const stateSchema = z.object({
 	yolo: z.boolean().default(true),
 	// Smart editing mode — use AST-based analysis for code edits
 	smartEditing: z.boolean().default(true),
+	// Notification mode — alert when TUI needs user attention
+	notifications: z.enum(["bell", "system", "both", "off"]).default("bell"),
 	// Todo list (persisted per-thread)
 	todos: z
 		.array(

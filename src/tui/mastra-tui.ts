@@ -89,6 +89,11 @@ import {
 	getContrastText,
 	theme,
 } from "./theme.js"
+import {
+	sendNotification,
+	type NotificationMode,
+	type NotificationReason,
+} from "./notify.js"
 
 // =============================================================================
 // Types
@@ -1034,6 +1039,10 @@ ${instructions}`,
 				name: "sandbox",
 				description: "Manage allowed paths (add/remove directories)",
 			},
+			{
+				name: "notifications",
+				description: "Toggle notification mode (bell/system/both/off)",
+			},
 			{ name: "review", description: "Review a GitHub pull request" },
 			{ name: "exit", description: "Exit the TUI" },
 			{ name: "help", description: "Show available commands" },
@@ -1743,10 +1752,11 @@ ${instructions}`,
 			this.streamingComponent = undefined
 			this.streamingMessage = undefined
 		}
-
 		this.followUpComponents = []
 		this.pendingTools.clear()
 		// Keep allToolComponents so Ctrl+E continues to work after agent completes
+
+		this.notify("agent_done")
 	}
 
 	private handleAgentAborted(): void {
@@ -2112,12 +2122,13 @@ ${instructions}`,
 					resolve()
 				},
 			})
-
 			this.ui.showOverlay(dialog, {
 				width: "80%",
 				anchor: "center",
 			})
 			dialog.focused = true
+
+			this.notify("tool_approval", `Tool "${toolName}" requires approval`)
 		})
 	}
 
@@ -2222,6 +2233,8 @@ ${instructions}`,
 				this.ui.showOverlay(dialog, { width: "70%", anchor: "center" })
 				dialog.focused = true
 			}
+
+			this.notify("ask_question", question)
 		})
 	}
 
@@ -2272,6 +2285,11 @@ ${instructions}`,
 			this.chatContainer.addChild(new Spacer(1))
 			this.ui.requestRender()
 			this.chatContainer.invalidate()
+
+			this.notify(
+				"sandbox_access",
+				`Sandbox access requested: ${requestedPath}`,
+			)
 		})
 	}
 
@@ -2365,10 +2383,11 @@ ${instructions}`,
 				this.chatContainer.addChild(approvalComponent)
 				this.chatContainer.addChild(new Spacer(1))
 			}
-
 			this.ui.requestRender()
 			this.chatContainer.invalidate()
 			approvalComponent.focused = true
+
+			this.notify("plan_approval", `Plan "${title}" requires approval`)
 		})
 	}
 	private handleToolEnd(
@@ -3689,7 +3708,6 @@ ${modeList}`)
 				await this.showThinkingSettings()
 				return true
 			}
-
 			case "yolo": {
 				const current = this.harness.getYoloMode()
 				this.harness.setYoloMode(!current)
@@ -3699,6 +3717,24 @@ ${modeList}`)
 						: "YOLO mode OFF — tools require approval",
 				)
 				this.updateStatusLine()
+				return true
+			}
+
+			case "notifications": {
+				const modes: NotificationMode[] = ["bell", "system", "both", "off"]
+				const currentMode = ((this.harness.getState() as any)?.notifications ??
+					"bell") as NotificationMode
+				const arg = args[0]?.trim().toLowerCase() ?? ""
+				if (arg && modes.includes(arg as NotificationMode)) {
+					await this.harness.setState({ notifications: arg })
+					this.showInfo(`Notifications: ${arg}`)
+				} else {
+					// Cycle: bell → system → both → off → bell
+					const nextIndex = (modes.indexOf(currentMode) + 1) % modes.length
+					const next = modes[nextIndex]
+					await this.harness.setState({ notifications: next })
+					this.showInfo(`Notifications: ${next}`)
+				}
 				return true
 			}
 
@@ -3773,6 +3809,7 @@ ${modeList}`)
   /cost     - Show token usage and estimated costs
   /diff     - Show modified files or git diff for a path
   /sandbox  - Manage sandbox allowed paths
+  /notifications - Toggle notifications (bell/system/both/off)
   /hooks    - Show/reload configured hooks
   /mcp      - Show/reload MCP server connections
   /login    - Login with OAuth provider
@@ -4604,6 +4641,18 @@ Keyboard shortcuts:
 				error instanceof Error ? error.message : "Shell command failed",
 			)
 		}
+	}
+	/**
+	 * Send a notification alert (bell / system / hooks) based on user settings.
+	 */
+	private notify(reason: NotificationReason, message?: string): void {
+		const mode = ((this.harness.getState() as any)?.notifications ??
+			"bell") as NotificationMode
+		sendNotification(reason, {
+			mode,
+			message,
+			hookManager: this.harness.getHookManager?.(),
+		})
 	}
 
 	private showInfo(message: string): void {

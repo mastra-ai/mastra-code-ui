@@ -2,7 +2,6 @@
  * HookManager — high-level orchestration for the hooks system.
  * Created once at startup, provides methods for each lifecycle event.
  */
-
 import type {
 	HooksConfig,
 	HookEventResult,
@@ -10,6 +9,7 @@ import type {
 	HookStdinUserPrompt,
 	HookStdinStop,
 	HookStdinSession,
+	HookStdinNotification,
 } from "./types.js"
 import {
 	loadHooksConfig,
@@ -150,7 +150,6 @@ export class HookManager {
 
 		return runHooksForEvent(hooks, stdin)
 	}
-
 	async runSessionEnd(): Promise<HookEventResult> {
 		const hooks = this.config.SessionEnd
 		if (!hooks || hooks.length === 0) {
@@ -164,5 +163,25 @@ export class HookManager {
 		}
 
 		return runHooksForEvent(hooks, stdin)
+	}
+
+	/**
+	 * Fire notification hooks (non-blocking, fire-and-forget).
+	 * Called when the TUI is waiting for user input.
+	 */
+	runNotification(reason: string, message?: string): void {
+		const hooks = this.config.Notification
+		if (!hooks || hooks.length === 0) return
+
+		const stdin: HookStdinNotification = {
+			session_id: this.sessionId,
+			cwd: this.projectDir,
+			hook_event_name: "Notification",
+			reason,
+			message,
+		}
+
+		// Fire-and-forget — don't await
+		runHooksForEvent(hooks, stdin).catch(() => {})
 	}
 }

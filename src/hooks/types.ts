@@ -6,7 +6,6 @@
 // =============================================================================
 // Hook Event Names
 // =============================================================================
-
 export type HookEventName =
 	| "PreToolUse"
 	| "PostToolUse"
@@ -14,6 +13,7 @@ export type HookEventName =
 	| "UserPromptSubmit"
 	| "SessionStart"
 	| "SessionEnd"
+	| "Notification"
 
 export type BlockingHookEvent = "PreToolUse" | "Stop" | "UserPromptSubmit"
 
@@ -46,7 +46,6 @@ export interface HookDefinition {
 	/** Human-readable description for /hooks display. */
 	description?: string
 }
-
 export interface HooksConfig {
 	PreToolUse?: HookDefinition[]
 	PostToolUse?: HookDefinition[]
@@ -54,6 +53,7 @@ export interface HooksConfig {
 	UserPromptSubmit?: HookDefinition[]
 	SessionStart?: HookDefinition[]
 	SessionEnd?: HookDefinition[]
+	Notification?: HookDefinition[]
 }
 
 // =============================================================================
@@ -84,9 +84,16 @@ export interface HookStdinStop extends HookStdinBase {
 	assistant_message?: string
 	stop_reason: "complete" | "aborted" | "error"
 }
-
 export interface HookStdinSession extends HookStdinBase {
 	hook_event_name: "SessionStart" | "SessionEnd"
+}
+
+export interface HookStdinNotification extends HookStdinBase {
+	hook_event_name: "Notification"
+	/** Why the notification fired: agent_done, ask_question, tool_approval, plan_approval, sandbox_access */
+	reason: string
+	/** Optional human-readable message for the notification. */
+	message?: string
 }
 
 export type HookStdin =
@@ -94,6 +101,7 @@ export type HookStdin =
 	| HookStdinUserPrompt
 	| HookStdinStop
 	| HookStdinSession
+	| HookStdinNotification
 
 // =============================================================================
 // Stdout Protocol (JSON read from hook process)

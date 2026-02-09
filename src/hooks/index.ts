@@ -17,6 +17,7 @@ export type {
 	HookStdinUserPrompt,
 	HookStdinStop,
 	HookStdinSession,
+	HookStdinNotification,
 	HookStdout,
 	HookResult,
 	HookEventResult,
