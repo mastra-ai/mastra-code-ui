@@ -1,6 +1,6 @@
 import type { Agent } from "@mastra/core/agent"
 import type { MastraMemory } from "@mastra/core/memory"
-import type { MastraStorage } from "@mastra/core/storage"
+import type { MastraCompositeStore } from "@mastra/core/storage"
 import type {
 	Workspace,
 	WorkspaceConfig,
@@ -70,7 +70,7 @@ export interface HarnessConfig<
 	resourceId: string
 
 	/** Storage backend for persistence (threads, messages, state) */
-	storage: MastraStorage
+	storage: MastraCompositeStore
 
 	/** Zod schema defining the shape of harness state */
 	stateSchema: TState

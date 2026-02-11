@@ -440,6 +440,7 @@ const workspace = new Workspace({
 	name: "Mastra Code Workspace",
 	filesystem: new LocalFilesystem({
 		basePath: project.rootPath,
+		contained: false,
 	}),
 	sandbox: new LocalSandbox({
 		workingDirectory: project.rootPath,
@@ -503,6 +504,7 @@ const codeAgent = new Agent({
 				name: "Mastra Code Workspace (Expanded)",
 				filesystem: new LocalFilesystem({
 					basePath: commonRoot,
+					contained: false,
 				}),
 				sandbox: new LocalSandbox({
 					workingDirectory: project.rootPath,
