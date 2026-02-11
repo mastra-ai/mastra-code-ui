@@ -553,10 +553,13 @@ const codeAgent = new Agent({
 		if (modeId === "plan") {
 			tools.submit_plan = submitPlanTool
 		}
-
-		// Web tools — conditional on model/API keys
-		if (!isAnthropicModel && webSearchTool) {
+		// Web tools — prefer Tavily when available (avoids Anthropic native
+		// web_search provider tool which can cause stream freezes). Fall back
+		// to Anthropic's native web search via getToolsets() for Anthropic models.
+		if (webSearchTool) {
 			tools.web_search = webSearchTool
+		} else if (!isAnthropicModel) {
+			// No Tavily key and non-Anthropic model — no web search available
 		}
 		if (webExtractTool) {
 			tools.web_extract = webExtractTool
@@ -576,12 +579,16 @@ codeAgent.__setLogger(noopLogger)
 
 // =============================================================================
 // Anthropic Provider Tools (web search & fetch - zero implementation needed)
+// Only used as fallback when Tavily API key is not configured.
 // =============================================================================
 const anthropic = createAnthropic({})
 
 function getToolsets(
 	modelId: string,
 ): Record<string, Record<string, unknown>> | undefined {
+	// If Tavily is available, skip Anthropic's native web search
+	if (webSearchTool) return undefined
+
 	const isAnthropicModel = modelId.startsWith("anthropic/")
 	if (!isAnthropicModel) return undefined
 
