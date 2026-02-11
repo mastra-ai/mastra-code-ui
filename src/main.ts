@@ -132,7 +132,7 @@ const stateSchema = z.object({
 	// Smart editing mode — use AST-based analysis for code edits
 	smartEditing: z.boolean().default(true),
 	// Notification mode — alert when TUI needs user attention
-	notifications: z.enum(["bell", "system", "both", "off"]).default("bell"),
+	notifications: z.enum(["bell", "system", "both", "off"]).default("off"),
 	// Todo list (persisted per-thread)
 	todos: z
 		.array(
@@ -169,8 +169,8 @@ const storage = new LibSQLStore({
 // =============================================================================
 
 // Default OM thresholds — per-thread overrides are loaded from thread metadata
-const DEFAULT_OBS_THRESHOLD = 30_000
-const DEFAULT_REF_THRESHOLD = 60_000
+const DEFAULT_OBS_THRESHOLD = 40_000
+const DEFAULT_REF_THRESHOLD = 50_000
 
 // Mutable OM state — updated by harness event listeners, read by OM config
 // functions. We use this instead of requestContext because Mastra's OM system
@@ -233,16 +233,16 @@ function getDynamicMemory({
 				scope: "thread",
 				observation: {
 					bufferTokens: 1 / 5,
-					bufferActivation: 4 / 5,
+					bufferActivation: 3 / 4,
 					model: getObserverModel,
 					messageTokens: obsThreshold,
-					blockAfter: 1.75,
+					blockAfter: 1.25,
 					modelSettings: {
 						maxOutputTokens: 60000,
 					},
 				},
 				reflection: {
-					bufferActivation: 1 / 2,
+					bufferActivation: 1 / 3,
 					blockAfter: 1,
 					model: getReflectorModel,
 					observationTokens: refThreshold,
