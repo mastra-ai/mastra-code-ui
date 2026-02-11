@@ -856,7 +856,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	getThinkingLevel(): string {
 		const state = this.getState() as { thinkingLevel?: string }
-		return state.thinkingLevel ?? "high"
+		return state.thinkingLevel ?? "off"
 	}
 
 	/**
@@ -866,44 +866,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	async setThinkingLevel(level: string): Promise<void> {
 		this.setState({ thinkingLevel: level } as Partial<z.infer<TState>>)
 		await this.persistThreadSetting("thinkingLevel", level)
-	}
-
-	/**
-	 * Build providerOptions for the current thinking level.
-	 * Returns undefined if thinking is off or the model isn't Anthropic.
-	 */
-	buildThinkingProviderOptions():
-		| Record<string, Record<string, unknown>>
-		| undefined {
-		const level = this.getThinkingLevel()
-		if (level === "off") return undefined
-
-		// Only apply thinking to Anthropic models
-		const modelId = this.getCurrentModelId()
-		if (!modelId.startsWith("anthropic/")) return undefined
-
-		const budgetMap: Record<string, number> = {
-			minimal: 1024,
-			low: 4096,
-			medium: 10240,
-			high: 32768,
-		}
-
-		const budgetTokens = budgetMap[level]
-		if (!budgetTokens) return undefined
-		// Opus 4-6 uses adaptive thinking natively; SDK doesn't support type: "adaptive" yet
-		if (modelId.includes("claude-opus-4-6")) {
-			return undefined
-		}
-
-		return {
-			anthropic: {
-				thinking: {
-					type: "enabled",
-					budgetTokens,
-				},
-			},
-		}
 	}
 
 	// =========================================================================
@@ -1511,8 +1473,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		try {
 			// Build request context for tools
 			const requestContext = this.buildRequestContext()
-			// Build provider options (e.g., thinking level for Anthropic)
-			const providerOptions = this.buildThinkingProviderOptions()
 
 			// Stream the response
 			const streamOptions: Record<string, unknown> = {
@@ -1526,9 +1486,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				modelSettings: {
 					temperature: 1,
 				},
-			}
-			if (providerOptions) {
-				streamOptions.providerOptions = providerOptions
 			}
 
 			// Add provider-specific toolsets (e.g., Anthropic web search)
