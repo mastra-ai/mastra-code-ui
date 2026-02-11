@@ -511,20 +511,41 @@ export class ToolExecutionComponentEnhanced
 		if (argsObj?.old_str && argsObj?.new_str && !this.result.isError) {
 			const oldStr = String(argsObj.old_str)
 			const newStr = String(argsObj.new_str)
-			const diffLines = this.generateDiffLines(oldStr, newStr)
+			const { lines: diffLines, firstChangeIndex } = this.generateDiffLines(
+				oldStr,
+				newStr,
+			)
 
-			// Limit lines when collapsed
+			// Limit lines when collapsed, windowed around first change
 			const collapsedLines = 15
 			const totalLines = diffLines.length
 			const hasMore = !this.expanded && totalLines > collapsedLines + 1
 
 			let linesToShow = diffLines
+			let skippedBefore = 0
 			if (hasMore) {
-				linesToShow = diffLines.slice(0, collapsedLines)
+				// Show 3 context lines before the first change, rest after
+				const contextBefore = 3
+				const start = Math.max(0, firstChangeIndex - contextBefore)
+				linesToShow = diffLines.slice(start, start + collapsedLines)
+				skippedBefore = start
 			}
-
 			// Render diff lines with border, truncated to prevent wrap
 			const maxLineWidth = termWidth - 6
+
+			// Show "skipped above" indicator
+			if (skippedBefore > 0) {
+				this.contentBox.addChild(
+					new Text(
+						border("│") +
+							" " +
+							theme.fg("muted", `... ${skippedBefore} lines above`),
+						0,
+						0,
+					),
+				)
+			}
+
 			const borderedLines = linesToShow.map((line) => {
 				const truncated = truncateAnsi(line, maxLineWidth)
 				return border("│") + " " + truncated
@@ -533,19 +554,21 @@ export class ToolExecutionComponentEnhanced
 
 			// Show truncation indicator
 			if (hasMore) {
-				const remaining = totalLines - collapsedLines
-				this.contentBox.addChild(
-					new Text(
-						border("│") +
-							" " +
-							theme.fg(
-								"muted",
-								`... ${remaining} more lines (ctrl+e to expand)`,
-							),
-						0,
-						0,
-					),
-				)
+				const remaining = totalLines - (skippedBefore + linesToShow.length)
+				if (remaining > 0) {
+					this.contentBox.addChild(
+						new Text(
+							border("│") +
+								" " +
+								theme.fg(
+									"muted",
+									`... ${remaining} more lines (ctrl+e to expand)`,
+								),
+							0,
+							0,
+						),
+					)
+				}
 			}
 		} else if (this.result.isError) {
 			// Show error output
@@ -656,11 +679,14 @@ export class ToolExecutionComponentEnhanced
 
 		return { hasIssues: entries.length > 0, entries }
 	}
-
-	private generateDiffLines(oldStr: string, newStr: string): string[] {
+	private generateDiffLines(
+		oldStr: string,
+		newStr: string,
+	): { lines: string[]; firstChangeIndex: number } {
 		const oldLines = oldStr.split("\n")
 		const newLines = newStr.split("\n")
-		const diff: string[] = []
+		const lines: string[] = []
+		let firstChangeIndex = -1
 
 		// Use soft red for removed, green for added
 		const removedColor = chalk.hex("#dc6868") // soft red
@@ -670,19 +696,25 @@ export class ToolExecutionComponentEnhanced
 
 		for (let i = 0; i < maxLines; i++) {
 			if (i >= oldLines.length) {
-				diff.push(addedColor(newLines[i]))
+				if (firstChangeIndex === -1) firstChangeIndex = lines.length
+				lines.push(addedColor(newLines[i]))
 			} else if (i >= newLines.length) {
-				diff.push(removedColor(oldLines[i]))
+				if (firstChangeIndex === -1) firstChangeIndex = lines.length
+				lines.push(removedColor(oldLines[i]))
 			} else if (oldLines[i] !== newLines[i]) {
-				diff.push(removedColor(oldLines[i]))
-				diff.push(addedColor(newLines[i]))
+				if (firstChangeIndex === -1) firstChangeIndex = lines.length
+				lines.push(removedColor(oldLines[i]))
+				lines.push(addedColor(newLines[i]))
 			} else {
 				// Context line
-				diff.push(theme.fg("muted", oldLines[i]))
+				lines.push(theme.fg("muted", oldLines[i]))
 			}
 		}
 
-		return diff
+		return {
+			lines,
+			firstChangeIndex: firstChangeIndex === -1 ? 0 : firstChangeIndex,
+		}
 	}
 	private renderWriteToolEnhanced(): void {
 		const argsObj = this.args as Record<string, unknown> | undefined
