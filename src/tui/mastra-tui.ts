@@ -50,6 +50,7 @@ import { ThreadSelectorComponent } from "./components/thread-selector.js"
 import { OMMarkerComponent, type OMMarkerData } from "./components/om-marker.js"
 import { OMOutputComponent } from "./components/om-output.js"
 import { OMSettingsComponent } from "./components/om-settings.js"
+import { SettingsComponent } from "./components/settings.js"
 
 import {
 	OMProgressComponent,
@@ -1040,8 +1041,8 @@ ${instructions}`,
 				description: "Manage allowed paths (add/remove directories)",
 			},
 			{
-				name: "notifications",
-				description: "Toggle notification mode (bell/system/both/off)",
+				name: "settings",
+				description: "General settings (notifications, YOLO, thinking)",
 			},
 			{ name: "review", description: "Review a GitHub pull request" },
 			{ name: "exit", description: "Exit the TUI" },
@@ -3385,61 +3386,46 @@ ${instructions}`,
 			settings.focused = true
 		})
 	}
-
 	// ===========================================================================
-	// Thinking Settings
+	// General Settings
 	// ===========================================================================
 
-	private async showThinkingSettings(): Promise<void> {
-		const currentLevel = this.harness.getThinkingLevel()
-
-		const levels = [
-			{ label: "Off", description: "No extended thinking", id: "off" },
-			{ label: "Minimal", description: "~1k budget tokens", id: "minimal" },
-			{ label: "Low", description: "~4k budget tokens", id: "low" },
-			{ label: "Medium", description: "~10k budget tokens", id: "medium" },
-			{ label: "High", description: "~32k budget tokens", id: "high" },
-		]
-
-		const currentLabel =
-			levels.find((l) => l.id === currentLevel)?.label ?? "Off"
+	private async showSettings(): Promise<void> {
+		const state = this.harness.getState() as any
+		const config = {
+			notifications: (state?.notifications ?? "off") as NotificationMode,
+			yolo: this.harness.getYoloMode(),
+			thinkingLevel: this.harness.getThinkingLevel(),
+		}
 
 		return new Promise<void>((resolve) => {
-			const questionComponent = new AskQuestionInlineComponent(
-				{
-					question: `Set thinking level (currently: ${currentLabel})`,
-					options: levels.map((l) => ({
-						label: l.label,
-						description: l.description,
-					})),
-					formatResult: (answer) =>
-						`Thinking level: ${currentLabel} → ${answer}`,
-					onSubmit: async (answer) => {
-						this.activeInlineQuestion = undefined
-						const level = levels.find((l) => l.label === answer)
-						if (level) {
-							await this.harness.setThinkingLevel(level.id)
-							this.updateStatusLine()
-						}
-						resolve()
-					},
-					onCancel: () => {
-						this.activeInlineQuestion = undefined
-						resolve()
-					},
+			const settings = new SettingsComponent(config, {
+				onNotificationsChange: async (mode) => {
+					await this.harness.setState({ notifications: mode })
+					this.showInfo(`Notifications: ${mode}`)
 				},
-				this.ui,
-			)
+				onYoloChange: (enabled) => {
+					this.harness.setYoloMode(enabled)
+					this.updateStatusLine()
+				},
+				onThinkingLevelChange: async (level) => {
+					await this.harness.setThinkingLevel(level)
+					this.updateStatusLine()
+				},
+				onClose: () => {
+					this.ui.hideOverlay()
+					resolve()
+				},
+			})
 
-			this.activeInlineQuestion = questionComponent
-			this.chatContainer.addChild(new Spacer(1))
-			this.chatContainer.addChild(questionComponent)
-			this.chatContainer.addChild(new Spacer(1))
-			this.ui.requestRender()
-			this.chatContainer.invalidate()
+			this.ui.showOverlay(settings, {
+				width: "60%",
+				maxHeight: "50%",
+				anchor: "center",
+			})
+			settings.focused = true
 		})
 	}
-
 	// ===========================================================================
 	// Login Selector
 	// ===========================================================================
@@ -3703,9 +3689,21 @@ ${modeList}`)
 				await this.showOMSettings()
 				return true
 			}
-
 			case "think": {
-				await this.showThinkingSettings()
+				const currentLevel = this.harness.getThinkingLevel()
+				const levels = [
+					{ label: "Off", id: "off" },
+					{ label: "Minimal", id: "minimal" },
+					{ label: "Low", id: "low" },
+					{ label: "Medium", id: "medium" },
+					{ label: "High", id: "high" },
+				]
+				const currentIdx = levels.findIndex((l) => l.id === currentLevel)
+				const nextIdx = (currentIdx + 1) % levels.length
+				const next = levels[nextIdx]
+				await this.harness.setThinkingLevel(next.id)
+				this.showInfo(`Thinking: ${next.label}`)
+				this.updateStatusLine()
 				return true
 			}
 			case "yolo": {
@@ -3719,22 +3717,8 @@ ${modeList}`)
 				this.updateStatusLine()
 				return true
 			}
-
-			case "notifications": {
-				const modes: NotificationMode[] = ["bell", "system", "both", "off"]
-				const currentMode = ((this.harness.getState() as any)?.notifications ??
-					"bell") as NotificationMode
-				const arg = args[0]?.trim().toLowerCase() ?? ""
-				if (arg && modes.includes(arg as NotificationMode)) {
-					await this.harness.setState({ notifications: arg })
-					this.showInfo(`Notifications: ${arg}`)
-				} else {
-					// Cycle: bell → system → both → off → bell
-					const nextIndex = (modes.indexOf(currentMode) + 1) % modes.length
-					const next = modes[nextIndex]
-					await this.harness.setState({ notifications: next })
-					this.showInfo(`Notifications: ${next}`)
-				}
+			case "settings": {
+				await this.showSettings()
 				return true
 			}
 
@@ -3802,14 +3786,12 @@ ${modeList}`)
   /skills        - List available skills
   /models    - Configure model (global/thread/mode)
   /subagents - Configure subagent model defaults
+  /settings - General settings (notifications, YOLO, thinking)
   /om       - Configure Observational Memory
-  /think    - Set thinking level (Anthropic)
   /review   - Review a GitHub pull request
-  /yolo     - Toggle YOLO mode (auto-approve tools)
   /cost     - Show token usage and estimated costs
   /diff     - Show modified files or git diff for a path
   /sandbox  - Manage sandbox allowed paths
-  /notifications - Toggle notifications (bell/system/both/off)
   /hooks    - Show/reload configured hooks
   /mcp      - Show/reload MCP server connections
   /login    - Login with OAuth provider
@@ -4647,7 +4629,7 @@ Keyboard shortcuts:
 	 */
 	private notify(reason: NotificationReason, message?: string): void {
 		const mode = ((this.harness.getState() as any)?.notifications ??
-			"bell") as NotificationMode
+			"off") as NotificationMode
 		sendNotification(reason, {
 			mode,
 			message,
