@@ -157,6 +157,7 @@ export class MastraTUI {
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
 	private lastAskUserComponent?: IToolExecutionComponent // Track the most recent ask_user tool for inline question placement
+	private lastClearedText = "" // Saved editor text for Ctrl+Z undo
 
 	// Status line state
 	private projectInfo: ProjectInfo
@@ -277,7 +278,7 @@ export class MastraTUI {
 	 * Setup keyboard shortcuts for the custom editor.
 	 */
 	private setupKeyboardShortcuts(): void {
-		// Ctrl+C - abort if running, clear input if idle, double-tap always exits
+		// Ctrl+C / Escape - abort if running, clear input if idle, double-tap always exits
 		this.editor.onAction("clear", () => {
 			const now = Date.now()
 			if (now - this.lastCtrlCTime < MastraTUI.DOUBLE_CTRL_C_MS) {
@@ -294,7 +295,20 @@ export class MastraTUI {
 				this.userInitiatedAbort = true
 				this.harness.abort()
 			} else {
+				const current = this.editor.getText()
+				if (current.length > 0) {
+					this.lastClearedText = current
+				}
 				this.editor.setText("")
+				this.ui.requestRender()
+			}
+		})
+
+		// Ctrl+Z - undo last clear (restore editor text)
+		this.editor.onAction("undo", () => {
+			if (this.lastClearedText && this.editor.getText().length === 0) {
+				this.editor.setText(this.lastClearedText)
+				this.lastClearedText = ""
 				this.ui.requestRender()
 			}
 		})
@@ -524,6 +538,11 @@ export class MastraTUI {
 
 		// Subscribe to harness events
 		this.subscribeToHarness()
+		// Restore escape-as-cancel setting from persisted state
+		const escState = this.harness.getState() as any
+		if (escState?.escapeAsCancel === false) {
+			this.editor.escapeEnabled = false
+		}
 
 		// Load OM progress now that we're subscribed (the event during
 		// thread selection fired before we were listening)
@@ -3389,13 +3408,13 @@ ${instructions}`,
 	// ===========================================================================
 	// General Settings
 	// ===========================================================================
-
 	private async showSettings(): Promise<void> {
 		const state = this.harness.getState() as any
 		const config = {
 			notifications: (state?.notifications ?? "off") as NotificationMode,
 			yolo: this.harness.getYoloMode(),
 			thinkingLevel: this.harness.getThinkingLevel(),
+			escapeAsCancel: this.editor.escapeEnabled,
 		}
 
 		return new Promise<void>((resolve) => {
@@ -3411,6 +3430,10 @@ ${instructions}`,
 				onThinkingLevelChange: async (level) => {
 					await this.harness.setThinkingLevel(level)
 					this.updateStatusLine()
+				},
+				onEscapeAsCancelChange: async (enabled) => {
+					this.editor.escapeEnabled = enabled
+					await this.harness.setState({ escapeAsCancel: enabled })
 				},
 				onClose: () => {
 					this.ui.hideOverlay()

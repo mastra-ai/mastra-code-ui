@@ -15,11 +15,10 @@ import {
 
 const PASTE_START = "\x1b[200~"
 const PASTE_END = "\x1b[201~"
-
 export type AppAction =
 	| "clear" // Ctrl+C or Escape - interrupt
 	| "exit" // Ctrl+D - exit when empty
-	| "suspend" // Ctrl+Z - suspend
+	| "undo" // Ctrl+Z - undo last clear
 	| "toggleThinking" // Ctrl+T
 	| "expandTools" // Ctrl+E
 	| "followUp" // Alt+Enter - queue follow-up while streaming
@@ -30,6 +29,9 @@ export class CustomEditor extends Editor {
 
 	/** Handler for Ctrl+D when editor is empty */
 	public onCtrlD?: () => void
+
+	/** Whether Escape triggers clear (default true) */
+	public escapeEnabled = true
 
 	/** Called when clipboard image data is pasted */
 	public onImagePaste?: (image: ClipboardImage) => void
@@ -91,9 +93,8 @@ export class CustomEditor extends Editor {
 				return
 			}
 		}
-
-		// Escape - same as Ctrl+C (abort generation)
-		if (matchesKey(data, "escape")) {
+		// Escape - same as Ctrl+C (abort generation) if enabled
+		if (matchesKey(data, "escape") && this.escapeEnabled) {
 			const handler = this.actionHandlers.get("clear")
 			if (handler) {
 				handler()
@@ -109,10 +110,9 @@ export class CustomEditor extends Editor {
 			}
 			return // Always consume
 		}
-
-		// Ctrl+Z - suspend
+		// Ctrl+Z - undo last clear
 		if (matchesKey(data, "ctrl+z")) {
-			const handler = this.actionHandlers.get("suspend")
+			const handler = this.actionHandlers.get("undo")
 			if (handler) {
 				handler()
 				return

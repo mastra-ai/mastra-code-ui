@@ -29,17 +29,18 @@ import type { NotificationMode } from "../notify.js"
 // =============================================================================
 // Types
 // =============================================================================
-
 export interface SettingsConfig {
 	notifications: NotificationMode
 	yolo: boolean
 	thinkingLevel: string
+	escapeAsCancel: boolean
 }
 
 export interface SettingsCallbacks {
 	onNotificationsChange: (mode: NotificationMode) => void
 	onYoloChange: (enabled: boolean) => void
 	onThinkingLevelChange: (level: string) => void
+	onEscapeAsCancelChange: (enabled: boolean) => void
 	onClose: () => void
 }
 
@@ -184,6 +185,35 @@ export class SettingsComponent extends Box implements Focusable {
 							config.thinkingLevel = value
 							callbacks.onThinkingLevelChange(value)
 							done(getThinkingLabel(value))
+						},
+						() => done(),
+					),
+			},
+			{
+				id: "escapeAsCancel",
+				label: "Escape cancels",
+				description:
+					"Use Escape to cancel/clear (Ctrl+C always works). Ctrl+Z undoes a clear.",
+				currentValue: config.escapeAsCancel ? "On" : "Off",
+				submenu: (_currentValue, done) =>
+					new SelectSubmenu(
+						[
+							{
+								value: "on",
+								label: "  On",
+								description: "Escape clears input / aborts",
+							},
+							{
+								value: "off",
+								label: "  Off",
+								description: "Only Ctrl+C clears / aborts",
+							},
+						],
+						config.escapeAsCancel ? "on" : "off",
+						(value) => {
+							config.escapeAsCancel = value === "on"
+							callbacks.onEscapeAsCancelChange(config.escapeAsCancel)
+							done(config.escapeAsCancel ? "On" : "Off")
 						},
 						() => done(),
 					),
