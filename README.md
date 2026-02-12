@@ -28,7 +28,7 @@ To use Mastra Code, we recommend creating an alias in your shell configuration t
 
 ```bash
 # Add this to your .bashrc, .zshrc, etc.
-alias mastra-code="pnpm dlx tsx /Users/lejoe/code/work/mastra-code/src/main.ts"
+alias mastra-code="pnpm dlx tsx /absolute/path/mastra-code/src/main.ts"
 ```
 
 Lastly, start the TUI and execute the `/login` command to authenticate with your AI providers.
