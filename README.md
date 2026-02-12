@@ -24,11 +24,11 @@ cd mastra-code
 pnpm install
 ```
 
-To use Mastra Code, we recommend creating an alias in your shell configuration to launch it from any directory.
+To use Mastra Code, we recommend creating an alias in your shell configuration to launch it from any directory. You have to specify the absolute path to `main.ts` and then run it with `tsx`.
 
 ```bash
 # Add this to your .bashrc, .zshrc, etc.
-alias mastra-code='(cd /path/to/mastra-code && pnpm start)'
+alias mastra-code="pnpm dlx tsx /Users/lejoe/code/work/mastra-code/src/main.ts"
 ```
 
 Lastly, start the TUI and execute the `/login` command to authenticate with your AI providers.
