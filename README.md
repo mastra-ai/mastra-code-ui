@@ -13,17 +13,25 @@ A terminal-based coding agent TUI built with [Mastra](https://mastra.ai) and [pi
 
 ## Installation
 
+Clone the repository and install its dependencies.
+
 ```bash
 # Clone the repository
-git clone https://github.com/TylerBarnes/mastra-code.git
+git clone https://github.com/mastra-ai/mastra-code.git
 cd mastra-code
 
 # Install dependencies
 pnpm install
-
-# Run the TUI
-pnpm start
 ```
+
+To use Mastra Code, we recommend creating an alias in your shell configuration to launch it from any directory.
+
+```bash
+# Add this to your .bashrc, .zshrc, etc.
+alias mastra-code='(cd /path/to/mastra-code && pnpm start)'
+```
+
+Lastly, start the TUI and execute the `/login` command to authenticate with your AI providers.
 
 ## Usage
 
@@ -80,13 +88,13 @@ OAuth credentials are stored alongside the database in `auth.json`.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                          TUI                                 │
+│                          TUI                                │
 │  (pi-tui components: Editor, Markdown, Loader, etc.)        │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                        Harness                               │
+│                        Harness                              │
 │  - Mode management (plan, build, review)                    │
 │  - Thread/message persistence                               │
 │  - Event system for TUI updates                             │
@@ -95,7 +103,7 @@ OAuth credentials are stored alongside the database in `auth.json`.
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      Mastra Agent                            │
+│                      Mastra Agent                           │
 │  - Dynamic model selection                                  │
 │  - Tool execution (view, edit, bash)                        │
 │  - Memory integration                                       │
@@ -103,7 +111,7 @@ OAuth credentials are stored alongside the database in `auth.json`.
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      LibSQL Storage                          │
+│                      LibSQL Storage                         │
 │  - Thread persistence                                       │
 │  - Message history                                          │
 │  - Token usage tracking                                     │
@@ -125,7 +133,6 @@ pnpm build
 
 ## Roadmap
 
-- [ ] Observational Memory integration for long conversations
 - [ ] Tool approval UI for dangerous operations
 - [ ] Streaming tool output
 - [ ] More tools (search, grep, etc.)
@@ -139,4 +146,4 @@ pnpm build
 
 ## License
 
-MIT
+Apache-2.0
