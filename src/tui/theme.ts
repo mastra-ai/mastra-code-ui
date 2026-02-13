@@ -11,7 +11,7 @@ import chalk from "chalk"
 
 /** Mastra brand colors — single source of truth for all hex values. */
 export const mastra = {
-	purple: "#b588fe",
+	purple: "#7f45e0", // #b588fe brand is too washed out for terminal
 	green: "#7aff78",
 	orange: "#fdac53",
 	pink: "#ff69cc",

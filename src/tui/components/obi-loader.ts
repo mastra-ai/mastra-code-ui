@@ -1,7 +1,7 @@
 import chalk from "chalk"
 
 const GRADIENT_WIDTH = 30 // Width of the bright spot as percentage of total text
-const BASE_COLOR = [181, 136, 254] // #b588fe Mastra purple
+const BASE_COLOR = [124, 58, 237] // #b588fe Mastra purple is too washed out, using #7c3aed
 const MIN_BRIGHTNESS = 0.45 // Dimmest characters (0-1)
 
 /**
