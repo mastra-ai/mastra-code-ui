@@ -864,6 +864,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	setYoloMode(enabled: boolean): void {
 		this.setState({ yolo: enabled } as Partial<z.infer<TState>>)
+		this.persistThreadSetting("yolo", enabled).catch(() => {})
 		// When toggling YOLO off, reset session grants so user starts fresh
 		if (!enabled) {
 			this.sessionGrants.reset()
@@ -1168,6 +1169,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			if (meta?.reflectionThreshold)
 				updates.reflectionThreshold = meta.reflectionThreshold
 			if (meta?.thinkingLevel) updates.thinkingLevel = meta.thinkingLevel
+			if (typeof meta?.yolo === "boolean") updates.yolo = meta.yolo
+			if (typeof meta?.escapeAsCancel === "boolean")
+				updates.escapeAsCancel = meta.escapeAsCancel
 			if (
 				meta?.sandboxAllowedPaths &&
 				Array.isArray(meta.sandboxAllowedPaths)
@@ -1450,6 +1454,32 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		if (modelId) {
 			metadata.currentModelId = modelId
 			metadata[`modeModelId_${this.currentModeId}`] = modelId
+		}
+		// Inherit resource-level settings from the most recent thread
+		try {
+			const existingThreads = await this.listThreads()
+			if (existingThreads.length > 0) {
+				const sorted = [...existingThreads].sort(
+					(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+				)
+				const prevMeta = sorted[0].metadata as
+					| Record<string, unknown>
+					| undefined
+				if (prevMeta) {
+					if (typeof prevMeta.yolo === "boolean") {
+						metadata.yolo = prevMeta.yolo
+						this.setState({ yolo: prevMeta.yolo } as Partial<z.infer<TState>>)
+					}
+					if (typeof prevMeta.escapeAsCancel === "boolean") {
+						metadata.escapeAsCancel = prevMeta.escapeAsCancel
+						this.setState({
+							escapeAsCancel: prevMeta.escapeAsCancel,
+						} as Partial<z.infer<TState>>)
+					}
+				}
+			}
+		} catch {
+			// Non-critical — proceed without inheriting
 		}
 
 		// Store project path for directory-aware thread filtering (worktrees, etc.)
