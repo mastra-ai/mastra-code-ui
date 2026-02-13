@@ -100,6 +100,7 @@ import {
 	type NotificationMode,
 	type NotificationReason,
 } from "./notify.js"
+import { getToolCategory, TOOL_CATEGORIES } from "../permissions.js"
 
 // =============================================================================
 // Types
@@ -1230,9 +1231,16 @@ ${instructions}`,
 			case "message_end":
 				this.handleMessageEnd(event.message)
 				break
-
 			case "tool_start":
 				this.handleToolStart(event.toolCallId, event.toolName, event.args)
+				break
+
+			case "tool_approval_required":
+				this.handleToolApprovalRequired(
+					event.toolCallId,
+					event.toolName,
+					event.args,
+				)
 				break
 
 			case "tool_update":
@@ -2053,6 +2061,54 @@ ${instructions}`,
 			}
 		}
 		this.chatContainer.addChild(child)
+	}
+	private handleToolApprovalRequired(
+		toolCallId: string,
+		toolName: string,
+		args: unknown,
+	): void {
+		// Compute category label for the dialog
+		const category = getToolCategory(toolName)
+		const categoryLabel = category
+			? TOOL_CATEGORIES[category]?.label
+			: undefined
+
+		// Send notification to alert the user
+		this.notify("tool_approval", `Approve ${toolName}?`)
+
+		const dialog = new ToolApprovalDialogComponent({
+			toolCallId,
+			toolName,
+			args,
+			categoryLabel,
+			onAction: (action: ApprovalAction) => {
+				this.ui.hideOverlay()
+				this.pendingApprovalDismiss = null
+
+				if (action.type === "approve") {
+					this.harness.resolveToolApprovalDecision("approve")
+				} else if (action.type === "always_allow_category") {
+					this.harness.resolveToolApprovalDecision("always_allow_category")
+				} else {
+					this.harness.resolveToolApprovalDecision("decline")
+				}
+			},
+		})
+
+		// Set up Ctrl+C dismiss to decline
+		this.pendingApprovalDismiss = () => {
+			this.ui.hideOverlay()
+			this.pendingApprovalDismiss = null
+			this.harness.resolveToolApprovalDecision("decline")
+		}
+
+		// Show the dialog as an overlay
+		this.ui.showOverlay(dialog, {
+			width: "70%",
+			anchor: "center",
+		})
+		dialog.focused = true
+		this.ui.requestRender()
 	}
 
 	private handleToolStart(

@@ -600,6 +600,17 @@ const codeAgent = new Agent({
 	},
 })
 
+// Register the agent with a Mastra instance so that workflow snapshot storage
+// is available. This is required for requireToolApproval (approveToolCall /
+// declineToolCall use resumeStream which loads snapshots from storage).
+import { Mastra } from "@mastra/core"
+const mastraInstance = new Mastra({
+	agents: { codeAgent },
+	storage,
+})
+// Suppress internal logging after Mastra init (Mastra sets its own logger)
+mastraInstance.getLogger = () => noopLogger as any
+
 // Suppress @mastra/core's internal ConsoleLogger which dumps raw error objects
 // to the terminal. Our harness already catches and formats these errors properly.
 codeAgent.__setLogger(noopLogger)
