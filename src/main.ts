@@ -20,6 +20,7 @@ import * as fs from "fs"
 import { Harness } from "./harness/harness.js"
 import type { HarnessRuntimeContext } from "./harness/types.js"
 import { MastraTUI } from "./tui/index.js"
+import { mastra } from "./tui/theme.js"
 import {
 	opencodeClaudeMaxProvider,
 	setAuthStorage,
@@ -643,21 +644,21 @@ const harness = new Harness({
 			name: "Build",
 			default: true,
 			defaultModelId: "anthropic/claude-opus-4-6",
-			color: "#7f45e0",
+			color: mastra.purple,
 			agent: codeAgent,
 		},
 		{
 			id: "plan",
 			name: "Plan",
 			defaultModelId: "openai/gpt-5.2-codex",
-			color: "#2563eb",
+			color: mastra.blue,
 			agent: codeAgent,
 		},
 		{
 			id: "fast",
 			name: "Fast",
 			defaultModelId: "cerebras/zai-glm-4.7",
-			color: "#059669",
+			color: mastra.green,
 			agent: codeAgent,
 		},
 	],

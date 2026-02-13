@@ -6,6 +6,35 @@
 import chalk from "chalk"
 
 // =============================================================================
+// Mastra Brand Palette
+// =============================================================================
+
+/** Mastra brand colors — single source of truth for all hex values. */
+export const mastra = {
+	purple: "#b588fe",
+	green: "#7aff78",
+	orange: "#fdac53",
+	pink: "#ff69cc",
+	blue: "#6ccdfb",
+	red: "#ff4758",
+	yellow: "#e7e67b",
+	// Surface colors
+	bg: "#020202",
+	antiGrid: "#0d0d0d",
+	elevationSm: "#1a1a1a",
+	elevationLg: "#141414",
+	hover: "#262626",
+	// Text colors
+	white: "#f0f0f0",
+	specialGray: "#cccccc",
+	mainGray: "#939393",
+	darkGray: "#424242",
+	// Border colors
+	borderAntiGrid: "#141414",
+	borderElevation: "#1a1a1a",
+} as const
+
+// =============================================================================
 // Theme Colors
 // =============================================================================
 
@@ -85,40 +114,40 @@ export interface ThemeColors {
 
 const darkTheme: ThemeColors = {
 	// Core UI
-	accent: "#7c3aed", // Purple
-	border: "#3f3f46",
-	borderAccent: "#7c3aed",
-	borderMuted: "#27272a",
-	success: "#22c55e",
-	error: "#ef4444",
-	warning: "#f59e0b",
-	muted: "#71717a",
-	dim: "#52525b",
-	text: "#fafafa",
-	thinkingText: "#a1a1aa",
+	accent: mastra.purple,
+	border: mastra.borderElevation,
+	borderAccent: mastra.purple,
+	borderMuted: mastra.borderAntiGrid,
+	success: mastra.green,
+	error: mastra.red,
+	warning: mastra.orange,
+	muted: mastra.mainGray,
+	dim: mastra.darkGray,
+	text: mastra.white,
+	thinkingText: mastra.specialGray,
 	// User messages
-	userMessageBg: "#0f172a", // Slate blue
-	userMessageText: "#fafafa",
+	userMessageBg: "#110d1a", // Dark purple tint
+	userMessageText: mastra.white,
 	// System reminders
-	systemReminderBg: "#1a1400", // Dark orange tint
-	// Tool execution
-	toolPendingBg: "#18152a", // Dark purple (matches tool title accent)
-	toolSuccessBg: "#18152a", // Dark purple (same as pending)
-	toolErrorBg: "#1f0a0a", // Dark red tint
-	toolBorderPending: "#6366f1", // Indigo for pending
-	toolBorderSuccess: "#22c55e", // Green for success
-	toolBorderError: "#ef4444", // Red for error
-	toolTitle: "#a78bfa",
-	toolOutput: "#d4d4d8",
+	systemReminderBg: "#141008", // Dark orange tint
+	// Tool execution — distinct tinted backgrounds per state
+	toolPendingBg: "#110d1a", // Dark purple tint
+	toolSuccessBg: "#0a140a", // Dark green tint
+	toolErrorBg: "#1a0a0d", // Dark red tint
+	toolBorderPending: mastra.purple,
+	toolBorderSuccess: mastra.green,
+	toolBorderError: mastra.red,
+	toolTitle: mastra.purple,
+	toolOutput: mastra.specialGray,
 	// Error display
-	errorBg: "#291415", // Slightly lighter than toolErrorBg for contrast
-	path: "#9ca3af", // Gray for file paths
-	number: "#fbbf24", // Yellow for line numbers
-	function: "#60a5fa", // Light blue for function names
+	errorBg: "#200a0d", // Dark red tint
+	path: mastra.mainGray,
+	number: mastra.yellow,
+	function: mastra.blue,
 	// Selection
-	selectedBg: "#3f3f46",
+	selectedBg: mastra.hover,
 	// Overlays
-	overlayBg: "#15131f", // Darker purple tint for overlays
+	overlayBg: mastra.antiGrid,
 }
 
 // =============================================================================

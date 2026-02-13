@@ -4,13 +4,13 @@
 
 import { Container, Spacer, Text } from "@mariozechner/pi-tui"
 import chalk from "chalk"
-import { fg, bold } from "../theme.js"
+import { fg, bold, mastra } from "../theme.js"
 
-const removedColor = chalk.hex("#dc6868") // soft red
-const addedColor = chalk.hex("#5cb85c") // soft green
-const hunkHeaderColor = chalk.hex("#61afef") // cyan-blue
-const fileHeaderColor = chalk.bold.hex("#c678dd") // bold purple
-const metaColor = chalk.hex("#71717a") // muted gray
+const removedColor = chalk.hex(mastra.red)
+const addedColor = chalk.hex(mastra.green)
+const hunkHeaderColor = chalk.hex(mastra.blue)
+const fileHeaderColor = chalk.bold.hex(mastra.purple)
+const metaColor = chalk.hex(mastra.mainGray)
 
 function colorizeDiffLine(line: string): string {
 	// Unified diff headers
