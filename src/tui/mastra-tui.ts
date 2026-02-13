@@ -928,6 +928,11 @@ ${instructions}`,
 			const useBadge = opts.badge === "short" ? shortModeBadge : modeBadge
 			const useBadgeWidth =
 				opts.badge === "short" ? shortModeBadgeWidth : modeBadgeWidth
+			// YOLO indicator
+			if (this.harness.getYoloMode()) {
+				const yoloText = chalk.hex("#555")("yolo")
+				parts.push({ plain: "yolo", styled: yoloText })
+			}
 			// Memory info — animate label text when buffering is active
 			const msgLabelStyler =
 				this.bufferingMessages && this.gradientAnimator?.isRunning()
