@@ -94,6 +94,7 @@ import {
 	getContrastText,
 	theme,
 	mastra,
+	tintHex,
 } from "./theme.js"
 import {
 	sendNotification,
@@ -820,6 +821,7 @@ ${instructions}`,
 		}
 
 		// --- Helper to style the model ID ---
+		const isYolo = this.harness.getYoloMode()
 		const styleModelId = (id: string): string => {
 			if (!this.modelAuthStatus.hasAuth) {
 				const envVar = this.modelAuthStatus.apiKeyEnvVar
@@ -830,26 +832,15 @@ ${instructions}`,
 				)
 			}
 			// Tinted near-black background from mode color
-			const tintBg = modeColor
-				? `#${Math.floor(parseInt(modeColor.slice(1, 3), 16) * 0.15)
-						.toString(16)
-						.padStart(2, "0")}${Math.floor(
-						parseInt(modeColor.slice(3, 5), 16) * 0.15,
-					)
-						.toString(16)
-						.padStart(2, "0")}${Math.floor(
-						parseInt(modeColor.slice(5, 7), 16) * 0.15,
-					)
-						.toString(16)
-						.padStart(2, "0")}`
-				: undefined
+			const tintBg = modeColor ? tintHex(modeColor, 0.15) : undefined
+			const padded = ` ${id} `
 
 			if (this.gradientAnimator?.isRunning() && modeColor) {
 				const fade = this.gradientAnimator.getFadeProgress()
 				if (fade < 1) {
 					// During active or fade-out: interpolate gradient toward idle color
 					const text = applyGradientSweep(
-						` ${id} `,
+						padded,
 						this.gradientAnimator.getOffset(),
 						modeColor,
 						fade, // pass fade progress to flatten the gradient
@@ -867,7 +858,7 @@ ${instructions}`,
 				const dim = 0.8
 				const fg = chalk
 					.rgb(Math.floor(r * dim), Math.floor(g * dim), Math.floor(b * dim))
-					.bold(` ${id} `)
+					.bold(padded)
 				return tintBg ? chalk.bgHex(tintBg)(fg) : fg
 			}
 			return chalk.hex(mastra.specialGray).bold(id)
@@ -920,14 +911,21 @@ ${instructions}`,
 		}): { plain: string; styled: string } | null => {
 			const parts: Array<{ plain: string; styled: string }> = []
 			// Model ID (always present) — styleModelId adds padding spaces
-			parts.push({
-				plain: ` ${opts.modelId} `,
-				styled: styleModelId(opts.modelId),
-			})
-			// YOLO indicator (right of model name)
-			if (this.harness.getYoloMode()) {
-				const yoloStyled = chalk.bgHex("#1a1025").hex("#8b5cf6")(" yolo ")
-				parts.push({ plain: " yolo ", styled: yoloStyled })
+			// When YOLO, append ⚒ box flush (no SEP gap)
+			if (isYolo && modeColor) {
+				const yBox = chalk
+					.bgHex(tintHex(modeColor, 0.25))
+					.hex(tintHex(modeColor, 0.9))
+					.bold(" ⚒ ")
+				parts.push({
+					plain: ` ${opts.modelId}  ⚒ `,
+					styled: styleModelId(opts.modelId) + yBox,
+				})
+			} else {
+				parts.push({
+					plain: ` ${opts.modelId} `,
+					styled: styleModelId(opts.modelId),
+				})
 			}
 			const useBadge = opts.badge === "short" ? shortModeBadge : modeBadge
 			const useBadgeWidth =
@@ -1056,7 +1054,15 @@ ${instructions}`,
 			})
 
 		this.statusLine.setText(
-			result?.styled ?? shortModeBadge + styleModelId(tinyModelId),
+			result?.styled ??
+				shortModeBadge +
+					styleModelId(tinyModelId) +
+					(isYolo && modeColor
+						? chalk
+								.bgHex(tintHex(modeColor, 0.25))
+								.hex(tintHex(modeColor, 0.9))
+								.bold(" ⚒ ")
+						: ""),
 		)
 
 		// Line 2: hidden — dir only shows on line 1 when it fits
@@ -1292,10 +1298,16 @@ ${instructions}`,
 				}
 				break
 			}
-
-			case "thread_created":
+			case "thread_created": {
 				this.showInfo(`Created thread: ${event.thread.id}`)
+				// Sync inherited resource-level settings
+				const tState = this.harness.getState() as any
+				if (typeof tState?.escapeAsCancel === "boolean") {
+					this.editor.escapeEnabled = tState.escapeAsCancel
+				}
+				this.updateStatusLine()
 				break
+			}
 
 			case "usage_update":
 				this.handleUsageUpdate(event.usage)
@@ -3553,6 +3565,7 @@ ${instructions}`,
 				onEscapeAsCancelChange: async (enabled) => {
 					this.editor.escapeEnabled = enabled
 					await this.harness.setState({ escapeAsCancel: enabled })
+					await this.harness.persistThreadSetting("escapeAsCancel", enabled)
 				},
 				onClose: () => {
 					this.ui.hideOverlay()

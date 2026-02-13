@@ -34,6 +34,14 @@ export const mastra = {
 	borderElevation: "#1a1a1a",
 } as const
 
+/** Tint a hex color by a brightness factor (0–1). e.g. tintHex("#ff8800", 0.15) → near-black orange */
+export function tintHex(hex: string, factor: number): string {
+	const r = Math.floor(parseInt(hex.slice(1, 3), 16) * factor)
+	const g = Math.floor(parseInt(hex.slice(3, 5), 16) * factor)
+	const b = Math.floor(parseInt(hex.slice(5, 7), 16) * factor)
+	return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`
+}
+
 // =============================================================================
 // Theme Colors
 // =============================================================================
