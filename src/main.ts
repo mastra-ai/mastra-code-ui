@@ -128,7 +128,7 @@ const stateSchema = z.object({
 	// Thinking level for extended thinking (Anthropic models)
 	thinkingLevel: z.string().default("off"),
 	// YOLO mode — auto-approve all tool calls
-	yolo: z.boolean().default(true),
+	yolo: z.boolean().default(false),
 	// Smart editing mode — use AST-based analysis for code edits
 	smartEditing: z.boolean().default(true),
 	// Notification mode — alert when TUI needs user attention
