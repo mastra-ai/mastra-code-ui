@@ -43,7 +43,9 @@ const TOOL_CATEGORY_MAP: Record<string, ToolCategory> = {
 	view: "read",
 	search_content: "read",
 	find_files: "read",
+	web_search: "read",
 	"web-search": "read",
+	web_extract: "read",
 	"web-extract": "read",
 	// Edit tools — modify files
 	string_replace_lsp: "edit",
