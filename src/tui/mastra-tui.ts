@@ -209,6 +209,9 @@ export class MastraTUI {
 	// These must stay anchored at the bottom of the chat stream
 	private followUpComponents: UserMessageComponent[] = []
 
+	// Active approval dialog dismiss callback — called on Ctrl+C to unblock the dialog
+	private pendingApprovalDismiss: (() => void) | null = null
+
 	// Ctrl+C double-tap tracking
 	private lastCtrlCTime = 0
 	private static readonly DOUBLE_CTRL_C_MS = 500
@@ -292,7 +295,14 @@ export class MastraTUI {
 			}
 			this.lastCtrlCTime = now
 
-			if (this.harness.isRunning()) {
+			if (this.pendingApprovalDismiss) {
+				// Dismiss active approval dialog and abort
+				this.pendingApprovalDismiss()
+				this.activeInlinePlanApproval = undefined
+				this.activeInlineQuestion = undefined
+				this.userInitiatedAbort = true
+				this.harness.abort()
+			} else if (this.harness.isRunning()) {
 				// Clean up active inline components on abort
 				this.activeInlinePlanApproval = undefined
 				this.activeInlineQuestion = undefined
@@ -1151,6 +1161,9 @@ ${instructions}`,
 				process.exit(0)
 			}
 			this.lastCtrlCTime = now
+			if (this.pendingApprovalDismiss) {
+				this.pendingApprovalDismiss()
+			}
 			this.userInitiatedAbort = true
 			this.harness.abort()
 		})
@@ -1213,14 +1226,6 @@ ${instructions}`,
 
 			case "tool_start":
 				this.handleToolStart(event.toolCallId, event.toolName, event.args)
-				break
-
-			case "tool_approval_required":
-				await this.handleToolApprovalRequired(
-					event.toolCallId,
-					event.toolName,
-					event.args,
-				)
 				break
 
 			case "tool_update":
@@ -2125,64 +2130,6 @@ ${instructions}`,
 			component.appendStreamingOutput(output)
 			this.ui.requestRender()
 		}
-	}
-	/**
-	 * Handle a tool that requires user approval before execution.
-	 */
-	private async handleToolApprovalRequired(
-		toolCallId: string,
-		toolName: string,
-		args: unknown,
-	): Promise<void> {
-		const category = this.harness.getToolCategory(toolName)
-		const { TOOL_CATEGORIES } = await import("../permissions.js")
-		const categoryLabel = category
-			? TOOL_CATEGORIES[category]?.label
-			: undefined
-
-		return new Promise((resolve) => {
-			const handleAction = async (action: ApprovalAction) => {
-				this.ui.hideOverlay()
-				try {
-					if (action.type === "decline") {
-						this.showInfo(`Declined: ${toolName}`)
-						await this.harness.declineToolCall(toolCallId)
-					} else {
-						if (action.type === "always_allow_category" && category) {
-							this.harness.grantSessionCategory(category)
-							this.showInfo(
-								`Approved: ${toolName} (always allow ${categoryLabel?.toLowerCase() || category} for this session)`,
-							)
-						} else {
-							this.showInfo(`Approved: ${toolName}`)
-						}
-						await this.harness.approveToolCall(toolCallId)
-					}
-				} catch (error) {
-					this.showError(
-						error instanceof Error
-							? error.message
-							: "Failed to process tool approval",
-					)
-				}
-				resolve()
-			}
-
-			const dialog = new ToolApprovalDialogComponent({
-				toolCallId,
-				toolName,
-				args,
-				categoryLabel,
-				onAction: handleAction,
-			})
-			this.ui.showOverlay(dialog, {
-				width: "80%",
-				anchor: "center",
-			})
-			dialog.focused = true
-
-			this.notify("tool_approval", `Tool "${toolName}" requires approval`)
-		})
 	}
 
 	/**

@@ -20,7 +20,7 @@ Usage notes:
 - Use start_line to narrow the search to a specific region of the file.
 - After editing, real LSP diagnostics are returned (TypeScript errors, linting warnings, etc).
 - For creating NEW files, use the write_file tool instead.`,
-	requireApproval: true,
+	// requireApproval: true,
 	inputSchema: z.object({
 		path: z.string(),
 		old_str: z.string(),

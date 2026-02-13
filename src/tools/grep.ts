@@ -31,6 +31,7 @@ async function hasRipgrep(): Promise<boolean> {
 export function createGrepTool(projectRoot?: string) {
 	return createTool({
 		id: "search_content",
+		// requireApproval: true,
 		description: `Search file contents using regex patterns. Returns matching lines with file paths and line numbers.
 
 Usage notes:
@@ -72,16 +73,16 @@ Usage notes:
 				.optional()
 				.describe("Whether the search is case-sensitive (default: true)"),
 		}),
-        execute: async (context, toolContext) => {
-            try {
-                const root = projectRoot || process.cwd()
-                const searchPath = context.path
-                    ? path.resolve(root, context.path)
-                    : root
+		execute: async (context, toolContext) => {
+			try {
+				const root = projectRoot || process.cwd()
+				const searchPath = context.path
+					? path.resolve(root, context.path)
+					: root
 
-                // Security: ensure the search path is within the project root or allowed paths
-                const allowedPaths = getAllowedPathsFromContext(toolContext)
-                assertPathAllowed(searchPath, root, allowedPaths)
+				// Security: ensure the search path is within the project root or allowed paths
+				const allowedPaths = getAllowedPathsFromContext(toolContext)
+				assertPathAllowed(searchPath, root, allowedPaths)
 				const maxResults = context.maxResults ?? 100
 				const contextLines = context.contextLines ?? 0
 				const caseSensitive = context.caseSensitive ?? true

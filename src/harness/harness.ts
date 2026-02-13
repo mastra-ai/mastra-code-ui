@@ -108,12 +108,19 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private currentRunId: string | null = null
 	private currentOperationId: number = 0
 	private followUpQueue: string[] = []
-	private pendingApprovalToolCallId: string | null = null
+	private lastApprovalResult: {
+		message: HarnessMessage
+		pendingApproval?: {
+			action: "allow" | "deny" | "ask"
+			toolCallId: string
+			toolName: string
+			args: unknown
+		}
+	} | null = null
 	private workspace: Workspace | undefined = undefined
 	private workspaceInitialized = false
 	private hookManager: import("../hooks/index.js").HookManager | undefined
 	private mcpManager: import("../mcp/index.js").MCPManager | undefined
-	private pendingDeclineToolCallId: string | null = null
 	private sessionGrants = new SessionGrants()
 	private pendingQuestions = new Map<string, (answer: string) => void>()
 	private pendingPlanApprovals = new Map<
@@ -893,7 +900,13 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 * YOLO mode overrides everything to "allow".
 	 */
 	private resolveToolApproval(toolName: string): "allow" | "ask" | "deny" {
-		if ((this.state as any)?.yolo === true) return "allow"
+		this.emit({
+			type: "error",
+			error: new Error(
+				`[resolveToolApproval] state=${JSON.stringify(this.getState())}`,
+			),
+		})
+		if (this.getState().yolo === true) return "allow"
 		return resolveApproval(
 			toolName,
 			this.getPermissionRules(),
@@ -1698,32 +1711,12 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				messageInput as any,
 				streamOptions as any,
 			)
-			// Process the stream
-			const lastMessage = await this.processStream(response)
+			// Process the stream. If a tool-call-approval is encountered,
+			// processStream returns with pendingApproval and we handle it
+			// here (after the original stream is released).
+			let result = await this.processStream(response)
 
-			// Handle hook-blocked tool decline (queued during processStream)
-			if (
-				this.pendingDeclineToolCallId &&
-				this.currentOperationId === operationId
-			) {
-				const toolCallId = this.pendingDeclineToolCallId
-				this.pendingDeclineToolCallId = null
-				await this.declineToolCall(toolCallId)
-				return
-			}
-
-			// Handle YOLO auto-approval (queued during processStream to avoid race condition)
-			if (
-				this.pendingApprovalToolCallId &&
-				this.currentOperationId === operationId
-			) {
-				const toolCallId = this.pendingApprovalToolCallId
-				this.pendingApprovalToolCallId = null
-				await this.approveToolCall(toolCallId)
-				// After approval completes, the resumed stream has been fully processed
-				// Don't emit agent_end here — approveToolCall's processStream will handle it
-				return
-			}
+			const lastMessage = result.message
 
 			// Run Stop hooks (blocking: exit 2 = agent keeps working)
 			if (this.hookManager && this.currentOperationId === operationId) {
@@ -2093,50 +2086,26 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	}
 
 	/**
-	 * Approve a pending tool call and resume execution.
-	 * Used when the agent requires tool approval.
+	 * Decline a pending tool call and resume execution.
+	 * Called by the TUI when the user declines a tool.
 	 */
-	async approveToolCall(toolCallId?: string): Promise<void> {
-		if (!this.currentRunId) {
-			throw new Error("No active run to approve tool call for")
-		}
-
-		const agent = this.getCurrentAgent()
-		this.abortController = new AbortController()
-
-		try {
-			const response = await agent.approveToolCall({
-				runId: this.currentRunId,
-				toolCallId,
-				memory: this.currentThreadId
-					? {
-							thread: this.currentThreadId,
-							resource: this.resourceId,
-						}
-					: undefined,
-				abortSignal: this.abortController.signal,
-				requestContext: this.buildRequestContext(),
-			})
-
-			// Process the resumed stream
-			await this.processStream(response)
-
-			// Handle chained YOLO approvals (if another tool-call-approval was queued)
-			if (this.pendingApprovalToolCallId) {
-				const nextToolCallId = this.pendingApprovalToolCallId
-				this.pendingApprovalToolCallId = null
-				await this.approveToolCall(nextToolCallId)
-			}
-		} finally {
-			this.abortController = null
-		}
+	async declineToolCall(toolCallId?: string): Promise<void> {
+		this.lastApprovalResult = await this.handleToolDecline(toolCallId)
 	}
 
 	/**
-	 * Decline a pending tool call and resume execution.
-	 * The agent will be informed that the tool call was rejected.
+	 * Decline a pending tool call, resume execution, and process the
+	 * resumed stream. Returns the processStream result.
 	 */
-	async declineToolCall(toolCallId?: string): Promise<void> {
+	private async handleToolDecline(toolCallId?: string): Promise<{
+		message: HarnessMessage
+		pendingApproval?: {
+			action: "allow" | "deny" | "ask"
+			toolCallId: string
+			toolName: string
+			args: unknown
+		}
+	}> {
 		if (!this.currentRunId) {
 			throw new Error("No active run to decline tool call for")
 		}
@@ -2159,7 +2128,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			})
 
 			// Process the resumed stream
-			await this.processStream(response)
+			return await this.processStream(response)
 		} finally {
 			this.abortController = null
 		}
@@ -2170,7 +2139,15 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	private async processStream(response: {
 		fullStream: AsyncIterable<any>
-	}): Promise<HarnessMessage> {
+	}): Promise<{
+		message: HarnessMessage
+		pendingApproval?: {
+			action: "allow" | "deny" | "ask"
+			toolCallId: string
+			toolName: string
+			args: unknown
+		}
+	}> {
 		let currentMessage: HarnessMessage = {
 			id: this.generateId(),
 			role: "assistant",
@@ -2183,6 +2160,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			string,
 			{ index: number; text: string }
 		>()
+
 		for await (const chunk of response.fullStream) {
 			if ("runId" in chunk && chunk.runId) {
 				this.currentRunId = chunk.runId
@@ -2308,8 +2286,22 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					const toolName = chunk.payload.toolName
 					const toolArgs = chunk.payload.args
 
+					this.emit({
+						type: "error",
+						error: new Error(
+							`[tool-call-approval] toolName=${toolName} toolCallId=${toolCallId}`,
+						),
+					})
+
+					// The stream is now suspended — no more chunks will arrive until
+					// approveToolCall() or declineToolCall() is called.
+					// Determine the action and return it to the caller, who will
+					// handle it AFTER the for-await loop exits (so the original
+					// stream's ReadableStream is fully released).
+
+					let action: "allow" | "deny" | "ask" = "ask"
+
 					// Run PreToolUse hooks BEFORE YOLO decision
-					let hookBlocked = false
 					if (this.hookManager) {
 						const hookResult = await this.hookManager.runPreToolUse(
 							toolName,
@@ -2322,43 +2314,33 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 							})
 						}
 						if (!hookResult.allowed) {
-							hookBlocked = true
 							this.emit({
 								type: "tool_end",
 								toolCallId,
 								result: `Blocked by hook: ${hookResult.blockReason || "Policy violation"}`,
 								isError: true,
 							})
-							// Queue decline for after stream finishes (same pattern as pendingApproval)
-							this.pendingDeclineToolCallId = toolCallId
+							action = "deny"
 						}
 					}
-					if (!hookBlocked) {
-						// Resolve approval using permission rules
-						const decision = this.resolveToolApproval(toolName)
-						if (decision === "allow") {
-							// Queue for approval after stream finishes (don't call from inside processStream
-							// — the workflow snapshot may not be saved yet, causing "No snapshot found" errors)
-							this.pendingApprovalToolCallId = toolCallId
-						} else if (decision === "deny") {
-							this.emit({
-								type: "tool_end",
-								toolCallId,
-								result: `Tool "${toolName}" is denied by permission rules`,
-								isError: true,
-							})
-							this.pendingDeclineToolCallId = toolCallId
-						} else {
-							// decision === "ask" — prompt the user
-							this.emit({
-								type: "tool_approval_required",
-								toolCallId,
-								toolName,
-								args: toolArgs,
-							})
-						}
+					if (action !== "deny") {
+						action = this.resolveToolApproval(toolName)
 					}
-					break
+
+					this.emit({
+						type: "error",
+						error: new Error(
+							`[tool-call-approval] action=${action}, returning to caller`,
+						),
+					})
+
+					// Return with pendingApproval so the caller handles it
+					// after the stream is fully consumed
+					this.emit({ type: "message_end", message: currentMessage })
+					return {
+						message: currentMessage,
+						pendingApproval: { action, toolCallId, toolName, args: toolArgs },
+					}
 				}
 
 				case "error": {
@@ -2592,8 +2574,12 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			}
 		}
 
+		this.emit({
+			type: "error",
+			error: new Error(`[processStream] for-await loop exited`),
+		})
 		this.emit({ type: "message_end", message: currentMessage })
-		return currentMessage
+		return { message: currentMessage }
 	}
 
 	// ===========================================================================
@@ -2614,15 +2600,10 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		}
 	}
 
-	private emit(event: HarnessEvent): void {
+	private async emit(event: HarnessEvent): Promise<void> {
 		for (const listener of this.listeners) {
 			try {
-				const result = listener(event)
-				if (result instanceof Promise) {
-					result.catch((err) => {
-						console.error("Error in harness event listener:", err)
-					})
-				}
+				await listener(event)
 			} catch (err) {
 				console.error("Error in harness event listener:", err)
 			}

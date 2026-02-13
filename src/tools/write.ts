@@ -22,7 +22,7 @@ Usage notes:
 - The path is relative to the project root directory.
 - NEVER create files unless absolutely necessary. Prefer editing existing files.
 - Do not create documentation files (README, *.md) unless the user explicitly asks.`,
-		requireApproval: true,
+		// requireApproval: true,
 		inputSchema: z.object({
 			path: z
 				.string()

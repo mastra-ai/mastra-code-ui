@@ -65,7 +65,7 @@ Examples:
 - Add import: { transform: 'add-import', importSpec: { module: 'react', names: ['useState'] } }
 - Rename function: { transform: 'rename-function', targetName: 'oldFunc', newName: 'newFunc' }
 - Pattern replace: { pattern: 'console.log($ARG)', replacement: 'logger.debug($ARG)' }`,
-	requireApproval: true,
+	// requireApproval: true,
 	inputSchema: astSmartEditSchema,
 	execute: async (
 		{
