@@ -145,7 +145,7 @@ export class OMOutputComponent extends Container {
 		const footerText = this.buildFooterText(color)
 
 		// Top border
-		this.addChild(new Text(border("╭──"), 0, 0))
+		this.addChild(new Text(border("┌──"), 0, 0))
 
 		// Content lines with left border
 		let truncated = false
@@ -241,7 +241,7 @@ export class OMOutputComponent extends Container {
 		}
 
 		// Bottom border with footer
-		this.addChild(new Text(`${border("╰──")} ${footerText}`, 0, 0))
+		this.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 	}
 
 	private buildFooterText(color: string): string {
