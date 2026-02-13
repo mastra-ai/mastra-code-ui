@@ -293,7 +293,7 @@ export class ToolExecutionComponentEnhanced
 
 		// Calculate available width for path and truncate from beginning if needed
 		const termWidth = process.stdout.columns || 80
-		const fixedParts = "╰── view  " + (rangeDisplay ? `:XXX,XXX` : "") + " ✓" // approximate fixed width
+		const fixedParts = "└── view  " + (rangeDisplay ? `:XXX,XXX` : "") + " ✓" // approximate fixed width
 		const availableForPath = termWidth - fixedParts.length - 6 // buffer
 		let path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
 		if (path.length > availableForPath && availableForPath > 10) {
@@ -309,7 +309,7 @@ export class ToolExecutionComponentEnhanced
 		this.contentBox.addChild(new Text("", 0, 0))
 
 		// Top border
-		this.contentBox.addChild(new Text(border("╭──"), 0, 0))
+		this.contentBox.addChild(new Text(border("┌──"), 0, 0))
 
 		// Syntax-highlighted content with left border, truncated to prevent soft wrap
 		const output = this.getFormattedOutput()
@@ -353,7 +353,7 @@ export class ToolExecutionComponentEnhanced
 		}
 
 		// Bottom border with tool info
-		this.contentBox.addChild(new Text(`${border("╰──")} ${footerText}`, 0, 0))
+		this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 	}
 
 	private renderBashToolEnhanced(): void {
@@ -385,7 +385,7 @@ export class ToolExecutionComponentEnhanced
 			const footerText = `${theme.bold(theme.fg("toolTitle", "$"))} ${theme.fg("accent", command)}${cwdSuffix}${timeSuffix}${status}`
 
 			// Top border
-			this.contentBox.addChild(new Text(border("╭──"), 0, 0))
+			this.contentBox.addChild(new Text(border("┌──"), 0, 0))
 
 			// Output lines with left border, truncated to prevent soft wrap
 			const termWidth = process.stdout.columns || 80
@@ -400,7 +400,7 @@ export class ToolExecutionComponentEnhanced
 			}
 
 			// Bottom border with command info
-			this.contentBox.addChild(new Text(`${border("╰──")} ${footerText}`, 0, 0))
+			this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 		}
 
 		if (!this.result || this.isPartial) {
@@ -489,7 +489,7 @@ export class ToolExecutionComponentEnhanced
 
 		// Calculate available width for path and truncate from beginning if needed
 		const termWidth = process.stdout.columns || 80
-		const fixedParts = "╰── edit  " + startLine + " ✓" // approximate fixed width
+		const fixedParts = "└── edit  " + startLine + " ✓" // approximate fixed width
 		const availableForPath = termWidth - fixedParts.length - 6 // buffer
 		let path = argsObj?.path ? shortenPath(String(argsObj.path)) : "..."
 		if (path.length > availableForPath && availableForPath > 10) {
@@ -505,7 +505,7 @@ export class ToolExecutionComponentEnhanced
 		this.contentBox.addChild(new Text("", 0, 0))
 
 		// Top border
-		this.contentBox.addChild(new Text(border("╭──"), 0, 0))
+		this.contentBox.addChild(new Text(border("┌──"), 0, 0))
 
 		// For edits, show the diff
 		if (argsObj?.old_str && argsObj?.new_str && !this.result.isError) {
@@ -584,7 +584,7 @@ export class ToolExecutionComponentEnhanced
 		}
 
 		// Bottom border with tool info
-		this.contentBox.addChild(new Text(`${border("╰──")} ${footerText}`, 0, 0))
+		this.contentBox.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 
 		// LSP diagnostics below the box
 		const diagnostics = this.parseLSPDiagnostics()
@@ -599,10 +599,10 @@ export class ToolExecutionComponentEnhanced
 			for (const diag of entriesToShow) {
 				const color =
 					diag.severity === "error"
-						? mastra.red
+						? "#e06c75"
 						: diag.severity === "warning"
-							? mastra.orange
-							: mastra.mainGray
+							? "#f59e0b"
+							: "#71717a"
 				const icon =
 					diag.severity === "error"
 						? "✗"
@@ -612,14 +612,14 @@ export class ToolExecutionComponentEnhanced
 				const location = diag.location
 					? chalk.hex(color)(diag.location) + " "
 					: ""
-				const line = `  ${chalk.hex(color)(icon)} ${location}${chalk.hex(mastra.specialGray)(diag.message)}`
+				const line = `  ${chalk.hex(color)(icon)} ${location}${chalk.hex("#a1a1aa")(diag.message)}`
 				this.contentBox.addChild(new Text(line, 0, 0))
 			}
 			if (shouldCollapse) {
 				const remaining = diagnostics.entries.length - COLLAPSED_DIAG_LINES
 				this.contentBox.addChild(
 					new Text(
-						chalk.hex(mastra.mainGray)(
+						chalk.hex("#71717a")(
 							`  ... ${remaining} more diagnostic${remaining > 1 ? "s" : ""} (ctrl+e to expand)`,
 						),
 						0,
@@ -690,7 +690,7 @@ export class ToolExecutionComponentEnhanced
 
 		// Use soft red for removed, green for added
 		const removedColor = chalk.hex(mastra.red) // soft red
-		const addedColor = chalk.hex(mastra.green) // soft green
+		const addedColor = chalk.hex("#5cb85c") // soft green
 
 		const maxLines = Math.max(oldLines.length, newLines.length)
 
