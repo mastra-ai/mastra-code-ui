@@ -28,6 +28,7 @@ import type {
 } from "../harness/types.js"
 import type { Workspace } from "@mastra/core/workspace"
 import { detectProject, type ProjectInfo } from "../utils/project.js"
+import { ThreadLockError } from "../utils/thread-lock.js"
 import { parseError } from "../utils/errors.js"
 import {
 	loadCustomCommands,
@@ -65,7 +66,10 @@ import {
 	PlanApprovalInlineComponent,
 	PlanResultComponent,
 } from "./components/plan-approval-inline.js"
-import { ToolApprovalDialogComponent } from "./components/tool-approval-dialog.js"
+import {
+	ToolApprovalDialogComponent,
+	type ApprovalAction,
+} from "./components/tool-approval-dialog.js"
 import {
 	ToolExecutionComponentEnhanced,
 	type ToolResult,
@@ -600,11 +604,22 @@ export class MastraTUI {
 		const sortedThreads = [...threads].sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		)
-
 		const mostRecent = sortedThreads[0]
 
 		// Auto-resume the most recent thread for this directory
-		await this.harness.switchThread(mostRecent.id)
+		try {
+			await this.harness.switchThread(mostRecent.id)
+		} catch (error) {
+			if (error instanceof ThreadLockError) {
+				// Thread is locked by another process — start a new thread instead
+				this.pendingNewThread = true
+				this.showInfo(
+					`Thread "${mostRecent.title || mostRecent.id}" is in use by another process. Starting a new thread.`,
+				)
+				return
+			}
+			throw error
+		}
 	}
 	/**
 	 * Extract text content from a harness message.
@@ -1048,6 +1063,10 @@ ${instructions}`,
 			{ name: "cost", description: "Show token usage and estimated costs" },
 			{ name: "diff", description: "Show modified files or git diff" },
 			{ name: "name", description: "Rename current thread" },
+			{
+				name: "resource",
+				description: "Show/switch resource ID (tag for sharing)",
+			},
 			{ name: "logout", description: "Logout from OAuth provider" },
 			{ name: "hooks", description: "Show/reload configured hooks" },
 			{ name: "mcp", description: "Show/reload MCP server connections" },
@@ -1058,6 +1077,10 @@ ${instructions}`,
 			{
 				name: "sandbox",
 				description: "Manage allowed paths (add/remove directories)",
+			},
+			{
+				name: "permissions",
+				description: "View/manage tool approval permissions",
 			},
 			{
 				name: "settings",
@@ -2103,7 +2126,6 @@ ${instructions}`,
 			this.ui.requestRender()
 		}
 	}
-
 	/**
 	 * Handle a tool that requires user approval before execution.
 	 */
@@ -2112,35 +2134,46 @@ ${instructions}`,
 		toolName: string,
 		args: unknown,
 	): Promise<void> {
+		const category = this.harness.getToolCategory(toolName)
+		const { TOOL_CATEGORIES } = await import("../permissions.js")
+		const categoryLabel = category
+			? TOOL_CATEGORIES[category]?.label
+			: undefined
+
 		return new Promise((resolve) => {
+			const handleAction = async (action: ApprovalAction) => {
+				this.ui.hideOverlay()
+				try {
+					if (action.type === "decline") {
+						this.showInfo(`Declined: ${toolName}`)
+						await this.harness.declineToolCall(toolCallId)
+					} else {
+						if (action.type === "always_allow_category" && category) {
+							this.harness.grantSessionCategory(category)
+							this.showInfo(
+								`Approved: ${toolName} (always allow ${categoryLabel?.toLowerCase() || category} for this session)`,
+							)
+						} else {
+							this.showInfo(`Approved: ${toolName}`)
+						}
+						await this.harness.approveToolCall(toolCallId)
+					}
+				} catch (error) {
+					this.showError(
+						error instanceof Error
+							? error.message
+							: "Failed to process tool approval",
+					)
+				}
+				resolve()
+			}
+
 			const dialog = new ToolApprovalDialogComponent({
 				toolCallId,
 				toolName,
 				args,
-				onApprove: async () => {
-					this.ui.hideOverlay()
-					this.showInfo(`Approved: ${toolName}`)
-					try {
-						await this.harness.approveToolCall(toolCallId)
-					} catch (error) {
-						this.showError(
-							error instanceof Error ? error.message : "Failed to approve tool",
-						)
-					}
-					resolve()
-				},
-				onDecline: async () => {
-					this.ui.hideOverlay()
-					this.showInfo(`Declined: ${toolName}`)
-					try {
-						await this.harness.declineToolCall(toolCallId)
-					} catch (error) {
-						this.showError(
-							error instanceof Error ? error.message : "Failed to decline tool",
-						)
-					}
-					resolve()
-				},
+				categoryLabel,
+				onAction: handleAction,
 			})
 			this.ui.showOverlay(dialog, {
 				width: "80%",
@@ -2712,7 +2745,18 @@ ${instructions}`,
 						this.harness.setResourceId(thread.resourceId)
 					}
 
-					await this.harness.switchThread(thread.id)
+					try {
+						await this.harness.switchThread(thread.id)
+					} catch (error) {
+						if (error instanceof ThreadLockError) {
+							this.showError(
+								`Thread "${thread.title || thread.id}" is in use by another process (PID ${error.ownerPid}).`,
+							)
+							resolve()
+							return
+						}
+						throw error
+					}
 					this.pendingNewThread = false
 
 					// Clear chat and render existing messages
@@ -3408,6 +3452,65 @@ ${instructions}`,
 	// ===========================================================================
 	// General Settings
 	// ===========================================================================
+	private async showPermissions(): Promise<void> {
+		const { TOOL_CATEGORIES, getToolsForCategory } =
+			await import("../permissions.js")
+		const rules = this.harness.getPermissionRules_public()
+		const grants = this.harness.getSessionGrants()
+		const isYolo = this.harness.getYoloMode()
+
+		const lines: string[] = []
+		lines.push("Tool Approval Permissions")
+		lines.push("─".repeat(40))
+
+		if (isYolo) {
+			lines.push("")
+			lines.push("⚡ YOLO mode is ON — all tools are auto-approved")
+			lines.push("  Use /yolo to toggle off")
+		}
+
+		lines.push("")
+		lines.push("Category Policies:")
+		for (const [cat, meta] of Object.entries(TOOL_CATEGORIES)) {
+			const policy =
+				rules.categories[cat as keyof typeof rules.categories] || "ask"
+			const sessionGranted = grants.categories.includes(cat as any)
+			const tools = getToolsForCategory(cat as any)
+			const status = sessionGranted
+				? `${policy} (session: always allow)`
+				: policy
+			lines.push(
+				`  ${meta.label.padEnd(12)} ${status.padEnd(16)} tools: ${tools.join(", ")}`,
+			)
+		}
+
+		if (Object.keys(rules.tools).length > 0) {
+			lines.push("")
+			lines.push("Per-tool Overrides:")
+			for (const [tool, policy] of Object.entries(rules.tools)) {
+				lines.push(`  ${tool.padEnd(24)} ${policy}`)
+			}
+		}
+
+		if (grants.categories.length > 0 || grants.tools.length > 0) {
+			lines.push("")
+			lines.push("Session Grants (reset on restart):")
+			if (grants.categories.length > 0) {
+				lines.push(`  Categories: ${grants.categories.join(", ")}`)
+			}
+			if (grants.tools.length > 0) {
+				lines.push(`  Tools: ${grants.tools.join(", ")}`)
+			}
+		}
+
+		lines.push("")
+		lines.push("Commands:")
+		lines.push("  /permissions set <category> <allow|ask|deny>")
+		lines.push("  /yolo — toggle auto-approve all tools")
+
+		this.showInfo(lines.join("\n"))
+	}
+
 	private async showSettings(): Promise<void> {
 		const state = this.harness.getState() as any
 		const config = {
@@ -3729,6 +3832,31 @@ ${modeList}`)
 				this.updateStatusLine()
 				return true
 			}
+			case "permissions": {
+				if (args[0] === "set" && args.length >= 3) {
+					const category = args[1] as any
+					const policy = args[2] as any
+					const validCategories = ["read", "edit", "execute", "mcp"]
+					const validPolicies = ["allow", "ask", "deny"]
+					if (!validCategories.includes(category)) {
+						this.showInfo(
+							`Invalid category: ${category}. Must be one of: ${validCategories.join(", ")}`,
+						)
+						return true
+					}
+					if (!validPolicies.includes(policy)) {
+						this.showInfo(
+							`Invalid policy: ${policy}. Must be one of: ${validPolicies.join(", ")}`,
+						)
+						return true
+					}
+					this.harness.setPermissionCategory(category, policy)
+					this.showInfo(`Set ${category} policy to: ${policy}`)
+					return true
+				}
+				await this.showPermissions()
+				return true
+			}
 			case "yolo": {
 				const current = this.harness.getYoloMode()
 				this.harness.setYoloMode(!current)
@@ -3778,6 +3906,48 @@ ${modeList}`)
 				this.showInfo(`Thread renamed to: ${title}`)
 				return true
 			}
+			case "resource": {
+				const sub = args[0]?.trim()
+				const current = this.harness.getResourceId()
+				const defaultId = this.harness.getDefaultResourceId()
+
+				if (!sub) {
+					// Show current resource ID and list known ones
+					const knownIds = await this.harness.getKnownResourceIds()
+					const isOverridden = current !== defaultId
+					const lines = [
+						`Current: ${current}${isOverridden ? ` (auto-detected: ${defaultId})` : ""}`,
+						"",
+						"Known resource IDs:",
+						...knownIds.map((id) => `  ${id === current ? "* " : "  "}${id}`),
+						"",
+						"Usage:",
+						"  /resource <id>    - Switch to a resource ID",
+						"  /resource reset   - Reset to auto-detected ID",
+					]
+					this.showInfo(lines.join("\n"))
+				} else if (sub === "reset") {
+					this.harness.setResourceId(defaultId)
+					this.pendingNewThread = true
+					this.chatContainer.clear()
+					this.pendingTools.clear()
+					this.allToolComponents = []
+					this.resetStatusLineState()
+					this.ui.requestRender()
+					this.showInfo(`Resource ID reset to: ${defaultId}`)
+				} else {
+					const newId = args.join(" ").trim()
+					this.harness.setResourceId(newId)
+					this.pendingNewThread = true
+					this.chatContainer.clear()
+					this.pendingTools.clear()
+					this.allToolComponents = []
+					this.resetStatusLineState()
+					this.ui.requestRender()
+					this.showInfo(`Switched to resource: ${newId}`)
+				}
+				return true
+			}
 
 			case "exit":
 				this.stop()
@@ -3806,9 +3976,11 @@ ${modeList}`)
   /threads       - Switch between threads
   /thread:tag-dir - Tag thread with current directory
   /name          - Rename current thread
+  /resource      - Show/switch resource ID (tag for sharing)
   /skills        - List available skills
   /models    - Configure model (global/thread/mode)
   /subagents - Configure subagent model defaults
+  /permissions - View/manage tool approval permissions
   /settings - General settings (notifications, YOLO, thinking)
   /om       - Configure Observational Memory
   /review   - Review a GitHub pull request

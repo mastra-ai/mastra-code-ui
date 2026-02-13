@@ -121,7 +121,7 @@ Usage notes:
 - Be careful with destructive commands. Never run git push --force, git reset --hard, or rm -rf without explicit user request.
 - For interactive commands that need user input, they will fail. Set CI=true is already forced.`,
 		inputSchema: ExecuteCommandSchema,
-		// requireApproval: true, // TODO: re-enable when Mastra workflow suspension is stable
+		requireApproval: true,
 		execute: async (context, toolContext) => {
 			let { command } = context
 			let extractedTail: number | undefined

@@ -4,16 +4,27 @@ import { tavily } from "@tavily/core"
 
 const MIN_RELEVANCE_SCORE = 0.25
 
+// Lazily cached Tavily client — created on first use when the API key is available.
+let cachedTavilyClient: ReturnType<typeof tavily> | null = null
+
 function getTavilyClient() {
+	if (cachedTavilyClient) return cachedTavilyClient
 	const apiKey = process.env.TAVILY_API_KEY
 	if (!apiKey) return null
-	return tavily({ apiKey })
+	cachedTavilyClient = tavily({ apiKey })
+	return cachedTavilyClient
+}
+
+/**
+ * Check whether a Tavily API key is available in the environment.
+ * Used by main.ts to decide whether to include Tavily tools or fall back
+ * to Anthropic's native web search.
+ */
+export function hasTavilyKey(): boolean {
+	return !!process.env.TAVILY_API_KEY
 }
 
 export function createWebSearchTool() {
-	const tavilyClient = getTavilyClient()
-	if (!tavilyClient) return null
-
 	return createTool({
 		id: "web-search",
 		description:
@@ -50,6 +61,10 @@ export function createWebSearchTool() {
 			answer: z.string().optional(),
 		}),
 		execute: async (context) => {
+			const tavilyClient = getTavilyClient()
+			if (!tavilyClient) {
+				return { results: [], images: [], answer: undefined }
+			}
 			try {
 				const response = await tavilyClient.search(context.query, {
 					searchDepth: context.searchDepth || "basic",
@@ -87,9 +102,6 @@ export function createWebSearchTool() {
 }
 
 export function createWebExtractTool() {
-	const tavilyClient = getTavilyClient()
-	if (!tavilyClient) return null
-
 	return createTool({
 		id: "web-extract",
 		description:
@@ -128,6 +140,16 @@ export function createWebExtractTool() {
 			),
 		}),
 		execute: async (context) => {
+			const tavilyClient = getTavilyClient()
+			if (!tavilyClient) {
+				return {
+					results: [],
+					failedResults: context.urls.map((url) => ({
+						url,
+						error: "TAVILY_API_KEY not configured",
+					})),
+				}
+			}
 			try {
 				const response = await tavilyClient.extract(context.urls, {
 					extractDepth: context.extractDepth || "basic",

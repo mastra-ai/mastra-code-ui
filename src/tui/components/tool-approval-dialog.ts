@@ -1,6 +1,11 @@
 /**
  * Tool approval dialog component.
  * Shows tool details and prompts user to approve or decline execution.
+ *
+ * Responses:
+ *   y / yes       — approve this one call
+ *   n / no / Esc  — decline this call
+ *   a             — always allow this category for the session
  */
 
 import {
@@ -13,19 +18,25 @@ import {
 } from "@mariozechner/pi-tui"
 import { bg, fg } from "../theme.js"
 
+export type ApprovalAction =
+	| { type: "approve" }
+	| { type: "decline" }
+	| { type: "always_allow_category" }
+
 export interface ToolApprovalDialogOptions {
 	toolCallId: string
 	toolName: string
 	args: unknown
-	onApprove: () => void
-	onDecline: () => void
+	/** Human-readable category label, e.g. "Edit" or "Execute" */
+	categoryLabel?: string
+	onAction: (action: ApprovalAction) => void
 }
 
 export class ToolApprovalDialogComponent extends Box implements Focusable {
 	private toolName: string
 	private args: unknown
-	private onApprove: () => void
-	private onDecline: () => void
+	private categoryLabel: string | undefined
+	private onAction: (action: ApprovalAction) => void
 	public input: Input
 
 	// Focusable implementation
@@ -43,10 +54,10 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 
 		this.toolName = options.toolName
 		this.args = options.args
-		this.onApprove = options.onApprove
-		this.onDecline = options.onDecline
+		this.categoryLabel = options.categoryLabel
+		this.onAction = options.onAction
 
-		// Create input for y/n response
+		// Create input for response
 		this.input = new Input()
 		this.input.onSubmit = (value: string) => this.handleSubmit(value)
 
@@ -62,6 +73,15 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 		this.addChild(
 			new Text(fg("accent", `Tool: `) + fg("text", this.toolName), 0, 0),
 		)
+		if (this.categoryLabel) {
+			this.addChild(
+				new Text(
+					fg("accent", `Category: `) + fg("text", this.categoryLabel),
+					0,
+					0,
+				),
+			)
+		}
 		this.addChild(new Spacer(1))
 
 		// Arguments (formatted)
@@ -76,9 +96,17 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 
 		this.addChild(new Spacer(1))
 
-		// Prompt text
+		// Prompt text with options
+		const categoryHint = this.categoryLabel
+			? `a = always allow ${this.categoryLabel.toLowerCase()}`
+			: "a = always allow category"
 		this.addChild(
-			new Text(fg("accent", "Allow? ") + fg("muted", "(y/n) "), 0, 0),
+			new Text(
+				fg("accent", "Allow? ") +
+					fg("muted", `(y)es / (n)o / (${categoryHint})`),
+				0,
+				0,
+			),
 		)
 
 		// Input
@@ -104,9 +132,11 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 		const normalized = value.toLowerCase().trim()
 
 		if (normalized === "y" || normalized === "yes") {
-			this.onApprove()
+			this.onAction({ type: "approve" })
 		} else if (normalized === "n" || normalized === "no") {
-			this.onDecline()
+			this.onAction({ type: "decline" })
+		} else if (normalized === "a") {
+			this.onAction({ type: "always_allow_category" })
 		} else {
 			// Invalid input - clear and let them try again
 			this.input.setValue("")
@@ -118,7 +148,7 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 
 		// Handle escape to decline
 		if (kb.matches(data, "selectCancel")) {
-			this.onDecline()
+			this.onAction({ type: "decline" })
 			return
 		}
 

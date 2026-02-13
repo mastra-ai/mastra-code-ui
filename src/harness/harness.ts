@@ -24,6 +24,15 @@ import {
 	type OAuthLoginCallbacks,
 } from "../auth/index.js"
 import { parseError, type ParsedError } from "../utils/errors.js"
+import { acquireThreadLock, releaseThreadLock } from "../utils/thread-lock.js"
+import {
+	type PermissionRules,
+	type ToolCategory,
+	SessionGrants,
+	resolveApproval,
+	createDefaultRules,
+	getToolCategory,
+} from "../permissions.js"
 
 // =============================================================================
 // Harness Class
@@ -90,6 +99,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private currentModeId: string
 	private currentThreadId: string | null = null
 	private resourceId: string
+	private defaultResourceId: string
+	private userId: string | undefined
+	private isRemoteStorage: boolean
 	private listeners: HarnessEventListener[] = []
 	private abortController: AbortController | null = null
 	private abortRequested: boolean = false
@@ -102,6 +114,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private hookManager: import("../hooks/index.js").HookManager | undefined
 	private mcpManager: import("../mcp/index.js").MCPManager | undefined
 	private pendingDeclineToolCallId: string | null = null
+	private sessionGrants = new SessionGrants()
 	private pendingQuestions = new Map<string, (answer: string) => void>()
 	private pendingPlanApprovals = new Map<
 		string,
@@ -120,6 +133,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		this.id = config.id
 		this.config = config
 		this.resourceId = config.resourceId
+		this.defaultResourceId = config.defaultResourceId ?? config.resourceId
+		this.userId = config.userId
+		this.isRemoteStorage = config.isRemoteStorage ?? false
 
 		// Initialize state from schema defaults + initial state
 		this.state = {
@@ -224,15 +240,17 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		const threads = await this.listThreads()
 
 		if (threads.length === 0) {
-			const thread = await this.createThread()
-			this.currentThreadId = thread.id
-			return thread
+			// createThread handles lock acquisition internally
+			return await this.createThread()
 		}
 
 		// Use the most recently updated thread
 		const sortedThreads = [...threads].sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		)
+
+		// Acquire lock on the thread
+		acquireThreadLock(sortedThreads[0].id)
 		this.currentThreadId = sortedThreads[0].id
 
 		// Load token usage and model ID for this thread
@@ -845,6 +863,101 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	setYoloMode(enabled: boolean): void {
 		this.setState({ yolo: enabled } as Partial<z.infer<TState>>)
+		// When toggling YOLO off, reset session grants so user starts fresh
+		if (!enabled) {
+			this.sessionGrants.reset()
+		}
+	}
+
+	// =========================================================================
+	// Permissions
+	// =========================================================================
+
+	/**
+	 * Get the effective permission rules from state, with defaults.
+	 */
+	private getPermissionRules(): PermissionRules {
+		const stored = (this.state as any)?.permissionRules
+		const rules = createDefaultRules()
+		if (stored?.categories) {
+			Object.assign(rules.categories, stored.categories)
+		}
+		if (stored?.tools) {
+			Object.assign(rules.tools, stored.tools)
+		}
+		return rules
+	}
+
+	/**
+	 * Resolve whether a tool call should be allowed, prompted, or denied.
+	 * YOLO mode overrides everything to "allow".
+	 */
+	private resolveToolApproval(toolName: string): "allow" | "ask" | "deny" {
+		if ((this.state as any)?.yolo === true) return "allow"
+		return resolveApproval(
+			toolName,
+			this.getPermissionRules(),
+			this.sessionGrants,
+		)
+	}
+
+	/**
+	 * Grant a session-scoped "always allow" for a tool's category.
+	 */
+	grantSessionCategory(category: ToolCategory): void {
+		this.sessionGrants.allowCategory(category)
+	}
+
+	/**
+	 * Grant a session-scoped "always allow" for a specific tool.
+	 */
+	grantSessionTool(toolName: string): void {
+		this.sessionGrants.allowTool(toolName)
+	}
+
+	/**
+	 * Get the tool category for display purposes.
+	 */
+	getToolCategory(toolName: string): ToolCategory | null {
+		return getToolCategory(toolName)
+	}
+
+	/**
+	 * Get current session grants for display.
+	 */
+	getSessionGrants(): { categories: ToolCategory[]; tools: string[] } {
+		return {
+			categories: this.sessionGrants.getGrantedCategories(),
+			tools: this.sessionGrants.getGrantedTools(),
+		}
+	}
+
+	/**
+	 * Update a category policy in the persisted permission rules.
+	 */
+	setPermissionCategory(
+		category: ToolCategory,
+		policy: "allow" | "ask" | "deny",
+	): void {
+		const rules = this.getPermissionRules()
+		rules.categories[category] = policy
+		this.setState({ permissionRules: rules } as Partial<z.infer<TState>>)
+	}
+
+	/**
+	 * Update a per-tool policy in the persisted permission rules.
+	 */
+	setPermissionTool(toolName: string, policy: "allow" | "ask" | "deny"): void {
+		const rules = this.getPermissionRules()
+		rules.tools[toolName] = policy
+		this.setState({ permissionRules: rules } as Partial<z.infer<TState>>)
+	}
+
+	/**
+	 * Get current permission rules for display.
+	 */
+	getPermissionRules_public(): PermissionRules {
+		return this.getPermissionRules()
 	}
 
 	// =========================================================================
@@ -1256,7 +1369,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	getCurrentThreadId(): string | null {
 		return this.currentThreadId
 	}
-
 	/**
 	 * Get current resource ID.
 	 */
@@ -1265,11 +1377,49 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	}
 
 	/**
+	 * Get the auto-detected resource ID (before any overrides).
+	 */
+	getDefaultResourceId(): string {
+		return this.defaultResourceId
+	}
+
+	/**
+	 * Get current user ID (for thread attribution).
+	 */
+	getUserId(): string | undefined {
+		return this.userId
+	}
+
+	/**
+	 * Whether the storage backend is remote.
+	 */
+	getIsRemoteStorage(): boolean {
+		return this.isRemoteStorage
+	}
+	/**
 	 * Set the current resource ID (for switching between projects/resources).
 	 */
 	setResourceId(resourceId: string): void {
 		this.resourceId = resourceId
 		this.currentThreadId = null
+	}
+
+	/**
+	 * Get distinct resource IDs from all existing threads.
+	 * Useful for showing a list of known resources to pick from.
+	 */
+	async getKnownResourceIds(): Promise<string[]> {
+		const threads = await this.listThreads({
+			allResources: true,
+			allPaths: true,
+		})
+		const ids = new Set<string>()
+		for (const t of threads) {
+			ids.add(t.resourceId)
+		}
+		// Put the current resource ID first, then sort the rest
+		const sorted = [...ids].filter((id) => id !== this.resourceId).sort()
+		return [this.resourceId, ...sorted]
 	}
 
 	/**
@@ -1294,7 +1444,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		const lastModelId = this.config.authStorage?.getLastModelId()
 		const modelId =
 			currentStateModel || currentMode.defaultModelId || lastModelId
-
 		// Build metadata with both global and per-mode model ID
 		const metadata: Record<string, unknown> = {}
 		if (modelId) {
@@ -1306,6 +1455,11 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		const projectPath = (this.state as any)?.projectPath
 		if (projectPath) {
 			metadata.projectPath = projectPath
+		}
+
+		// Store user identity for multi-user thread attribution
+		if (this.userId) {
+			metadata.createdBy = this.userId
 		}
 
 		// Persist thread to storage with model ID
@@ -1320,6 +1474,11 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
 			},
 		})
+		// Release lock on previous thread, acquire lock on new one
+		if (this.currentThreadId) {
+			releaseThreadLock(this.currentThreadId)
+		}
+		acquireThreadLock(thread.id)
 
 		// Also switch to this new thread
 		this.currentThreadId = thread.id
@@ -1371,7 +1530,13 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			throw new Error(`Thread not found: ${threadId}`)
 		}
 
+		// Acquire lock on new thread before releasing old one
+		acquireThreadLock(threadId)
+
 		const previousThreadId = this.currentThreadId
+		if (previousThreadId) {
+			releaseThreadLock(previousThreadId)
+		}
 		this.currentThreadId = threadId
 
 		// Load token usage and model ID for this thread
@@ -1387,13 +1552,29 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 * List threads. By default lists only threads for the current resource AND project path.
 	 * Pass `allResources: true` to list threads across all resources.
 	 * Pass `allPaths: true` to list threads across all paths for the current resource.
+	 * Pass `mineOnly: true` to filter to threads created by the current user.
+	 * When using remote storage, `mineOnly` defaults to `true`.
 	 */
 	async listThreads(options?: {
 		allResources?: boolean
 		allPaths?: boolean
+		mineOnly?: boolean
 	}): Promise<HarnessThread[]> {
 		const memoryStorage = await this.getMemoryStorage()
 		const projectPath = (this.state as any)?.projectPath as string | undefined
+
+		// Default mineOnly to true when remote storage + user ID are available
+		const mineOnly =
+			options?.mineOnly ??
+			(this.isRemoteStorage && !!this.userId && !options?.allResources)
+
+		const metadataFilter: Record<string, unknown> = {}
+		if (!options?.allPaths && projectPath) {
+			metadataFilter.projectPath = projectPath
+		}
+		if (mineOnly && this.userId) {
+			metadataFilter.createdBy = this.userId
+		}
 
 		const filter:
 			| { resourceId?: string; metadata?: Record<string, unknown> }
@@ -1401,8 +1582,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			? undefined
 			: {
 					resourceId: this.resourceId,
-					...(!options?.allPaths && projectPath
-						? { metadata: { projectPath } }
+					...(Object.keys(metadataFilter).length > 0
+						? { metadata: metadataFilter }
 						: {}),
 				}
 
@@ -2152,16 +2333,23 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 							this.pendingDeclineToolCallId = toolCallId
 						}
 					}
-
 					if (!hookBlocked) {
-						// Check YOLO mode — auto-approve if enabled
-						const isYolo = (this.state as any)?.yolo === true
-						if (isYolo) {
+						// Resolve approval using permission rules
+						const decision = this.resolveToolApproval(toolName)
+						if (decision === "allow") {
 							// Queue for approval after stream finishes (don't call from inside processStream
 							// — the workflow snapshot may not be saved yet, causing "No snapshot found" errors)
 							this.pendingApprovalToolCallId = toolCallId
+						} else if (decision === "deny") {
+							this.emit({
+								type: "tool_end",
+								toolCallId,
+								result: `Tool "${toolName}" is denied by permission rules`,
+								isError: true,
+							})
+							this.pendingDeclineToolCallId = toolCallId
 						} else {
-							// Tool requires user approval before execution
+							// decision === "ask" — prompt the user
 							this.emit({
 								type: "tool_approval_required",
 								toolCallId,
@@ -2607,6 +2795,15 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	// ===========================================================================
 	// Utilities
 	// ===========================================================================
+	/**
+	 * Release the lock on the current thread.
+	 * Call this when the process is exiting.
+	 */
+	releaseCurrentThreadLock(): void {
+		if (this.currentThreadId) {
+			releaseThreadLock(this.currentThreadId)
+		}
+	}
 
 	private generateId(): string {
 		return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
