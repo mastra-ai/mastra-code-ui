@@ -112,20 +112,31 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 		// Input
 		this.addChild(this.input)
 	}
-
 	private formatArgs(args: unknown): string {
 		if (args === null || args === undefined) {
 			return "(none)"
 		}
 
-		try {
-			if (typeof args === "object") {
-				return JSON.stringify(args, null, 2)
-			}
-			return String(args)
-		} catch {
+		if (typeof args !== "object") {
 			return String(args)
 		}
+
+		const entries = Object.entries(args as Record<string, unknown>)
+		if (entries.length === 0) return "(none)"
+
+		const lines: string[] = []
+		for (const [key, value] of entries) {
+			const str = typeof value === "string" ? value : JSON.stringify(value)
+			// Truncate long values (e.g. old_str, new_str, command)
+			const maxLen = 120
+			const firstLine = str.split("\n")[0] ?? ""
+			const lineCount = typeof value === "string" ? str.split("\n").length : 0
+			const suffix = lineCount > 1 ? ` (${lineCount} lines)` : ""
+			const display =
+				firstLine.length > maxLen ? firstLine.slice(0, maxLen) + "…" : firstLine
+			lines.push(`${key}: ${display}${suffix}`)
+		}
+		return lines.join("\n")
 	}
 
 	private handleSubmit(value: string): void {
