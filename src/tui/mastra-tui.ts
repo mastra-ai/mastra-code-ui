@@ -93,6 +93,7 @@ import {
 	bold,
 	getContrastText,
 	theme,
+	mastra,
 } from "./theme.js"
 import {
 	sendNotification,
@@ -655,12 +656,18 @@ export class MastraTUI {
 		const appName = this.options.appName || "Mastra Code"
 		const version = this.options.version || "0.1.0"
 
-		const logo = bold(fg("accent", appName)) + fg("dim", ` v${version}`)
+		const logo =
+			fg("accent", "◆") +
+			" " +
+			bold(fg("accent", appName)) +
+			fg("dim", ` v${version}`)
 
+		const keyStyle = (k: string) => fg("accent", k)
+		const sep = fg("dim", " · ")
 		const instructions = [
-			`${fg("muted", "Ctrl+C")} interrupt/clear  ${fg("muted", "Ctrl+C×2")} exit`,
-			`${fg("muted", "Enter")} while working → steer  ${fg("muted", "Ctrl+F")} → queue follow-up`,
-			`${fg("muted", "/")} commands  ${fg("muted", "!")} shell  ${fg("muted", "Ctrl+T")} thinking  ${fg("muted", "Ctrl+E")} tools${this.harness.getModes().length > 1 ? `  ${fg("muted", "⇧Tab")} mode` : ""}`,
+			`  ${keyStyle("Ctrl+C")} ${fg("muted", "interrupt/clear")}${sep}${keyStyle("Ctrl+C×2")} ${fg("muted", "exit")}`,
+			`  ${keyStyle("Enter")} ${fg("muted", "while working → steer")}${sep}${keyStyle("Ctrl+F")} ${fg("muted", "→ queue follow-up")}`,
+			`  ${keyStyle("/")} ${fg("muted", "commands")}${sep}${keyStyle("!")} ${fg("muted", "shell")}${sep}${keyStyle("Ctrl+T")} ${fg("muted", "thinking")}${sep}${keyStyle("Ctrl+E")} ${fg("muted", "tools")}${this.harness.getModes().length > 1 ? `${sep}${keyStyle("⇧Tab")} ${fg("muted", "mode")}` : ""}`,
 		].join("\n")
 
 		this.ui.addChild(new Spacer(1))
@@ -712,8 +719,8 @@ ${instructions}`,
 		const showOMMode = isObserving || isReflecting
 
 		// Colors for OM modes
-		const OBSERVER_COLOR = "#f59e0b" // amber/yellow
-		const REFLECTOR_COLOR = "#ef4444" // red/orange
+		const OBSERVER_COLOR = mastra.orange // Mastra orange
+		const REFLECTOR_COLOR = mastra.pink // Mastra pink
 
 		// --- Mode badge ---
 		let modeBadge = ""
@@ -763,7 +770,7 @@ ${instructions}`,
 			]
 			modeBadge = chalk
 				.bgRgb(mr, mg, mb)
-				.hex("#0a0a0a")
+				.hex(mastra.bg)
 				.bold(` ${badgeName.toLowerCase()} `)
 			modeBadgeWidth = badgeName.length + 2
 		} else if (badgeName) {
@@ -863,7 +870,7 @@ ${instructions}`,
 					.bold(` ${id} `)
 				return tintBg ? chalk.bgHex(tintBg)(fg) : fg
 			}
-			return chalk.hex("#a1a1aa").bold(id)
+			return chalk.hex(mastra.specialGray).bold(id)
 		}
 		// --- Build line with progressive reduction ---
 		// Strategy: progressively drop less-important elements to fit terminal width.
@@ -896,7 +903,7 @@ ${instructions}`,
 			]
 			shortModeBadge = chalk
 				.bgRgb(sr, sg, sb)
-				.hex("#0a0a0a")
+				.hex(mastra.bg)
 				.bold(` ${shortName} `)
 			shortModeBadgeWidth = shortName.length + 2
 		} else if (badgeName) {
@@ -2500,8 +2507,8 @@ ${instructions}`,
 		const remaining = shouldCollapse ? todos.length - MAX_VISIBLE : 0
 
 		for (const todo of visible) {
-			const icon = chalk.green("\u2713")
-			const text = chalk.green(todo.content)
+			const icon = chalk.hex(mastra.green)("✓")
+			const text = chalk.hex(mastra.green)(todo.content)
 			container.addChild(new Text(`  ${icon} ${text}`, 0, 0))
 		}
 		if (remaining > 0) {
@@ -2542,7 +2549,9 @@ ${instructions}`,
 		container.addChild(new Text(fg("accent", `${label} cleared`), 0, 0))
 		for (const todo of clearedTodos) {
 			const icon =
-				todo.status === "completed" ? chalk.green("✓") : chalk.dim("○")
+				todo.status === "completed"
+					? chalk.hex(mastra.green)("✓")
+					: chalk.hex(mastra.darkGray)("○")
 			const text = chalk.dim.strikethrough(todo.content)
 			container.addChild(new Text(`  ${icon} ${text}`, 0, 0))
 		}

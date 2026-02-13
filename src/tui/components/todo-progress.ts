@@ -6,7 +6,7 @@
  */
 import { Container, Text, Spacer } from "@mariozechner/pi-tui"
 import chalk from "chalk"
-import { fg, bold } from "../theme.js"
+import { fg, bold, mastra } from "../theme.js"
 
 export interface TodoItem {
 	content: string
@@ -24,10 +24,10 @@ export class TodoProgressComponent extends Container {
 	/**
 	 * Replace the entire todo list and re-render.
 	 */
-    updateTodos(todos: TodoItem[]): void {
-        this.todos = todos
-        this.rebuildDisplay()
-    }
+	updateTodos(todos: TodoItem[]): void {
+		this.todos = todos
+		this.rebuildDisplay()
+	}
 
 	/**
 	 * Get the current todo list (read-only copy).
@@ -67,18 +67,18 @@ export class TodoProgressComponent extends Container {
 
 		switch (todo.status) {
 			case "completed": {
-				const icon = chalk.green("\u2713")
-				const text = chalk.green.strikethrough(todo.content)
+				const icon = chalk.hex(mastra.green)("✓") // Mastra green
+				const text = chalk.hex(mastra.green).strikethrough(todo.content)
 				return `${indent}${icon} ${text}`
 			}
 			case "in_progress": {
-				const icon = chalk.yellow("\u25B6")
-				const text = chalk.yellow.bold(todo.activeForm)
+				const icon = chalk.hex(mastra.orange)("▶") // Mastra orange
+				const text = chalk.hex(mastra.orange).bold(todo.activeForm)
 				return `${indent}${icon} ${text}`
 			}
 			case "pending": {
-				const icon = chalk.dim("\u25CB")
-				const text = chalk.dim(todo.content)
+				const icon = chalk.hex(mastra.darkGray)("○") // Mastra dark gray
+				const text = chalk.hex(mastra.darkGray)(todo.content)
 				return `${indent}${icon} ${text}`
 			}
 		}

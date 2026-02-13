@@ -112,7 +112,7 @@ export class SubagentExecutionComponent
 		const maxLineWidth = termWidth - 6
 
 		// ── Top border ──
-		this.addChild(new Text(border("┌──"), 0, 0))
+		this.addChild(new Text(border("╭──"), 0, 0))
 
 		// ── Task description (capped when collapsed) ──
 		const taskLines = this.task.split("\n")
@@ -248,7 +248,7 @@ export class SubagentExecutionComponent
 			: ""
 
 		const footerText = `${theme.bold(theme.fg("toolTitle", "subagent"))} ${typeLabel}${modelLabel}${durationStr}${statusIcon}`
-		this.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
+		this.addChild(new Text(`${border("╰──")} ${footerText}`, 0, 0))
 
 		this.invalidate()
 		this.ui.requestRender()
