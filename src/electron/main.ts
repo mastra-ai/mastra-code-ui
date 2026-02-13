@@ -6,6 +6,7 @@ import {
 	Notification,
 	Menu,
 	dialog,
+	nativeImage,
 } from "electron"
 import * as path from "path"
 import * as os from "os"
@@ -1059,6 +1060,9 @@ function bridgeEvents(h: Harness<any>, window: BrowserWindow) {
 // Create Window
 // =============================================================================
 function createWindow() {
+	const iconPath = path.join(__dirname, "../../resources/icon.png")
+	const appIcon = nativeImage.createFromPath(iconPath)
+
 	mainWindow = new BrowserWindow({
 		width: 1200,
 		height: 800,
@@ -1067,6 +1071,7 @@ function createWindow() {
 		titleBarStyle: "hiddenInset",
 		trafficLightPosition: { x: 12, y: 12 },
 		backgroundColor: "#09090b",
+		icon: appIcon,
 		webPreferences: {
 			preload: path.join(__dirname, "../preload/preload.cjs"),
 			nodeIntegration: false,
@@ -1074,6 +1079,10 @@ function createWindow() {
 			sandbox: false,
 		},
 	})
+
+	if (process.platform === "darwin" && app.dock) {
+		app.dock.setIcon(appIcon)
+	}
 
 	// Dev or production
 	if (process.env.ELECTRON_RENDERER_URL) {

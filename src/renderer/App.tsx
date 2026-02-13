@@ -1142,7 +1142,7 @@ export function App() {
 					{/* Spacer (draggable) */}
 					<div style={{ flex: 1 }} />
 
-					{/* Files sidebar toggle */}
+					{/* Right sidebar toggle */}
 					<button
 						className="titlebar-no-drag"
 						onClick={() =>
@@ -1151,10 +1151,7 @@ export function App() {
 						style={{
 							display: "flex",
 							alignItems: "center",
-							gap: 4,
-							padding: "0 12px",
-							fontSize: 11,
-							fontWeight: 500,
+							padding: "0 10px",
 							color: rightSidebarVisible
 								? "var(--text)"
 								: "var(--muted)",
@@ -1163,7 +1160,10 @@ export function App() {
 						}}
 						title="Toggle Explorer (Cmd+Shift+E)"
 					>
-						Files
+						<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+							<rect x="1" y="2" width="14" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+							<line x1="10.5" y1="2" x2="10.5" y2="14" stroke="currentColor" strokeWidth="1.2" />
+						</svg>
 					</button>
 				</div>
 
