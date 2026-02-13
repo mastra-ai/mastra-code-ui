@@ -2574,10 +2574,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			}
 		}
 
-		this.emit({
-			type: "error",
-			error: new Error(`[processStream] for-await loop exited`),
-		})
 		this.emit({ type: "message_end", message: currentMessage })
 		return { message: currentMessage }
 	}
