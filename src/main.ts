@@ -73,24 +73,6 @@ startGatewaySync(5 * 60 * 1000) // Sync every 5 minutes
 // Helpers
 // =============================================================================
 
-/** Find the deepest common ancestor directory for a list of absolute paths. */
-function findCommonAncestor(paths: string[]): string {
-	if (paths.length === 0) return "/"
-	if (paths.length === 1) return paths[0]
-	const split = paths.map((p) => path.resolve(p).split(path.sep))
-	const minLen = Math.min(...split.map((s) => s.length))
-	const common: string[] = []
-	for (let i = 0; i < minLen; i++) {
-		const seg = split[0][i]
-		if (split.every((s) => s[i] === seg)) {
-			common.push(seg)
-		} else {
-			break
-		}
-	}
-	return common.length <= 1 ? path.sep : common.join(path.sep)
-}
-
 // =============================================================================
 // Create Auth Storage (shared with Claude Max provider and Harness)
 // =============================================================================
@@ -469,7 +451,7 @@ const workspace = new Workspace({
 	name: "Mastra Code Workspace",
 	filesystem: new LocalFilesystem({
 		basePath: project.rootPath,
-		contained: false,
+		allowedPaths: skillPaths,
 	}),
 	sandbox: new LocalSandbox({
 		workingDirectory: project.rootPath,
@@ -520,30 +502,14 @@ const codeAgent = new Agent({
 		const ctx = requestContext.get("harness") as
 			| HarnessRuntimeContext<typeof stateSchema>
 			| undefined
-		const allowedPaths = ctx?.getState?.()?.sandboxAllowedPaths ?? []
-		if (allowedPaths.length > 0) {
-			// Create expanded workspace that covers the project root + all allowed paths
-			const allPaths = [
-				project.rootPath,
-				...allowedPaths.map((p: string) => path.resolve(p)),
-			]
-			const commonRoot = findCommonAncestor(allPaths)
-			return new Workspace({
-				id: "mastra-code-workspace-expanded",
-				name: "Mastra Code Workspace (Expanded)",
-				filesystem: new LocalFilesystem({
-					basePath: commonRoot,
-					contained: false,
-				}),
-				sandbox: new LocalSandbox({
-					workingDirectory: project.rootPath,
-					env: process.env,
-				}),
-				...(skillPaths.length > 0 ? { skills: skillPaths } : {}),
-				tools: { enabled: false },
-			})
-		}
-		return ctx?.workspace ?? workspace
+		// Sync filesystem's allowedPaths with sandbox-granted paths from harness state
+		const sandboxPaths = ctx?.getState?.()?.sandboxAllowedPaths ?? []
+		const fs = workspace.filesystem as LocalFilesystem
+		fs.setAllowedPaths([
+			...skillPaths,
+			...sandboxPaths.map((p: string) => path.resolve(p)),
+		])
+		return workspace
 	},
 	tools: ({ requestContext }) => {
 		const harnessContext = requestContext.get("harness") as
