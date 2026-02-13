@@ -273,9 +273,6 @@ Usage notes:
 			//   console.log(`   (using project root from frontmatter)`)
 			// }
 			// console.log('----------------------------------------')
-
-			if (context.timeout && context.timeout >= 1000)
-				context.timeout = context.timeout / 1000 // agent thought it was ms, not s
 			const timeoutMS = context.timeout ? context.timeout * 1000 : 30_000
 			// console.log({ timeoutMS })
 
