@@ -136,21 +136,17 @@ export class MultiStepProgressComponent extends Container {
 			if (activeStep) {
 				const spinner = this.getSpinner()
 				const summaryText = `  ${spinner} ${activeStep.title}${activeStep.progress ? ` (${activeStep.progress}%)` : ""}`
-				this.addChild(new Text(chalk.hex(mastra.blue)(summaryText), 0, 0))
+				this.addChild(new Text(chalk.yellow(summaryText), 0, 0))
 			} else if (failed > 0) {
 				this.addChild(
 					new Text(
-						chalk.hex(mastra.red)(
-							`  ✗ ${failed} step${failed > 1 ? "s" : ""} failed`,
-						),
+						chalk.red(`  ✗ ${failed} step${failed > 1 ? "s" : ""} failed`),
 						0,
 						0,
 					),
 				)
 			} else if (completed === total) {
-				this.addChild(
-					new Text(chalk.hex(mastra.green)("  ✓ All steps completed"), 0, 0),
-				)
+				this.addChild(new Text(chalk.green("  ✓ All steps completed"), 0, 0))
 			}
 		} else {
 			// Full detail view
@@ -170,9 +166,7 @@ export class MultiStepProgressComponent extends Container {
 				if (step.status === "failed" && step.error) {
 					const errorLines = step.error.split("\n")
 					errorLines.forEach((line) => {
-						this.addChild(
-							new Text(chalk.hex(mastra.red)(`      ${line}`), 0, 0),
-						)
+						this.addChild(new Text(chalk.red(`      ${line}`), 0, 0))
 					})
 				}
 			})
@@ -203,25 +197,25 @@ export class MultiStepProgressComponent extends Container {
 
 		switch (step.status) {
 			case "completed":
-				icon = chalk.hex(mastra.green)("✓") // Mastra green
-				color = chalk.hex(mastra.green)
+				icon = chalk.green("✓")
+				color = chalk.green
 				break
 			case "active":
-				icon = chalk.hex(mastra.blue)(this.getSpinner()) // Mastra blue
-				color = chalk.hex(mastra.blue).bold
+				icon = chalk.yellow(this.getSpinner())
+				color = chalk.yellow.bold
 				break
 			case "failed":
-				icon = chalk.hex(mastra.red)("✗") // Mastra red
-				color = chalk.hex(mastra.red)
+				icon = chalk.red("✗")
+				color = chalk.red
 				break
 			case "skipped":
-				icon = chalk.hex(mastra.darkGray)("—") // Mastra dark gray
-				color = chalk.hex(mastra.darkGray)
+				icon = chalk.dim("—")
+				color = chalk.dim
 				break
 			case "pending":
 			default:
-				icon = chalk.hex(mastra.darkGray)("○") // Mastra dark gray
-				color = chalk.hex(mastra.darkGray)
+				icon = chalk.dim("○")
+				color = chalk.dim
 				break
 		}
 
@@ -244,7 +238,7 @@ export class MultiStepProgressComponent extends Container {
 	private renderProgressBar(percent: number, width: number): string {
 		const filled = Math.round((percent / 100) * width)
 		const empty = width - filled
-		const bar = "━".repeat(filled) + "─".repeat(empty)
+		const bar = "█".repeat(filled) + "░".repeat(empty)
 
 		// Color based on progress — Mastra brand colors
 		if (percent === 100) {

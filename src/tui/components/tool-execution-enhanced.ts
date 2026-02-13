@@ -599,10 +599,10 @@ export class ToolExecutionComponentEnhanced
 			for (const diag of entriesToShow) {
 				const color =
 					diag.severity === "error"
-						? mastra.red
+						? "#e06c75"
 						: diag.severity === "warning"
-							? mastra.orange
-							: mastra.mainGray
+							? "#f59e0b"
+							: "#71717a"
 				const icon =
 					diag.severity === "error"
 						? "✗"
@@ -612,14 +612,14 @@ export class ToolExecutionComponentEnhanced
 				const location = diag.location
 					? chalk.hex(color)(diag.location) + " "
 					: ""
-				const line = `  ${chalk.hex(color)(icon)} ${location}${chalk.hex(mastra.specialGray)(diag.message)}`
+				const line = `  ${chalk.hex(color)(icon)} ${location}${chalk.hex("#a1a1aa")(diag.message)}`
 				this.contentBox.addChild(new Text(line, 0, 0))
 			}
 			if (shouldCollapse) {
 				const remaining = diagnostics.entries.length - COLLAPSED_DIAG_LINES
 				this.contentBox.addChild(
 					new Text(
-						chalk.hex(mastra.mainGray)(
+						chalk.hex("#71717a")(
 							`  ... ${remaining} more diagnostic${remaining > 1 ? "s" : ""} (ctrl+e to expand)`,
 						),
 						0,
@@ -690,7 +690,7 @@ export class ToolExecutionComponentEnhanced
 
 		// Use soft red for removed, green for added
 		const removedColor = chalk.hex(mastra.red) // soft red
-		const addedColor = chalk.hex(mastra.green) // soft green
+		const addedColor = chalk.hex("#5cb85c") // soft green
 
 		const maxLines = Math.max(oldLines.length, newLines.length)
 
