@@ -744,7 +744,6 @@ ${instructions}`,
 			: currentMode
 				? currentMode.name || currentMode.id || "unknown"
 				: undefined
-
 		if (badgeName && modeColor) {
 			const [mcr, mcg, mcb] = [
 				parseInt(modeColor.slice(1, 3), 16),
@@ -925,14 +924,14 @@ ${instructions}`,
 				plain: ` ${opts.modelId} `,
 				styled: styleModelId(opts.modelId),
 			})
+			// YOLO indicator (right of model name)
+			if (this.harness.getYoloMode()) {
+				const yoloStyled = chalk.bgHex("#1a1025").hex("#8b5cf6")(" yolo ")
+				parts.push({ plain: " yolo ", styled: yoloStyled })
+			}
 			const useBadge = opts.badge === "short" ? shortModeBadge : modeBadge
 			const useBadgeWidth =
 				opts.badge === "short" ? shortModeBadgeWidth : modeBadgeWidth
-			// YOLO indicator
-			if (this.harness.getYoloMode()) {
-				const yoloText = chalk.hex("#555")("yolo")
-				parts.push({ plain: "yolo", styled: yoloText })
-			}
 			// Memory info — animate label text when buffering is active
 			const msgLabelStyler =
 				this.bufferingMessages && this.gradientAnimator?.isRunning()
