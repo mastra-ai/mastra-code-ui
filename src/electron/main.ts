@@ -262,6 +262,7 @@ async function createHarness(projectPath: string) {
 		cachedMemory = new Memory({
 			storage,
 			options: {
+				generateTitle: true,
 				observationalMemory: {
 					enabled: true,
 					scope: "thread",
@@ -596,6 +597,9 @@ function registerIpcHandlers(h: Harness<any>) {
 			case "renameThread":
 				await h.renameThread(command.title)
 				return
+			case "deleteThread":
+				await h.deleteThread(command.threadId)
+				return
 			case "approveToolCall":
 				await h.approveToolCall(command.toolCallId)
 				return
@@ -886,8 +890,87 @@ function registerIpcHandlers(h: Harness<any>) {
 					isWorktree: project.isWorktree,
 				}
 			}
-			case "getRecentProjects":
-				return loadRecentProjects()
+			case "getRecentProjects": {
+				const { execSync } = require("child_process")
+				const projects = loadRecentProjects()
+				return projects.map((p) => {
+					let gitBranch: string | undefined
+					let isWorktree = false
+					let mainRepoPath: string | undefined
+					const worktrees: Array<{ path: string; branch: string }> = []
+					try {
+						const info = detectProject(p.rootPath)
+						gitBranch = info.gitBranch
+						isWorktree = info.isWorktree
+						mainRepoPath = info.mainRepoPath
+						const repoPath = info.mainRepoPath || p.rootPath
+						const output = execSync("git worktree list --porcelain", {
+							cwd: repoPath,
+							encoding: "utf-8",
+						}) as string
+						const blocks = output.split("\n\n").filter(Boolean)
+						for (const block of blocks) {
+							const lines = block.split("\n")
+							const wt: Record<string, string | boolean> = {}
+							for (const line of lines) {
+								if (line.startsWith("worktree ")) wt.path = line.slice(9)
+								else if (line.startsWith("branch "))
+									wt.branch = (line.slice(7) as string).replace(
+										"refs/heads/",
+										"",
+									)
+								else if (line === "bare") wt.isBare = true
+							}
+							if (wt.path && !wt.isBare && wt.path !== repoPath) {
+								worktrees.push({
+									path: wt.path as string,
+									branch: (wt.branch as string) || "detached",
+								})
+							}
+						}
+					} catch {
+						// not a git repo or worktree detection failed
+					}
+					return { ...p, gitBranch, isWorktree, mainRepoPath, worktrees }
+				})
+			}
+			case "readFileContents": {
+				const filePath = path.resolve(
+					projectRoot,
+					(command.path as string) || "",
+				)
+				if (!filePath.startsWith(projectRoot)) {
+					throw new Error("Access denied: path outside project root")
+				}
+				const stat = fs.statSync(filePath)
+				if (stat.isDirectory()) {
+					throw new Error("Cannot read a directory as a file")
+				}
+				if (stat.size > 5 * 1024 * 1024) {
+					throw new Error("File too large to display (>5MB)")
+				}
+				const content = fs.readFileSync(filePath, "utf-8")
+				const ext = path.extname(filePath).slice(1)
+				return {
+					content,
+					path: command.path as string,
+					fileName: path.basename(filePath),
+					extension: ext,
+					size: stat.size,
+					lineCount: content.split("\n").length,
+				}
+			}
+			case "writeFileContents": {
+				const filePath = path.resolve(
+					projectRoot,
+					(command.path as string) || "",
+				)
+				if (!filePath.startsWith(projectRoot)) {
+					throw new Error("Access denied: path outside project root")
+				}
+				fs.writeFileSync(filePath, command.content as string, "utf-8")
+				return { success: true }
+			}
 			case "openFolderDialog": {
 				const result = await dialog.showOpenDialog(mainWindow!, {
 					properties: ["openDirectory"],
@@ -979,7 +1062,7 @@ function createWindow() {
 	mainWindow = new BrowserWindow({
 		width: 1200,
 		height: 800,
-		minWidth: 600,
+		minWidth: 900,
 		minHeight: 400,
 		titleBarStyle: "hiddenInset",
 		trafficLightPosition: { x: 12, y: 12 },
@@ -1092,6 +1175,16 @@ function setupMenu() {
 						mainWindow?.webContents.send("harness:event", {
 							type: "shortcut",
 							action: "toggle_terminal",
+						})
+					},
+				},
+				{
+					label: "Toggle Explorer",
+					accelerator: "CmdOrCtrl+Shift+E",
+					click: () => {
+						mainWindow?.webContents.send("harness:event", {
+							type: "shortcut",
+							action: "toggle_right_sidebar",
 						})
 					},
 				},

@@ -9,9 +9,16 @@ interface FileEntry {
 
 interface FileTreeProps {
 	projectName: string
+	onFileClick?: (filePath: string) => void
 }
 
-function FileIcon({ isDirectory, name }: { isDirectory: boolean; name: string }) {
+function FileIcon({
+	isDirectory,
+	name,
+}: {
+	isDirectory: boolean
+	name: string
+}) {
 	if (isDirectory) {
 		return (
 			<span style={{ color: "var(--dir-icon)", marginRight: 4 }}>
@@ -45,9 +52,11 @@ function FileIcon({ isDirectory, name }: { isDirectory: boolean; name: string })
 function DirectoryNode({
 	entry,
 	depth,
+	onFileClick,
 }: {
 	entry: FileEntry
 	depth: number
+	onFileClick?: (filePath: string) => void
 }) {
 	const [expanded, setExpanded] = useState(false)
 	const [children, setChildren] = useState<FileEntry[] | null>(null)
@@ -128,12 +137,14 @@ function DirectoryNode({
 								key={child.path}
 								entry={child}
 								depth={depth + 1}
+								onFileClick={onFileClick}
 							/>
 						) : (
 							<FileNode
 								key={child.path}
 								entry={child}
 								depth={depth + 1}
+								onFileClick={onFileClick}
 							/>
 						),
 					)}
@@ -155,17 +166,30 @@ function DirectoryNode({
 	)
 }
 
-function FileNode({ entry, depth }: { entry: FileEntry; depth: number }) {
+function FileNode({
+	entry,
+	depth,
+	onFileClick,
+}: {
+	entry: FileEntry
+	depth: number
+	onFileClick?: (filePath: string) => void
+}) {
 	return (
-		<div
+		<button
+			onClick={() => onFileClick?.(entry.path)}
 			style={{
 				display: "flex",
 				alignItems: "center",
+				width: "100%",
 				padding: "3px 8px",
 				paddingLeft: 20 + depth * 16,
 				fontSize: 12,
-				color: "var(--muted)",
-				overflow: "hidden",
+				color: "var(--text)",
+				textAlign: "left",
+				cursor: "pointer",
+				borderRadius: 0,
+				background: "transparent",
 			}}
 		>
 			<FileIcon isDirectory={false} name={entry.name} />
@@ -178,11 +202,11 @@ function FileNode({ entry, depth }: { entry: FileEntry; depth: number }) {
 			>
 				{entry.name}
 			</span>
-		</div>
+		</button>
 	)
 }
 
-export function FileTree({ projectName }: FileTreeProps) {
+export function FileTree({ projectName, onFileClick }: FileTreeProps) {
 	const [rootEntries, setRootEntries] = useState<FileEntry[] | null>(null)
 
 	useEffect(() => {
@@ -237,9 +261,15 @@ export function FileTree({ projectName }: FileTreeProps) {
 							key={entry.path}
 							entry={entry}
 							depth={0}
+							onFileClick={onFileClick}
 						/>
 					) : (
-						<FileNode key={entry.path} entry={entry} depth={0} />
+						<FileNode
+							key={entry.path}
+							entry={entry}
+							depth={0}
+							onFileClick={onFileClick}
+						/>
 					),
 				)
 			)}

@@ -5,6 +5,8 @@ interface EditorInputProps {
 	onAbort: () => void
 	isAgentActive: boolean
 	modeId: string
+	modelId: string
+	onOpenModelSelector: () => void
 }
 
 const modeColors: Record<string, string> = {
@@ -18,6 +20,8 @@ export function EditorInput({
 	onAbort,
 	isAgentActive,
 	modeId,
+	modelId,
+	onOpenModelSelector,
 }: EditorInputProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
 	const [value, setValue] = useState("")
@@ -55,6 +59,11 @@ export function EditorInput({
 	)
 
 	const borderColor = modeColors[modeId] ?? "var(--border)"
+
+	// Extract short model name
+	const modelShort = modelId.includes("/")
+		? modelId.split("/").pop()
+		: modelId || "no model"
 
 	return (
 		<div
@@ -143,6 +152,38 @@ export function EditorInput({
 						Send
 					</button>
 				)}
+			</div>
+			{/* Model selector below input */}
+			<div
+				style={{
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "flex-end",
+					padding: "4px 4px 0",
+				}}
+			>
+				<button
+					onClick={onOpenModelSelector}
+					style={{
+						background: "transparent",
+						border: "none",
+						color: "var(--dim)",
+						cursor: "pointer",
+						fontSize: 11,
+						padding: "2px 6px",
+						borderRadius: 3,
+						transition: "color 0.15s",
+					}}
+					onMouseEnter={(e) => {
+						e.currentTarget.style.color = "var(--text)"
+					}}
+					onMouseLeave={(e) => {
+						e.currentTarget.style.color = "var(--dim)"
+					}}
+					title="Change model"
+				>
+					{modelShort}
+				</button>
 			</div>
 		</div>
 	)

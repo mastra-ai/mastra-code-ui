@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react"
-import { DiffView } from "./DiffView"
 
 interface GitFile {
 	status: string
@@ -16,10 +15,12 @@ interface GitStatus {
 	error?: string
 }
 
-export function GitPanel() {
+interface GitPanelProps {
+	onFileClick?: (filePath: string) => void
+}
+
+export function GitPanel({ onFileClick }: GitPanelProps) {
 	const [status, setStatus] = useState<GitStatus | null>(null)
-	const [expandedFile, setExpandedFile] = useState<string | null>(null)
-	const [fileDiff, setFileDiff] = useState<string>("")
 
 	const refresh = useCallback(async () => {
 		try {
@@ -34,9 +35,7 @@ export function GitPanel() {
 
 	useEffect(() => {
 		refresh()
-		// Poll every 3 seconds
 		const interval = setInterval(refresh, 3000)
-		// Also refresh on agent_end events
 		const unsubscribe = window.api.onEvent((raw: unknown) => {
 			const event = raw as { type: string }
 			if (event.type === "agent_end") refresh()
@@ -46,27 +45,6 @@ export function GitPanel() {
 			unsubscribe()
 		}
 	}, [refresh])
-
-	const toggleFile = useCallback(
-		async (filePath: string) => {
-			if (expandedFile === filePath) {
-				setExpandedFile(null)
-				setFileDiff("")
-				return
-			}
-			setExpandedFile(filePath)
-			try {
-				const result = (await window.api.invoke({
-					type: "gitDiff",
-					file: filePath,
-				})) as { diff: string }
-				setFileDiff(result.diff || "")
-			} catch {
-				setFileDiff("")
-			}
-		},
-		[expandedFile],
-	)
 
 	if (!status) {
 		return (
@@ -139,10 +117,7 @@ export function GitPanel() {
 		}
 	}
 
-	function renderSection(
-		title: string,
-		files: GitFile[],
-	) {
+	function renderSection(title: string, files: GitFile[]) {
 		if (files.length === 0) return null
 		return (
 			<div style={{ marginBottom: 8 }}>
@@ -159,70 +134,53 @@ export function GitPanel() {
 					{title} ({files.length})
 				</div>
 				{files.map((file) => (
-					<div key={file.path + file.status}>
-						<button
-							onClick={() => toggleFile(file.path)}
+					<button
+						key={file.path + file.status}
+						onClick={() => onFileClick?.(file.path)}
+						style={{
+							display: "flex",
+							alignItems: "center",
+							width: "100%",
+							padding: "3px 12px",
+							fontSize: 12,
+							textAlign: "left",
+							cursor: "pointer",
+							gap: 6,
+							background: "transparent",
+							border: "none",
+						}}
+					>
+						<span
 							style={{
-								display: "flex",
-								alignItems: "center",
-								width: "100%",
-								padding: "3px 12px",
-								fontSize: 12,
-								textAlign: "left",
-								cursor: "pointer",
-								gap: 6,
-								background:
-									expandedFile === file.path
-										? "var(--bg-elevated)"
-										: "transparent",
+								fontSize: 10,
+								color: statusColor(file.status),
+								fontWeight: 600,
+								width: 14,
+								flexShrink: 0,
 							}}
 						>
-							<span
-								style={{
-									fontSize: 10,
-									color: statusColor(file.status),
-									fontWeight: 600,
-									width: 14,
-									flexShrink: 0,
-								}}
-							>
-								{statusLabel(file.status).charAt(0).toUpperCase()}
-							</span>
-							<span
-								style={{
-									color: "var(--text)",
-									overflow: "hidden",
-									textOverflow: "ellipsis",
-									whiteSpace: "nowrap",
-									flex: 1,
-								}}
-							>
-								{file.path}
-							</span>
-							<span
-								style={{
-									fontSize: 10,
-									color: statusColor(file.status),
-								}}
-							>
-								{statusLabel(file.status)}
-							</span>
-						</button>
-						{expandedFile === file.path && (
-							<div
-								style={{
-									maxHeight: 300,
-									overflow: "auto",
-									borderTop: "1px solid var(--border-muted)",
-									borderBottom:
-										"1px solid var(--border-muted)",
-									background: "var(--bg)",
-								}}
-							>
-								<DiffView diff={fileDiff} />
-							</div>
-						)}
-					</div>
+							{statusLabel(file.status).charAt(0).toUpperCase()}
+						</span>
+						<span
+							style={{
+								color: "var(--text)",
+								overflow: "hidden",
+								textOverflow: "ellipsis",
+								whiteSpace: "nowrap",
+								flex: 1,
+							}}
+						>
+							{file.path}
+						</span>
+						<span
+							style={{
+								fontSize: 10,
+								color: statusColor(file.status),
+							}}
+						>
+							{statusLabel(file.status)}
+						</span>
+					</button>
 				))}
 			</div>
 		)

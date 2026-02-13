@@ -102,6 +102,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private hookManager: import("../hooks/index.js").HookManager | undefined
 	private mcpManager: import("../mcp/index.js").MCPManager | undefined
 	private pendingDeclineToolCallId: string | null = null
+	private pendingThreadMetadata: Record<string, unknown> | null = null
 	private pendingQuestions = new Map<string, (answer: string) => void>()
 	private pendingPlanApprovals = new Map<
 		string,
@@ -1308,20 +1309,13 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			metadata.projectPath = projectPath
 		}
 
-		// Persist thread to storage with model ID
-		const memoryStorage = await this.getMemoryStorage()
-		await memoryStorage.saveThread({
-			thread: {
-				id: thread.id,
-				resourceId: thread.resourceId,
-				title: thread.title!,
-				createdAt: thread.createdAt,
-				updatedAt: thread.updatedAt,
-				metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-			},
-		})
+		// Store metadata for the agent to use when it creates the thread in storage.
+		// We intentionally do NOT save to storage here — the agent's `before` hook
+		// must see the thread as new (threadExists = false) so that `after` generates a title.
+		this.pendingThreadMetadata =
+			Object.keys(metadata).length > 0 ? metadata : null
 
-		// Also switch to this new thread
+		// Switch to this new thread
 		this.currentThreadId = thread.id
 
 		// Set the model in state (only if not already set)
@@ -1354,6 +1348,17 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					updatedAt: new Date(),
 				},
 			})
+		}
+	}
+
+	/**
+	 * Delete a thread by ID. If the deleted thread is the current one, clears it.
+	 */
+	async deleteThread(threadId: string): Promise<void> {
+		const memoryStorage = await this.getMemoryStorage()
+		await memoryStorage.deleteThread({ threadId })
+		if (this.currentThreadId === threadId) {
+			this.currentThreadId = null
 		}
 	}
 
@@ -1474,10 +1479,24 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			// Build request context for tools
 			const requestContext = this.buildRequestContext()
 
-			// Stream the response
+			// Stream the response — pass thread as object with metadata so the agent's
+			// `before` hook can create it in storage with the right metadata, and
+			// `after` can generate a title (threadExists = false).
+			const threadOption:
+				| string
+				| { id: string; title?: string; metadata?: Record<string, unknown> } =
+				this.pendingThreadMetadata
+					? {
+							id: this.currentThreadId!,
+							title: "New Thread",
+							metadata: this.pendingThreadMetadata,
+						}
+					: this.currentThreadId!
+			this.pendingThreadMetadata = null
+
 			const streamOptions: Record<string, unknown> = {
 				memory: {
-					thread: this.currentThreadId,
+					thread: threadOption,
 					resource: this.resourceId,
 				},
 				abortSignal: this.abortController.signal,

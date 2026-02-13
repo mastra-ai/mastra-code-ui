@@ -11,8 +11,10 @@ import { LoginDialog } from "./components/LoginDialog"
 import { WelcomeScreen } from "./components/WelcomeScreen"
 import { TerminalPanel } from "./components/TerminalPanel"
 import { ResizeHandle } from "./components/ResizeHandle"
-import { ProjectSwitcher } from "./components/ProjectSwitcher"
-import type { SidebarTab } from "./components/SidebarTabs"
+import { RightSidebar, type RightSidebarTab } from "./components/RightSidebar"
+import { FileEditor } from "./components/FileEditor"
+import { DiffEditor } from "./components/DiffEditor"
+import type { EnrichedProject } from "./components/ProjectList"
 import type {
 	HarnessEventPayload,
 	Message,
@@ -288,8 +290,16 @@ export function App() {
 	)
 
 	// Sidebar state
-	const [sidebarTab, setSidebarTab] = useState<SidebarTab>("threads")
 	const [sidebarVisible, setSidebarVisible] = useState(true)
+
+	// Right sidebar state
+	const [rightSidebarVisible, setRightSidebarVisible] = useState(true)
+	const [rightSidebarTab, setRightSidebarTab] = useState<RightSidebarTab>("files")
+
+	// Tab state: multiple open files/threads + active tab
+	const [openFiles, setOpenFiles] = useState<string[]>([])
+	const [openThreadTabs, setOpenThreadTabs] = useState<string[]>([]) // thread IDs
+	const [activeTab, setActiveTab] = useState<string>("chat") // "chat", "thread:<id>", file path, "diff:<path>"
 
 	// Terminal state
 	const [terminalVisible, setTerminalVisible] = useState(false)
@@ -297,7 +307,7 @@ export function App() {
 
 	// Project state
 	const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
-	const [showProjectSwitcher, setShowProjectSwitcher] = useState(false)
+	const [enrichedProjects, setEnrichedProjects] = useState<EnrichedProject[]>([])
 
 	// Login dialog state
 	const [loginState, setLoginState] = useState<{
@@ -345,6 +355,9 @@ export function App() {
 					break
 				case "agent_end":
 					dispatch({ type: "AGENT_END" })
+					loadThreads()
+					// Title generation is async in Mastra's agent `after` hook — re-fetch after delay
+					setTimeout(() => loadThreads(), 3000)
 					break
 				case "message_start":
 					dispatch({
@@ -433,6 +446,7 @@ export function App() {
 					loadThreads()
 					break
 				case "thread_created":
+					setCurrentThreadId((event.thread as any)?.id ?? null)
 					loadThreads()
 					break
 				case "usage_update":
@@ -494,11 +508,13 @@ export function App() {
 						setTerminalVisible((v) => !v)
 					else if (action === "toggle_sidebar")
 						setSidebarVisible((v) => !v)
+					else if (action === "toggle_right_sidebar")
+						setRightSidebarVisible((v) => !v)
 					else if (action === "focus_git") {
-						setSidebarVisible(true)
-						setSidebarTab("git")
+						setRightSidebarVisible(true)
+						setRightSidebarTab("git")
 					} else if (action === "open_project")
-						setShowProjectSwitcher(true)
+						handleOpenFolder()
 					break
 				}
 				case "login_auth":
@@ -552,7 +568,10 @@ export function App() {
 					dispatch({ type: "CLEAR" })
 					setCurrentThreadId(null)
 					setThreads([])
+					setOpenFiles([])
+					setActiveTab("chat")
 					loadThreads()
+					loadEnrichedProjects()
 					break
 				}
 			}
@@ -573,26 +592,46 @@ export function App() {
 				e.preventDefault()
 				setTerminalVisible((v) => !v)
 			}
-			// Cmd+B toggle sidebar
+			// Cmd+B toggle left sidebar
 			if (isMod && e.key === "b") {
 				e.preventDefault()
 				setSidebarVisible((v) => !v)
 			}
-			// Cmd+Shift+G focus git tab
+			// Cmd+Shift+E toggle right sidebar
+			if (isMod && e.shiftKey && e.key === "E") {
+				e.preventDefault()
+				setRightSidebarVisible((v) => !v)
+			}
+			// Cmd+Shift+G focus git tab in right sidebar
 			if (isMod && e.shiftKey && e.key === "G") {
 				e.preventDefault()
-				setSidebarVisible(true)
-				setSidebarTab("git")
+				setRightSidebarVisible(true)
+				setRightSidebarTab("git")
 			}
-			// Cmd+O open project
+			// Cmd+O open folder
 			if (isMod && e.key === "o") {
 				e.preventDefault()
-				setShowProjectSwitcher(true)
+				handleOpenFolder()
+			}
+			// Cmd+W close active file tab
+			if (isMod && e.key === "w" && activeTab !== "chat") {
+				e.preventDefault()
+				handleCloseTab(activeTab)
 			}
 		}
 		window.addEventListener("keydown", handleKeyDown)
 		return () => window.removeEventListener("keydown", handleKeyDown)
-	}, [])
+	}, [activeTab])
+
+	// Sync harness thread when active tab changes to a thread tab
+	useEffect(() => {
+		if (activeTab.startsWith("thread:")) {
+			const threadId = activeTab.slice(7)
+			if (threadId !== currentThreadId) {
+				window.api.invoke({ type: "switchThread", threadId })
+			}
+		}
+	}, [activeTab])
 
 	async function initializeApp() {
 		try {
@@ -647,6 +686,9 @@ export function App() {
 				// ignore
 			}
 
+			// Load enriched projects
+			await loadEnrichedProjects()
+
 			await loadMessages()
 		} catch (err) {
 			console.error("Failed to initialize:", err)
@@ -671,6 +713,17 @@ export function App() {
 			})) as ThreadInfo[]
 			if (list) setThreads(list)
 		} catch {
+			// Thread list fetch failed — will retry on next event
+		}
+	}
+
+	async function loadEnrichedProjects() {
+		try {
+			const projects = (await window.api.invoke({
+				type: "getRecentProjects",
+			})) as EnrichedProject[]
+			if (projects) setEnrichedProjects(projects)
+		} catch {
 			// ignore
 		}
 	}
@@ -683,18 +736,41 @@ export function App() {
 		await window.api.invoke({ type: "abort" })
 	}, [])
 
-	const handleSwitchMode = useCallback(async (newModeId: string) => {
-		await window.api.invoke({ type: "switchMode", modeId: newModeId })
-	}, [])
-
 	const handleSwitchThread = useCallback(async (threadId: string) => {
 		await window.api.invoke({ type: "switchThread", threadId })
+		// Open as tab if not already open
+		setOpenThreadTabs((prev) =>
+			prev.includes(threadId) ? prev : [...prev, threadId],
+		)
+		setActiveTab(`thread:${threadId}`)
 	}, [])
 
 	const handleNewThread = useCallback(async () => {
-		await window.api.invoke({ type: "createThread" })
+		const thread = (await window.api.invoke({ type: "createThread" })) as { id: string } | undefined
 		dispatch({ type: "CLEAR" })
+		// The thread_created event will set currentThreadId
+		// Open it as a tab too
+		if (thread?.id) {
+			setOpenThreadTabs((prev) =>
+				prev.includes(thread.id) ? prev : [...prev, thread.id],
+			)
+			setActiveTab(`thread:${thread.id}`)
+		}
 	}, [])
+
+	const handleDeleteThread = useCallback(async (threadId: string) => {
+		await window.api.invoke({ type: "deleteThread", threadId })
+		// Close its tab if open
+		setOpenThreadTabs((prev) => prev.filter((id) => id !== threadId))
+		if (activeTab === `thread:${threadId}`) {
+			setActiveTab("chat")
+		}
+		if (currentThreadId === threadId) {
+			setCurrentThreadId(null)
+			dispatch({ type: "CLEAR" })
+		}
+		loadThreads()
+	}, [currentThreadId, activeTab])
 
 	const handleApprove = useCallback(
 		async (toolCallId: string) => {
@@ -772,6 +848,77 @@ export function App() {
 		setTerminalHeight((h) => Math.max(100, Math.min(600, h + deltaY)))
 	}, [])
 
+	// File editor handlers
+	const handleFileClick = useCallback((filePath: string) => {
+		setOpenFiles((prev) =>
+			prev.includes(filePath) ? prev : [...prev, filePath],
+		)
+		setActiveTab(filePath)
+	}, [])
+
+	const handleCloseTab = useCallback((tabId: string) => {
+		if (tabId.startsWith("thread:")) {
+			const threadId = tabId.slice(7)
+			setOpenThreadTabs((prev) => {
+				const next = prev.filter((id) => id !== threadId)
+				setActiveTab((current) => {
+					if (current !== tabId) return current
+					// Switch to another open thread tab, or "chat"
+					if (next.length > 0) {
+						const closedIdx = prev.indexOf(threadId)
+						return `thread:${next[Math.min(closedIdx, next.length - 1)]}`
+					}
+					return "chat"
+				})
+				return next
+			})
+		} else {
+			setOpenFiles((prev) => {
+				const next = prev.filter((f) => f !== tabId)
+				setActiveTab((current) => {
+					if (current !== tabId) return current
+					if (next.length > 0) {
+						const closedIdx = prev.indexOf(tabId)
+						return next[Math.min(closedIdx, next.length - 1)]
+					}
+					return "chat"
+				})
+				return next
+			})
+		}
+	}, [])
+
+	// Diff handler: opens a diff tab (prefixed with "diff:")
+	const handleDiffClick = useCallback((filePath: string) => {
+		const tabId = "diff:" + filePath
+		setOpenFiles((prev) =>
+			prev.includes(tabId) ? prev : [...prev, tabId],
+		)
+		setActiveTab(tabId)
+	}, [])
+
+	// Project handlers
+	const handleSwitchProject = useCallback(async (path: string) => {
+		await window.api.invoke({ type: "switchProject", path })
+	}, [])
+
+	const handleOpenFolder = useCallback(async () => {
+		try {
+			const result = (await window.api.invoke({
+				type: "openFolderDialog",
+			})) as { path: string } | null
+			if (result?.path) {
+				await window.api.invoke({ type: "switchProject", path: result.path })
+			}
+		} catch {
+			// user cancelled
+		}
+	}, [])
+
+	const handleOpenModelSelector = useCallback(() => {
+		setShowModelSelector(true)
+	}, [])
+
 	return (
 		<div
 			style={{
@@ -780,69 +927,298 @@ export function App() {
 				overflow: "hidden",
 			}}
 		>
+			{/* Left sidebar: projects + threads */}
 			<Sidebar
 				threads={threads}
 				currentThreadId={currentThreadId}
-				modeId={modeId}
 				loggedInProviders={loggedInProviders}
-				activeTab={sidebarTab}
 				projectName={projectInfo?.name ?? ""}
 				sidebarVisible={sidebarVisible}
+				enrichedProjects={enrichedProjects}
+				activeProjectPath={projectInfo?.rootPath ?? null}
 				onSwitchThread={handleSwitchThread}
 				onNewThread={handleNewThread}
-				onSwitchMode={handleSwitchMode}
-				onOpenModelSelector={() => setShowModelSelector(true)}
+				onDeleteThread={handleDeleteThread}
 				onLogin={handleLogin}
-				onTabChange={setSidebarTab}
-				onOpenProjectSwitcher={() => setShowProjectSwitcher(true)}
+				onSwitchProject={handleSwitchProject}
+				onOpenFolder={handleOpenFolder}
 			/>
 
+			{/* Center panel */}
 			<div
 				style={{
 					flex: 1,
 					display: "flex",
 					flexDirection: "column",
 					overflow: "hidden",
+					minWidth: 0,
 				}}
 			>
-				{/* Title bar drag region */}
+				{/* Tab bar / title bar */}
 				<div
 					className="titlebar-drag"
 					style={{
 						height: 38,
 						borderBottom: "1px solid var(--border-muted)",
 						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						color: "var(--muted)",
-						fontSize: 12,
+						alignItems: "stretch",
+						background: "var(--bg-surface)",
 						flexShrink: 0,
+						paddingLeft: sidebarVisible ? 0 : 78,
 					}}
 				>
-					{projectInfo?.name ?? "Mastra Code"}
+					{/* Thread tabs */}
+					{openThreadTabs.length === 0 ? (
+						/* Fallback: no threads open */
+						<button
+							className="titlebar-no-drag"
+							onClick={() => setActiveTab("chat")}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 6,
+								padding: "0 16px",
+								fontSize: 11,
+								fontWeight: 500,
+								color: "var(--text)",
+								background: "var(--bg)",
+								borderBottom: "2px solid var(--accent)",
+								cursor: "pointer",
+							}}
+						>
+							Chat
+						</button>
+					) : (
+						openThreadTabs.map((threadId) => {
+							const thread = threads.find((t) => t.id === threadId)
+							const tabId = `thread:${threadId}`
+							const isActive = activeTab === tabId
+							return (
+								<div
+									key={tabId}
+									style={{
+										display: "flex",
+										alignItems: "center",
+										gap: 4,
+										background: isActive ? "var(--bg)" : "transparent",
+										borderBottom: isActive
+											? "2px solid var(--accent)"
+											: "2px solid transparent",
+									}}
+								>
+									<button
+										className="titlebar-no-drag"
+										onClick={async () => {
+											await window.api.invoke({ type: "switchThread", threadId })
+											setActiveTab(tabId)
+										}}
+										style={{
+											padding: "0 4px 0 12px",
+											fontSize: 11,
+											fontWeight: 500,
+											color: isActive ? "var(--text)" : "var(--muted)",
+											cursor: "pointer",
+											transition: "color 0.1s",
+										}}
+									>
+										{thread?.title || "New Thread"}
+									</button>
+									<button
+										className="titlebar-no-drag"
+										onClick={(e) => {
+											e.stopPropagation()
+											handleCloseTab(tabId)
+										}}
+										style={{
+											color: "var(--dim)",
+											cursor: "pointer",
+											fontSize: 11,
+											padding: "0 8px 0 2px",
+											lineHeight: 1,
+										}}
+										title="Close"
+									>
+										&times;
+									</button>
+								</div>
+							)
+						})
+					)}
+
+					{/* Open file/diff tabs */}
+					{openFiles.map((tabId) => {
+						const isDiff = tabId.startsWith("diff:")
+						const filePath = isDiff
+							? tabId.slice(5)
+							: tabId
+						const fileName =
+							filePath.split("/").pop() || filePath
+						const isActive = activeTab === tabId
+						return (
+							<div
+								key={tabId}
+								style={{
+									display: "flex",
+									alignItems: "center",
+									gap: 4,
+									background: isActive
+										? "var(--bg)"
+										: "transparent",
+									borderBottom: isActive
+										? "2px solid var(--accent)"
+										: "2px solid transparent",
+								}}
+							>
+								<button
+									className="titlebar-no-drag"
+									onClick={() => setActiveTab(tabId)}
+									style={{
+										padding: "0 4px 0 12px",
+										fontSize: 11,
+										fontWeight: 500,
+										color: isActive
+											? "var(--text)"
+											: "var(--muted)",
+										cursor: "pointer",
+										transition: "color 0.1s",
+										display: "flex",
+										alignItems: "center",
+										gap: 4,
+									}}
+								>
+									{isDiff && (
+										<span
+											style={{
+												fontSize: 9,
+												color: "var(--warning)",
+												fontWeight: 700,
+											}}
+										>
+											M
+										</span>
+									)}
+									{fileName}
+								</button>
+								<button
+									className="titlebar-no-drag"
+									onClick={(e) => {
+										e.stopPropagation()
+										handleCloseTab(tabId)
+									}}
+									style={{
+										color: "var(--dim)",
+										cursor: "pointer",
+										fontSize: 11,
+										padding: "0 8px 0 2px",
+										lineHeight: 1,
+									}}
+									title="Close"
+								>
+									&times;
+								</button>
+							</div>
+						)
+					})}
+
+					{/* New thread button */}
+					<button
+						className="titlebar-no-drag"
+						onClick={handleNewThread}
+						style={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+							padding: "0 8px",
+							fontSize: 16,
+							color: "var(--muted)",
+							cursor: "pointer",
+							transition: "color 0.1s",
+						}}
+						title="New Thread"
+					>
+						+
+					</button>
+
+					{/* Spacer (draggable) */}
+					<div style={{ flex: 1 }} />
+
+					{/* Files sidebar toggle */}
+					<button
+						className="titlebar-no-drag"
+						onClick={() =>
+							setRightSidebarVisible((v) => !v)
+						}
+						style={{
+							display: "flex",
+							alignItems: "center",
+							gap: 4,
+							padding: "0 12px",
+							fontSize: 11,
+							fontWeight: 500,
+							color: rightSidebarVisible
+								? "var(--text)"
+								: "var(--muted)",
+							cursor: "pointer",
+							transition: "color 0.1s",
+						}}
+						title="Toggle Explorer (Cmd+Shift+E)"
+					>
+						Files
+					</button>
 				</div>
 
 				{isAuthenticated === false ? (
 					<WelcomeScreen onLogin={handleLogin} />
 				) : (
 					<>
-						{/* Chat area */}
-						<ChatView
-							messages={chat.messages}
-							tools={chat.tools}
-							subagents={chat.subagents}
-							isAgentActive={chat.isAgentActive}
-							streamingMessageId={chat.streamingMessageId}
-							todos={todos}
-						/>
+						{/* Chat view (visible for "chat" tab or thread tabs) */}
+						<div
+							style={{
+								flex: 1,
+								display:
+									activeTab === "chat" || activeTab.startsWith("thread:")
+										? "flex"
+										: "none",
+								flexDirection: "column",
+								overflow: "hidden",
+							}}
+						>
+							<ChatView
+								messages={chat.messages}
+								tools={chat.tools}
+								subagents={chat.subagents}
+								isAgentActive={chat.isAgentActive}
+								streamingMessageId={chat.streamingMessageId}
+								todos={todos}
+							/>
+							<EditorInput
+								onSend={handleSend}
+								onAbort={handleAbort}
+								isAgentActive={chat.isAgentActive}
+								modeId={modeId}
+								modelId={modelId}
+								onOpenModelSelector={handleOpenModelSelector}
+							/>
+						</div>
 
-						{/* Input area */}
-						<EditorInput
-							onSend={handleSend}
-							onAbort={handleAbort}
-							isAgentActive={chat.isAgentActive}
-							modeId={modeId}
-						/>
+						{/* File or diff editor (when a file/diff tab is active) */}
+						{activeTab !== "chat" && !activeTab.startsWith("thread:") &&
+							(activeTab.startsWith("diff:") ? (
+								<DiffEditor
+									filePath={activeTab.slice(5)}
+									onClose={() =>
+										handleCloseTab(activeTab)
+									}
+									onOpenFile={handleFileClick}
+								/>
+							) : (
+								<FileEditor
+									filePath={activeTab}
+									onClose={() =>
+										handleCloseTab(activeTab)
+									}
+								/>
+							))}
 
 						{/* Terminal resize handle + panel */}
 						{terminalVisible && (
@@ -865,8 +1241,19 @@ export function App() {
 					gitBranch={projectInfo?.gitBranch}
 					terminalVisible={terminalVisible}
 					onToggleTerminal={() => setTerminalVisible((v) => !v)}
+					onOpenModelSelector={handleOpenModelSelector}
 				/>
 			</div>
+
+			{/* Right sidebar: Files + Git */}
+			<RightSidebar
+				visible={rightSidebarVisible}
+				activeTab={rightSidebarTab}
+				onTabChange={setRightSidebarTab}
+				projectName={projectInfo?.name ?? ""}
+				onFileClick={handleFileClick}
+				onDiffClick={handleDiffClick}
+			/>
 
 			{/* Modal dialogs */}
 			{pendingApproval && (
@@ -918,13 +1305,6 @@ export function App() {
 					onSubmitCode={handleLoginSubmitCode}
 					onCancel={handleLoginCancel}
 					onClose={handleLoginClose}
-				/>
-			)}
-
-			{showProjectSwitcher && (
-				<ProjectSwitcher
-					currentProject={projectInfo}
-					onClose={() => setShowProjectSwitcher(false)}
 				/>
 			)}
 		</div>

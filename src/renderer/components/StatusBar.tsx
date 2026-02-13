@@ -9,6 +9,7 @@ interface StatusBarProps {
 	gitBranch?: string
 	terminalVisible: boolean
 	onToggleTerminal: () => void
+	onOpenModelSelector: () => void
 }
 
 const modeColors: Record<string, string> = {
@@ -31,6 +32,7 @@ export function StatusBar({
 	gitBranch,
 	terminalVisible,
 	onToggleTerminal,
+	onOpenModelSelector,
 }: StatusBarProps) {
 	const modeColor = modeColors[modeId] ?? "var(--accent)"
 
@@ -69,8 +71,22 @@ export function StatusBar({
 				{modeId}
 			</span>
 
-			{/* Model name */}
-			<span>{modelShort}</span>
+			{/* Model name (clickable) */}
+			<button
+				onClick={onOpenModelSelector}
+				style={{
+					background: "transparent",
+					border: "none",
+					color: "var(--muted)",
+					cursor: "pointer",
+					fontSize: 11,
+					padding: "1px 4px",
+					borderRadius: 3,
+				}}
+				title="Change model"
+			>
+				{modelShort}
+			</button>
 
 			{/* Git branch */}
 			{gitBranch && (
