@@ -11,8 +11,9 @@
 		"rootDir": "src",
 		"resolveJsonModule": true,
 		"isolatedModules": true,
-		"noEmit": true
+		"noEmit": true,
+		"jsx": "react-jsx"
 	},
-	"include": ["src/**/*"],
-    "exclude": ["node_modules", "dist", "src/**/__tests__/**"]
+	"include": ["src/**/*", "electron-vite.config.ts"],
+	"exclude": ["node_modules", "dist", "src/**/__tests__/**"]
 }

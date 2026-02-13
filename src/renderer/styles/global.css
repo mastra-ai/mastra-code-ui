@@ -1,0 +1,161 @@
+:root {
+	/* Core UI */
+	--accent: #7c3aed;
+	--border: #3f3f46;
+	--border-accent: #7c3aed;
+	--border-muted: #27272a;
+	--success: #22c55e;
+	--error: #ef4444;
+	--warning: #f59e0b;
+	--muted: #71717a;
+	--dim: #52525b;
+	--text: #fafafa;
+	--thinking-text: #a1a1aa;
+
+	/* Backgrounds */
+	--bg: #09090b;
+	--bg-surface: #18181b;
+	--bg-elevated: #1f1f23;
+	--user-message-bg: #0f172a;
+	--user-message-text: #fafafa;
+	--system-reminder-bg: #1a1400;
+
+	/* Tool execution */
+	--tool-pending-bg: #18152a;
+	--tool-success-bg: #18152a;
+	--tool-error-bg: #1f0a0a;
+	--tool-border-pending: #6366f1;
+	--tool-border-success: #22c55e;
+	--tool-border-error: #ef4444;
+	--tool-title: #a78bfa;
+	--tool-output: #d4d4d8;
+
+	/* Error display */
+	--error-bg: #291415;
+	--path-color: #9ca3af;
+	--number-color: #fbbf24;
+	--function-color: #60a5fa;
+
+	/* Selection & overlays */
+	--selected-bg: #3f3f46;
+	--overlay-bg: #15131f;
+
+	/* Mode colors */
+	--mode-build: #7f45e0;
+	--mode-plan: #2563eb;
+	--mode-fast: #059669;
+
+	/* Diff */
+	--diff-add: #22c55e;
+	--diff-add-bg: rgba(34, 197, 94, 0.1);
+	--diff-del: #ef4444;
+	--diff-del-bg: rgba(239, 68, 68, 0.1);
+	--diff-hunk: #38bdf8;
+
+	/* File tree */
+	--file-icon: #71717a;
+	--dir-icon: #60a5fa;
+
+	/* Scrollbar */
+	--scrollbar-track: #18181b;
+	--scrollbar-thumb: #3f3f46;
+}
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+	overflow: hidden;
+	background: var(--bg);
+	color: var(--text);
+	font-family:
+		"SF Mono",
+		"Menlo",
+		"Monaco",
+		"Cascadia Code",
+		"Consolas",
+		monospace;
+	font-size: 13px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+	width: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--scrollbar-thumb);
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--muted);
+}
+
+/* Selection */
+::selection {
+	background: var(--accent);
+	color: var(--text);
+}
+
+a {
+	color: var(--accent);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+/* Code blocks */
+pre {
+	background: var(--bg-surface);
+	border: 1px solid var(--border-muted);
+	border-radius: 6px;
+	padding: 12px;
+	overflow-x: auto;
+	font-size: 12px;
+}
+
+code {
+	font-family: inherit;
+	font-size: 12px;
+}
+
+:not(pre) > code {
+	background: var(--bg-surface);
+	padding: 2px 5px;
+	border-radius: 3px;
+	color: var(--tool-title);
+}
+
+/* Draggable title bar region */
+.titlebar-drag {
+	-webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+	-webkit-app-region: no-drag;
+}
+
+/* Button base */
+button {
+	font-family: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	border: none;
+	background: none;
+	color: var(--text);
+}
