@@ -161,7 +161,7 @@ export class ErrorDisplayComponent extends Container {
 
 		// Add a visible border around the entire error display
 		const borderTop = new Text(
-			fg("error", "┌─ Error ─" + "─".repeat(50) + "┐"),
+			fg("error", "╭─ Error ─" + "─".repeat(50) + "╮"),
 			0,
 			0,
 		)
@@ -216,7 +216,7 @@ export class ErrorDisplayComponent extends Container {
 		}
 
 		// Add bottom border
-		const borderBottom = new Text(fg("error", "└" + "─".repeat(60) + "┘"), 0, 0)
+		const borderBottom = new Text(fg("error", "╰" + "─".repeat(60) + "╯"), 0, 0)
 		this.addChild(borderBottom)
 	}
 

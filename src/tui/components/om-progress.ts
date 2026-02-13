@@ -4,7 +4,7 @@
  */
 import { Container, Text } from "@mariozechner/pi-tui"
 import chalk from "chalk"
-import { fg } from "../theme.js"
+import { fg, mastra } from "../theme.js"
 export type OMStatus = "idle" | "observing" | "reflecting"
 
 export type OMBufferedStatus = "idle" | "running" | "complete"
@@ -153,7 +153,7 @@ export class OMProgressComponent extends Container {
 				: 0
 			const spinner = this.getSpinner()
 			this.statusText.setText(
-				chalk.yellow(`${spinner} Observing... ${elapsed}s`),
+				chalk.hex(mastra.orange)(`${spinner} Observing... ${elapsed}s`),
 			)
 		} else if (this.state.status === "reflecting") {
 			const elapsed = this.state.startTime
@@ -161,7 +161,7 @@ export class OMProgressComponent extends Container {
 				: 0
 			const spinner = this.getSpinner()
 			this.statusText.setText(
-				chalk.magenta(`${spinner} Reflecting... ${elapsed}s`),
+				chalk.hex(mastra.pink)(`${spinner} Reflecting... ${elapsed}s`),
 			)
 		}
 	}
@@ -169,15 +169,15 @@ export class OMProgressComponent extends Container {
 	private renderProgressBar(percent: number, width: number): string {
 		const filled = Math.min(width, Math.round((percent / 100) * width))
 		const empty = width - filled
-		const bar = "█".repeat(filled) + "░".repeat(empty)
+		const bar = "━".repeat(filled) + "─".repeat(empty)
 
-		// Color based on threshold proximity
+		// Color based on threshold proximity — Mastra brand colors
 		if (percent >= 90) {
-			return chalk.red(bar)
+			return chalk.hex(mastra.red)(bar) // Mastra red
 		} else if (percent >= 70) {
-			return chalk.yellow(bar)
+			return chalk.hex(mastra.orange)(bar) // Mastra orange
 		} else {
-			return chalk.dim(bar)
+			return chalk.hex(mastra.darkGray)(bar) // Mastra dark gray
 		}
 	}
 
@@ -210,9 +210,9 @@ function formatTokensThreshold(n: number): string {
 }
 
 function colorByPercent(text: string, percent: number): string {
-	if (percent >= 90) return chalk.red(text)
-	if (percent >= 70) return chalk.yellow(text)
-	return chalk.dim(text)
+	if (percent >= 90) return chalk.hex(mastra.red)(text) // Mastra red
+	if (percent >= 70) return chalk.hex(mastra.orange)(text) // Mastra orange
+	return chalk.hex(mastra.darkGray)(text) // Mastra dark gray
 }
 /**
  * Format OM observation threshold for status bar.
@@ -233,7 +233,7 @@ export function formatObservationStatus(
 	// Status is now shown in the mode badge, so just show the metrics
 	const percent = Math.round(state.thresholdPercent)
 	const pct = colorByPercent(`${percent}%`, percent)
-	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
+	const defaultStyler = (s: string) => chalk.hex(mastra.specialGray)(s)
 	const styleLabel = labelStyler ?? defaultStyler
 	if (compact === "percentOnly") {
 		return styleLabel("msg ") + pct
@@ -268,7 +268,7 @@ export function formatReflectionStatus(
 	// Status is now shown in the mode badge, so just show the metrics
 	const percent = Math.round(state.reflectionThresholdPercent)
 	const pct = colorByPercent(`${percent}%`, percent)
-	const defaultStyler = (s: string) => chalk.hex("#a1a1aa")(s)
+	const defaultStyler = (s: string) => chalk.hex(mastra.specialGray)(s)
 	const styleLabel = labelStyler ?? defaultStyler
 	const label = styleLabel(compact === "full" ? "memory" : "mem") + " "
 	if (compact === "percentOnly") {
