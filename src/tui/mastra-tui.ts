@@ -1291,6 +1291,9 @@ ${instructions}`,
 			case "tool_end":
 				this.handleToolEnd(event.toolCallId, event.result, event.isError)
 				break
+			case "info":
+				this.showInfo(event.message)
+				break
 
 			case "error":
 				this.showFormattedError(event)
@@ -1405,6 +1408,7 @@ ${instructions}`,
 						type: "om_buffering_end",
 						operationType: event.operationType,
 						tokensBuffered: event.tokensBuffered,
+						bufferedTokens: event.bufferedTokens,
 					})
 				}
 				this.activeBufferingMarker = undefined
