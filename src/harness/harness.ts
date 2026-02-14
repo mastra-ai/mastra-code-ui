@@ -1,3 +1,5 @@
+import { appendFileSync } from "node:fs"
+import { join } from "node:path"
 import type { Agent, MastraMessageContentV2 } from "@mastra/core/agent"
 import type { StorageThreadType } from "@mastra/core/memory"
 import { RequestContext } from "@mastra/core/request-context"
@@ -133,6 +135,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private hookManager: import("../hooks/index.js").HookManager | undefined
 	private mcpManager: import("../mcp/index.js").MCPManager | undefined
 	private sessionGrants = new SessionGrants()
+	private streamDebug = true // TODO: revert to !!process.env.MASTRA_STREAM_DEBUG
 	private pendingQuestions = new Map<string, (answer: string) => void>()
 	private pendingPlanApprovals = new Map<
 		string,
@@ -2226,8 +2229,16 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			string,
 			{ index: number; text: string }
 		>()
+		const debugFile = this.streamDebug
+			? join(process.cwd(), "stream-debug.jsonl")
+			: null
 
 		for await (const chunk of response.fullStream) {
+			if (debugFile) {
+				try {
+					appendFileSync(debugFile, JSON.stringify(chunk) + "\n")
+				} catch {}
+			}
 			if ("runId" in chunk && chunk.runId) {
 				this.currentRunId = chunk.runId
 			}
@@ -2488,6 +2499,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					} else {
 						currentMessage.stopReason = "complete"
 					}
+					this.emit({ type: "info", message: `finish reason: ${finishReason}` })
 					break
 				}
 				// Observational Memory data parts
@@ -2561,7 +2573,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					break
 				}
 				case "data-om-observation-end": {
-					const payload = (chunk as any).data as Record<string, any> | undefined
+					const payload = chunk.data
 					if (payload && payload.cycleId) {
 						// Use operationType to distinguish reflection from observation
 						if (payload.operationType === "reflection") {

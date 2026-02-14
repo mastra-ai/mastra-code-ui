@@ -250,6 +250,7 @@ export type HarnessEvent =
 			stream: "stdout" | "stderr"
 	  }
 	| { type: "usage_update"; usage: TokenUsage }
+	| { type: "info"; message: string }
 	| {
 			type: "error"
 			error: Error
