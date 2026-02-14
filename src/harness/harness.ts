@@ -135,7 +135,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private hookManager: import("../hooks/index.js").HookManager | undefined
 	private mcpManager: import("../mcp/index.js").MCPManager | undefined
 	private sessionGrants = new SessionGrants()
-	private streamDebug = true // TODO: revert to !!process.env.MASTRA_STREAM_DEBUG
+	private streamDebug = !!process.env.MASTRA_STREAM_DEBUG
 	private pendingQuestions = new Map<string, (answer: string) => void>()
 	private pendingPlanApprovals = new Map<
 		string,
