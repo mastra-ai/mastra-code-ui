@@ -82,6 +82,7 @@ import {
 	type TodoItem,
 } from "./components/todo-progress.js"
 import { UserMessageComponent } from "./components/user-message.js"
+import { SlashCommandComponent } from "./components/slash-command.js"
 import { SystemReminderComponent } from "./components/system-reminder.js"
 import { ShellOutputComponent } from "./components/shell-output.js"
 import { DiffOutputComponent } from "./components/diff-output.js"
@@ -159,6 +160,7 @@ export class MastraTUI {
 	private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
 	private subagentToolCallIds = new Set<string>() // Track subagent tool call IDs to skip in trailing content logic
 	private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
+	private allSlashCommandComponents: SlashCommandComponent[] = [] // Track slash command boxes for expand/collapse
 	private pendingSubagents = new Map<string, SubagentExecutionComponent>() // Track active subagent tasks
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
@@ -345,12 +347,14 @@ export class MastraTUI {
 			this.hideThinkingBlock = !this.hideThinkingBlock
 			this.ui.requestRender()
 		})
-
 		// Ctrl+E - expand/collapse tool outputs
 		this.editor.onAction("expandTools", () => {
 			this.toolOutputExpanded = !this.toolOutputExpanded
 			for (const tool of this.allToolComponents) {
 				tool.setExpanded(this.toolOutputExpanded)
+			}
+			for (const sc of this.allSlashCommandComponents) {
+				sc.setExpanded(this.toolOutputExpanded)
 			}
 			this.ui.requestRender()
 		})
@@ -4356,15 +4360,21 @@ Keyboard shortcuts:
 				args,
 				process.cwd(),
 			)
-
 			// Add the processed content as a system message / context
 			if (processedContent.trim()) {
-				// Show what was processed
-				this.showInfo(`Executed //${command.name}`)
+				// Show bordered indicator immediately with content
+				const slashComp = new SlashCommandComponent(
+					command.name,
+					processedContent.trim(),
+				)
+				this.allSlashCommandComponents.push(slashComp)
+				this.chatContainer.addChild(slashComp)
+				this.ui.requestRender()
 
-				// Add the content to the conversation as a user message
-				// This allows the agent to see and act on the command output
-				await this.harness.sendMessage(processedContent)
+				// Wrap in <slash-command> tags so the assistant sees the full
+				// content but addUserMessage won't double-render it.
+				const wrapped = `<slash-command name="${command.name}">\n${processedContent.trim()}\n</slash-command>`
+				await this.harness.sendMessage(wrapped)
 			} else {
 				this.showInfo(`Executed //${command.name} (no output)`)
 			}
@@ -4392,7 +4402,6 @@ Keyboard shortcuts:
 			imageCount > 0
 				? textContent.replace(/\[image\]\s*/g, "").trim()
 				: textContent.trim()
-
 		// Check for system reminder tags
 		const systemReminderMatch = displayText.match(
 			/<system-reminder>([\s\S]*?)<\/system-reminder>/,
@@ -4406,6 +4415,20 @@ Keyboard shortcuts:
 			// System reminders always go at the end (after plan approval)
 			this.chatContainer.addChild(new Spacer(1))
 			this.chatContainer.addChild(reminderComponent)
+			this.ui.requestRender()
+			return
+		}
+
+		// Check for slash command tags
+		const slashCommandMatch = displayText.match(
+			/<slash-command\s+name="([^"]*)">([\s\S]*?)<\/slash-command>/,
+		)
+		if (slashCommandMatch) {
+			const commandName = slashCommandMatch[1]
+			const commandContent = slashCommandMatch[2].trim()
+			const slashComp = new SlashCommandComponent(commandName, commandContent)
+			this.allSlashCommandComponents.push(slashComp)
+			this.chatContainer.addChild(slashComp)
 			this.ui.requestRender()
 			return
 		}
