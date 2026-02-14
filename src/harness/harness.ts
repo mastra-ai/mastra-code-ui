@@ -35,6 +35,23 @@ import {
 } from "../permissions.js"
 
 // =============================================================================
+/**
+ * Check if an unknown error object contains a substring in any of its
+ * message-like properties. AI SDK errors may not be Error instances,
+ * so we check .message, .error.message, and String() representation.
+ */
+function errorContains(error: unknown, needle: string): boolean {
+	const errObj = error as Record<string, unknown>
+	const texts = [
+		String(error),
+		typeof errObj?.message === "string" ? errObj.message : "",
+		typeof (errObj?.error as Record<string, unknown>)?.message === "string"
+			? String((errObj.error as Record<string, unknown>).message)
+			: "",
+	]
+	return texts.some((t) => t.includes(needle))
+}
+
 // Harness Class
 // =============================================================================
 
@@ -1797,7 +1814,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 						`Please retry with the correct tool name.`,
 				)
 				this.emit({ type: "agent_end", reason: "error" })
-			} else if (String(error).includes("must end with a user message")) {
+			} else if (errorContains(error, "must end with a user message")) {
 				// Conversation ends with an assistant message (e.g. after
 				// OM activation) — inject a synthetic user message
 				// and retry so the model can continue.
