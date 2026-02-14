@@ -504,8 +504,7 @@ const codeAgent = new Agent({
 			| undefined
 		// Sync filesystem's allowedPaths with sandbox-granted paths from harness state
 		const sandboxPaths = ctx?.getState?.()?.sandboxAllowedPaths ?? []
-		const fs = workspace.filesystem as LocalFilesystem
-		fs.setAllowedPaths([
+		workspace.filesystem.setAllowedPaths([
 			...skillPaths,
 			...sandboxPaths.map((p: string) => path.resolve(p)),
 		])
