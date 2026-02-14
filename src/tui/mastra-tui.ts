@@ -163,6 +163,10 @@ export class MastraTUI {
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
+	private pendingLockConflict: {
+		threadTitle: string
+		ownerPid: number
+	} | null = null
 	private lastAskUserComponent?: IToolExecutionComponent // Track the most recent ask_user tool for inline question placement
 	private lastClearedText = "" // Saved editor text for Ctrl+Z undo
 
@@ -574,11 +578,19 @@ export class MastraTUI {
 
 		// Set terminal title
 		this.updateTerminalTitle()
-
 		// Render existing messages
 		await this.renderExistingMessages()
 		// Render existing todos if any
 		await this.renderExistingTodos()
+
+		// Show deferred thread lock prompt (must happen after TUI is started)
+		if (this.pendingLockConflict) {
+			this.showThreadLockPrompt(
+				this.pendingLockConflict.threadTitle,
+				this.pendingLockConflict.ownerPid,
+			)
+			this.pendingLockConflict = null
+		}
 	}
 
 	/**
@@ -618,17 +630,17 @@ export class MastraTUI {
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		)
 		const mostRecent = sortedThreads[0]
-
 		// Auto-resume the most recent thread for this directory
 		try {
 			await this.harness.switchThread(mostRecent.id)
 		} catch (error) {
 			if (error instanceof ThreadLockError) {
-				// Thread is locked by another process — start a new thread instead
+				// Defer the lock conflict prompt until after the TUI is started
 				this.pendingNewThread = true
-				this.showInfo(
-					`Thread "${mostRecent.title || mostRecent.id}" is in use by another process. Starting a new thread.`,
-				)
+				this.pendingLockConflict = {
+					threadTitle: mostRecent.title || mostRecent.id,
+					ownerPid: error.ownerPid,
+				}
 				return
 			}
 			throw error
@@ -2772,13 +2784,13 @@ ${instructions}`,
 					if (thread.resourceId !== currentResourceId) {
 						this.harness.setResourceId(thread.resourceId)
 					}
-
 					try {
 						await this.harness.switchThread(thread.id)
 					} catch (error) {
 						if (error instanceof ThreadLockError) {
-							this.showError(
-								`Thread "${thread.title || thread.id}" is in use by another process (PID ${error.ownerPid}).`,
+							this.showThreadLockPrompt(
+								thread.title || thread.id,
+								error.ownerPid,
 							)
 							resolve()
 							return
@@ -2871,6 +2883,43 @@ ${instructions}`,
 			this.ui.requestRender()
 			this.chatContainer.invalidate()
 		})
+	}
+	/**
+	 * Show an inline prompt when a thread is locked by another process.
+	 * User can create a new thread (y) or exit (n).
+	 */
+	private showThreadLockPrompt(threadTitle: string, ownerPid: number): void {
+		const questionComponent = new AskQuestionInlineComponent(
+			{
+				question: `Thread "${threadTitle}" is locked by pid ${ownerPid}. Create a new thread?`,
+				options: [
+					{ label: "Yes", description: "Start a new thread" },
+					{ label: "No", description: "Exit" },
+				],
+				formatResult: (answer) =>
+					answer === "Yes" ? "Thread created" : "Exiting.",
+				onSubmit: async (answer) => {
+					this.activeInlineQuestion = undefined
+					if (answer.toLowerCase().startsWith("y")) {
+						// pendingNewThread is already true — thread will be
+						// created lazily on first message
+					} else {
+						process.exit(0)
+					}
+				},
+				onCancel: () => {
+					this.activeInlineQuestion = undefined
+					process.exit(0)
+				},
+			},
+			this.ui,
+		)
+
+		this.activeInlineQuestion = questionComponent
+		this.chatContainer.addChild(questionComponent)
+		this.chatContainer.addChild(new Spacer(1))
+		this.ui.requestRender()
+		this.chatContainer.invalidate()
 	}
 
 	// ===========================================================================
