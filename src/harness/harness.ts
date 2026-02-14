@@ -1714,7 +1714,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				abortSignal: this.abortController.signal,
 				requestContext,
 				maxSteps: 1000,
-				requireToolApproval: true,
+				requireToolApproval: false,
 				modelSettings: {
 					temperature: 1,
 				},
