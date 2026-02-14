@@ -1797,13 +1797,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 						`Please retry with the correct tool name.`,
 				)
 				this.emit({ type: "agent_end", reason: "error" })
-			} else if (
-				String(
-					error instanceof Error
-						? error.message
-						: ((error as any)?.message ?? error),
-				).includes("must end with a user message")
-			) {
+			} else if (String(error).includes("must end with a user message")) {
 				// Conversation ends with an assistant message (e.g. after
 				// OM activation) — inject a synthetic user message
 				// and retry so the model can continue.
