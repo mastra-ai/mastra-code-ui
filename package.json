@@ -1,17 +1,17 @@
 {
 	"name": "mastra-code",
 	"version": "1.0.0",
-	"description": "Mastra Code Desktop",
+	"description": "Mastra Code Agent TUI",
 	"main": "dist/main/main.cjs",
 	"type": "module",
 	"scripts": {
 		"start": "tsx src/main.ts",
-		"dev": "electron-vite dev",
-		"dev:tui": "tsx watch src/main.ts",
-		"build": "electron-vite build",
-		"build:tui": "tsc",
+		"dev": "tsx watch src/main.ts",
+		"build": "tsc",
 		"typecheck": "tsc --noEmit",
-		"preview": "electron-vite preview",
+		"dev:electron": "electron-vite dev",
+		"build:electron": "electron-vite build",
+		"preview:electron": "electron-vite preview",
 		"test": "vitest run",
 		"format": "prettier --write .",
 		"prepare": "husky"

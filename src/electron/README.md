@@ -26,11 +26,11 @@ The only Harness modifications made for Electron are generic capabilities (defer
 
 ```bash
 # Development (hot-reload)
-pnpm dev
+pnpm dev:electron
 
 # Production build
-pnpm build
-pnpm preview
+pnpm build:electron
+pnpm preview:electron
 ```
 
 ## Renderer UI

@@ -126,8 +126,8 @@ Both frontends share the same Harness — neither forks or duplicates agent logi
 A native macOS desktop app with a multi-panel IDE interface: chat, file explorer, git panel, embedded terminal, and multi-thread tabs. It wraps the shared Harness over IPC without forking it.
 
 ```bash
-pnpm dev              # dev with hot-reload
-pnpm build && pnpm preview   # production build
+pnpm dev:electron                    # dev with hot-reload
+pnpm build:electron && pnpm preview:electron   # production build
 ```
 
 See [src/electron/README.md](src/electron/README.md) for architecture details.
@@ -137,24 +137,18 @@ See [src/electron/README.md](src/electron/README.md) for architecture details.
 ```bash
 # TUI
 pnpm start            # run
-pnpm dev:tui          # run with watch
+pnpm dev              # run with watch
 
 # Electron
-pnpm dev              # dev with hot-reload
+pnpm dev:electron     # dev with hot-reload
 
 # Type check
 pnpm typecheck
 
-# Build (Electron)
-pnpm build
+# Build
+pnpm build            # TUI
+pnpm build:electron   # Electron
 ```
-
-## Roadmap
-
-- [ ] Tool approval UI for dangerous operations
-- [ ] Streaming tool output
-- [ ] More tools (search, grep, etc.)
-- [ ] Multi-agent collaboration (network mode)
 
 ## Credits
 
