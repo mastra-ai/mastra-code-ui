@@ -87,17 +87,18 @@ OAuth credentials are stored alongside the database in `auth.json`.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                          TUI                                │
-│  (pi-tui components: Editor, Markdown, Loader, etc.)        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
+┌──────────────────────┐     ┌──────────────────────────────┐
+│         TUI          │     │     Electron Desktop App     │
+│  (pi-tui terminal)   │     │  (React + IPC + node-pty)    │
+└──────────┬───────────┘     └──────────────┬───────────────┘
+           │                                │
+           └──────────┐  ┌─────────────────┘
+                      ▼  ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                        Harness                              │
-│  - Mode management (plan, build, review)                    │
+│  - Mode management (plan, build, fast)                      │
 │  - Thread/message persistence                               │
-│  - Event system for TUI updates                             │
+│  - Event system for UI updates                              │
 │  - State management with Zod schemas                        │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -118,16 +119,33 @@ OAuth credentials are stored alongside the database in `auth.json`.
 └─────────────────────────────────────────────────────────────┘
 ```
 
+Both frontends share the same Harness — neither forks or duplicates agent logic. The Electron app communicates with the Harness over IPC and inherits any changes (new tools, modes, providers) automatically.
+
+## Electron Desktop App
+
+A native macOS desktop app with a multi-panel IDE interface: chat, file explorer, git panel, embedded terminal, and multi-thread tabs. It wraps the shared Harness over IPC without forking it.
+
+```bash
+pnpm dev              # dev with hot-reload
+pnpm build && pnpm preview   # production build
+```
+
+See [src/electron/README.md](src/electron/README.md) for architecture details.
+
 ## Development
 
 ```bash
-# Run in development mode (with watch)
-pnpm dev
+# TUI
+pnpm start            # run
+pnpm dev:tui          # run with watch
+
+# Electron
+pnpm dev              # dev with hot-reload
 
 # Type check
 pnpm typecheck
 
-# Build
+# Build (Electron)
 pnpm build
 ```
 
