@@ -1798,11 +1798,14 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				)
 				this.emit({ type: "agent_end", reason: "error" })
 			} else if (
-				error instanceof Error &&
-				error.message.includes("must end with a user message")
+				String(
+					error instanceof Error
+						? error.message
+						: ((error as any)?.message ?? error),
+				).includes("must end with a user message")
 			) {
 				// Conversation ends with an assistant message (e.g. after
-				// tool approval resume) — inject a synthetic user message
+				// OM activation) — inject a synthetic user message
 				// and retry so the model can continue.
 				this.followUpQueue.unshift("<continue>")
 				this.emit({ type: "agent_end", reason: "error" })
