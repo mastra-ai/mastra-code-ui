@@ -261,8 +261,8 @@ function getDynamicMemory({
 				enabled: true,
 				scope: omScope,
 				observation: {
-					bufferTokens: 1 / 6,
-					bufferActivation: 4 / 5,
+					bufferTokens: 1 / 7,
+					bufferActivation: 5 / 6,
 					model: getObserverModel,
 					messageTokens: obsThreshold,
 					blockAfter: 1.25,
