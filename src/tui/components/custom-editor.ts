@@ -23,6 +23,7 @@ export type AppAction =
 	| "expandTools" // Ctrl+E
 	| "followUp" // Alt+Enter - queue follow-up while streaming
 	| "cycleMode" // Shift+Tab - cycle harness modes
+	| "toggleYolo" // Ctrl+Y - toggle YOLO mode
 
 export class CustomEditor extends Editor {
 	private actionHandlers: Map<AppAction, () => void> = new Map()
@@ -145,10 +146,18 @@ export class CustomEditor extends Editor {
 				return
 			}
 		}
-
 		// Shift+Tab - cycle harness modes
 		if (matchesKey(data, "shift+tab")) {
 			const handler = this.actionHandlers.get("cycleMode")
+			if (handler) {
+				handler()
+				return
+			}
+		}
+
+		// Ctrl+Y - toggle YOLO mode
+		if (matchesKey(data, "ctrl+y")) {
+			const handler = this.actionHandlers.get("toggleYolo")
 			if (handler) {
 				handler()
 				return

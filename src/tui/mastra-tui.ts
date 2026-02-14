@@ -374,6 +374,13 @@ export class MastraTUI {
 			// The mode_changed event handler will show the info message
 			this.updateStatusLine()
 		})
+		// Ctrl+Y - toggle YOLO mode
+		this.editor.onAction("toggleYolo", () => {
+			const current = this.harness.getYoloMode()
+			this.harness.setYoloMode(!current)
+			this.updateStatusLine()
+			this.showInfo(current ? "YOLO mode off" : "YOLO mode on")
+		})
 
 		// Ctrl+F - queue follow-up message while streaming
 		this.editor.onAction("followUp", () => {
@@ -1125,6 +1132,10 @@ ${instructions}`,
 			{
 				name: "settings",
 				description: "General settings (notifications, YOLO, thinking)",
+			},
+			{
+				name: "yolo",
+				description: "Toggle YOLO mode (auto-approve all tools)",
 			},
 			{ name: "review", description: "Review a GitHub pull request" },
 			{ name: "exit", description: "Exit the TUI" },
@@ -2112,11 +2123,14 @@ ${instructions}`,
 			onAction: (action: ApprovalAction) => {
 				this.ui.hideOverlay()
 				this.pendingApprovalDismiss = null
-
 				if (action.type === "approve") {
 					this.harness.resolveToolApprovalDecision("approve")
 				} else if (action.type === "always_allow_category") {
 					this.harness.resolveToolApprovalDecision("always_allow_category")
+				} else if (action.type === "yolo") {
+					this.harness.setYoloMode(true)
+					this.harness.resolveToolApprovalDecision("approve")
+					this.updateStatusLine()
 				} else {
 					this.harness.resolveToolApprovalDecision("decline")
 				}
