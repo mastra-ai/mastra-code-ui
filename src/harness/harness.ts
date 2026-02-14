@@ -1814,11 +1814,19 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 						`Please retry with the correct tool name.`,
 				)
 				this.emit({ type: "agent_end", reason: "error" })
-			} else if (errorContains(error, "must end with a user message")) {
+			} else if (
+				errorContains(error, "must end with a user message") ||
+				errorContains(error, "assistant message prefill")
+			) {
 				// Conversation ends with an assistant message (e.g. after
 				// OM activation) — inject a synthetic user message
 				// and retry so the model can continue.
 				this.followUpQueue.unshift("<continue>")
+				this.emit({
+					type: "error",
+					error: new Error("Prefill rejection — patching chat and retrying"),
+					retryable: true,
+				})
 				this.emit({ type: "agent_end", reason: "error" })
 			} else {
 				// Parse the error for better user feedback
@@ -2416,14 +2424,31 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 						}
 					}
 				}
-
 				case "error": {
+					const streamError =
+						chunk.payload.error instanceof Error
+							? chunk.payload.error
+							: new Error(String(chunk.payload.error))
+
+					if (
+						errorContains(streamError, "must end with a user message") ||
+						errorContains(streamError, "assistant message prefill")
+					) {
+						// Prefill error from stream — inject synthetic user message and retry
+						this.followUpQueue.unshift("<continue>")
+						this.emit({
+							type: "error",
+							error: new Error(
+								"Prefill rejection — patching chat and retrying",
+							),
+							retryable: true,
+						})
+						break
+					}
+
 					this.emit({
 						type: "error",
-						error:
-							chunk.payload.error instanceof Error
-								? chunk.payload.error
-								: new Error(String(chunk.payload.error)),
+						error: streamError,
 					})
 					break
 				}
