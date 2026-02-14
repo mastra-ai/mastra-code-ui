@@ -8,7 +8,7 @@
  *   a       — always allow this category for the session
  *   Y       — switch to YOLO mode (approve all)
  */
-
+import chalk from "chalk"
 import {
 	Box,
 	type Focusable,
@@ -90,15 +90,23 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 		}
 
 		this.addChild(new Spacer(1))
-
 		// Prompt text with keyboard shortcuts
 		const categoryHint = this.categoryLabel
-			? `always allow ${this.categoryLabel.toLowerCase()}`
-			: "always allow category"
+			? `lways allow ${this.categoryLabel.toLowerCase()}`
+			: "lways allow category"
+		const dim = chalk.hex("#555")
+		const key = chalk.white.bold
 		this.addChild(
 			new Text(
 				fg("accent", "Allow? ") +
-					fg("muted", `y = yes  n = no  a = ${categoryHint}  Y = yolo`),
+					key("y") +
+					dim("es  ") +
+					key("n") +
+					dim("o  ") +
+					key("a") +
+					dim(categoryHint + "  ") +
+					key("Y") +
+					dim("olo"),
 				0,
 				0,
 			),
