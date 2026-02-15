@@ -10,7 +10,6 @@ import { createHash } from "node:crypto"
 import path from "node:path"
 import fs from "node:fs"
 import os from "node:os"
-
 export interface ProjectInfo {
 	/** Unique resource ID for this project (used for thread grouping) */
 	resourceId: string
@@ -26,6 +25,8 @@ export interface ProjectInfo {
 	isWorktree: boolean
 	/** Path to main git repo (different from rootPath if worktree) */
 	mainRepoPath?: string
+	/** Whether the resourceId was explicitly overridden (env var or config) */
+	resourceIdOverride?: boolean
 }
 
 /**
@@ -181,7 +182,6 @@ export function getAppDataDir(): string {
 
 	return appDir
 }
-
 /**
  * Get the database path for mastra-code
  * Can be overridden with the MASTRA_DB_PATH environment variable for debugging.
@@ -191,4 +191,207 @@ export function getDatabasePath(): string {
 		return process.env.MASTRA_DB_PATH
 	}
 	return path.join(getAppDataDir(), "mastra.db")
+}
+
+/**
+ * Storage configuration for LibSQLStore.
+ * Either a local file URL or a remote Turso URL with auth token.
+ */
+export interface StorageConfig {
+	url: string
+	authToken?: string
+	isRemote: boolean
+}
+
+/**
+ * Get the storage configuration for LibSQLStore.
+ *
+ * Priority (highest to lowest):
+ *   1. Environment variables: MASTRA_DB_URL + MASTRA_DB_AUTH_TOKEN
+ *   2. Project config: .mastracode/database.json
+ *   3. Global config: ~/.mastracode/database.json
+ *   4. Local file database (default)
+ */
+export function getStorageConfig(projectDir?: string): StorageConfig {
+	// 1. Environment variables
+	if (process.env.MASTRA_DB_URL) {
+		return {
+			url: process.env.MASTRA_DB_URL,
+			authToken: process.env.MASTRA_DB_AUTH_TOKEN,
+			isRemote: !process.env.MASTRA_DB_URL.startsWith("file:"),
+		}
+	}
+
+	// 2. Project-level config
+	if (projectDir) {
+		const projectConfig = loadDatabaseConfig(
+			path.join(projectDir, ".mastracode", "database.json"),
+		)
+		if (projectConfig) return projectConfig
+	}
+
+	// 3. Global config
+	const globalConfig = loadDatabaseConfig(
+		path.join(os.homedir(), ".mastracode", "database.json"),
+	)
+	if (globalConfig) return globalConfig
+
+	// 4. Default: local file database
+	return {
+		url: `file:${getDatabasePath()}`,
+		isRemote: false,
+	}
+}
+
+/**
+ * Load database config from a JSON file.
+ * Expected format: { "url": "libsql://...", "authToken": "..." }
+ */
+function loadDatabaseConfig(filePath: string): StorageConfig | null {
+	try {
+		if (!fs.existsSync(filePath)) return null
+		const raw = fs.readFileSync(filePath, "utf-8")
+		const parsed = JSON.parse(raw)
+		if (typeof parsed?.url === "string" && parsed.url) {
+			return {
+				url: parsed.url,
+				authToken:
+					typeof parsed.authToken === "string" ? parsed.authToken : undefined,
+				isRemote: !parsed.url.startsWith("file:"),
+			}
+		}
+		return null
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Get the current user identity.
+ *
+ * Priority:
+ *   1. MASTRA_USER_ID environment variable
+ *   2. git config user.email (from project dir or global)
+ *   3. OS username as fallback
+ */
+export function getUserId(projectDir?: string): string {
+	// 1. Environment variable override
+	if (process.env.MASTRA_USER_ID) {
+		return process.env.MASTRA_USER_ID
+	}
+
+	// 2. git user.email
+	const cwd = projectDir || process.cwd()
+	const email = git("config user.email", cwd)
+	if (email) {
+		return email
+	}
+
+	// 3. OS username fallback
+	return os.userInfo().username || "unknown"
+}
+
+/**
+ * Observational memory scope: "thread" (per-conversation) or "resource" (shared across threads).
+ */
+export type OmScope = "thread" | "resource"
+
+/**
+ * Get the configured observational memory scope.
+ *
+ * Priority:
+ *   1. MASTRA_OM_SCOPE environment variable ("thread" or "resource")
+ *   2. Project config: .mastracode/database.json → omScope
+ *   3. Global config: ~/.mastracode/database.json → omScope
+ *   4. Default: "thread"
+ */
+export function getOmScope(projectDir?: string): OmScope {
+	// 1. Environment variable
+	const envScope = process.env.MASTRA_OM_SCOPE
+	if (envScope === "thread" || envScope === "resource") {
+		return envScope
+	}
+
+	// 2. Project-level config
+	if (projectDir) {
+		const scope = loadOmScopeFromConfig(
+			path.join(projectDir, ".mastracode", "database.json"),
+		)
+		if (scope) return scope
+	}
+
+	// 3. Global config
+	const scope = loadOmScopeFromConfig(
+		path.join(os.homedir(), ".mastracode", "database.json"),
+	)
+	if (scope) return scope
+
+	// 4. Default
+	return "thread"
+}
+
+function loadOmScopeFromConfig(filePath: string): OmScope | null {
+	try {
+		if (!fs.existsSync(filePath)) return null
+		const raw = fs.readFileSync(filePath, "utf-8")
+		const parsed = JSON.parse(raw)
+		if (parsed?.omScope === "thread" || parsed?.omScope === "resource") {
+			return parsed.omScope
+		}
+		return null
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Get an explicit resource ID override, if configured.
+ *
+ * Resource IDs act as shared tags — two users who set the same resourceId
+ * will share threads and observations for that resource.
+ *
+ * Priority:
+ *   1. MASTRA_RESOURCE_ID environment variable
+ *   2. Project config: .mastracode/database.json → resourceId
+ *   3. Global config: ~/.mastracode/database.json → resourceId
+ *   4. null (use auto-detected value)
+ */
+export function getResourceIdOverride(projectDir?: string): string | null {
+	// 1. Environment variable
+	if (process.env.MASTRA_RESOURCE_ID) {
+		return process.env.MASTRA_RESOURCE_ID
+	}
+
+	// 2. Project-level config
+	if (projectDir) {
+		const rid = loadStringField(
+			path.join(projectDir, ".mastracode", "database.json"),
+			"resourceId",
+		)
+		if (rid) return rid
+	}
+
+	// 3. Global config
+	const rid = loadStringField(
+		path.join(os.homedir(), ".mastracode", "database.json"),
+		"resourceId",
+	)
+	if (rid) return rid
+
+	return null
+}
+
+function loadStringField(filePath: string, field: string): string | null {
+	try {
+		if (!fs.existsSync(filePath)) return null
+		const raw = fs.readFileSync(filePath, "utf-8")
+		const parsed = JSON.parse(raw)
+		const value = parsed?.[field]
+		if (typeof value === "string" && value) {
+			return value
+		}
+		return null
+	} catch {
+		return null
+	}
 }

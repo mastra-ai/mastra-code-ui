@@ -1,3 +1,5 @@
+import { appendFileSync } from "node:fs"
+import { join } from "node:path"
 import type { Agent, MastraMessageContentV2 } from "@mastra/core/agent"
 import type { StorageThreadType } from "@mastra/core/memory"
 import { RequestContext } from "@mastra/core/request-context"
@@ -24,8 +26,34 @@ import {
 	type OAuthLoginCallbacks,
 } from "../auth/index.js"
 import { parseError, type ParsedError } from "../utils/errors.js"
+import { acquireThreadLock, releaseThreadLock } from "../utils/thread-lock.js"
+import {
+	type PermissionRules,
+	type ToolCategory,
+	SessionGrants,
+	resolveApproval,
+	createDefaultRules,
+	getToolCategory,
+} from "../permissions.js"
 
 // =============================================================================
+/**
+ * Check if an unknown error object contains a substring in any of its
+ * message-like properties. AI SDK errors may not be Error instances,
+ * so we check .message, .error.message, and String() representation.
+ */
+function errorContains(error: unknown, needle: string): boolean {
+	const errObj = error as Record<string, unknown>
+	const texts = [
+		String(error),
+		typeof errObj?.message === "string" ? errObj.message : "",
+		typeof (errObj?.error as Record<string, unknown>)?.message === "string"
+			? String((errObj.error as Record<string, unknown>).message)
+			: "",
+	]
+	return texts.some((t) => t.includes(needle))
+}
+
 // Harness Class
 // =============================================================================
 
@@ -90,18 +118,24 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	private currentModeId: string
 	private currentThreadId: string | null = null
 	private resourceId: string
+	private defaultResourceId: string
+	private userId: string | undefined
+	private isRemoteStorage: boolean
 	private listeners: HarnessEventListener[] = []
 	private abortController: AbortController | null = null
 	private abortRequested: boolean = false
 	private currentRunId: string | null = null
 	private currentOperationId: number = 0
 	private followUpQueue: string[] = []
-	private pendingApprovalToolCallId: string | null = null
+	private pendingApprovalResolve:
+		| ((decision: "approve" | "decline" | "always_allow_category") => void)
+		| null = null
 	private workspace: Workspace | undefined = undefined
 	private workspaceInitialized = false
 	private hookManager: import("../hooks/index.js").HookManager | undefined
 	private mcpManager: import("../mcp/index.js").MCPManager | undefined
-	private pendingDeclineToolCallId: string | null = null
+	private sessionGrants = new SessionGrants()
+	private streamDebug = !!process.env.MASTRA_STREAM_DEBUG
 	private pendingQuestions = new Map<string, (answer: string) => void>()
 	private pendingPlanApprovals = new Map<
 		string,
@@ -120,6 +154,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		this.id = config.id
 		this.config = config
 		this.resourceId = config.resourceId
+		this.defaultResourceId = config.defaultResourceId ?? config.resourceId
+		this.userId = config.userId
+		this.isRemoteStorage = config.isRemoteStorage ?? false
 
 		// Initialize state from schema defaults + initial state
 		this.state = {
@@ -224,15 +261,17 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		const threads = await this.listThreads()
 
 		if (threads.length === 0) {
-			const thread = await this.createThread()
-			this.currentThreadId = thread.id
-			return thread
+			// createThread handles lock acquisition internally
+			return await this.createThread()
 		}
 
 		// Use the most recently updated thread
 		const sortedThreads = [...threads].sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		)
+
+		// Acquire lock on the thread
+		acquireThreadLock(sortedThreads[0].id)
 		this.currentThreadId = sortedThreads[0].id
 
 		// Load token usage and model ID for this thread
@@ -845,6 +884,102 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 */
 	setYoloMode(enabled: boolean): void {
 		this.setState({ yolo: enabled } as Partial<z.infer<TState>>)
+		this.persistThreadSetting("yolo", enabled).catch(() => {})
+		// When toggling YOLO off, reset session grants so user starts fresh
+		if (!enabled) {
+			this.sessionGrants.reset()
+		}
+	}
+
+	// =========================================================================
+	// Permissions
+	// =========================================================================
+
+	/**
+	 * Get the effective permission rules from state, with defaults.
+	 */
+	private getPermissionRules(): PermissionRules {
+		const stored = (this.state as any)?.permissionRules
+		const rules = createDefaultRules()
+		if (stored?.categories) {
+			Object.assign(rules.categories, stored.categories)
+		}
+		if (stored?.tools) {
+			Object.assign(rules.tools, stored.tools)
+		}
+		return rules
+	}
+
+	/**
+	 * Resolve whether a tool call should be allowed, prompted, or denied.
+	 * YOLO mode overrides everything to "allow".
+	 */
+	private resolveToolApproval(toolName: string): "allow" | "ask" | "deny" {
+		if (this.getState().yolo === true) return "allow"
+		return resolveApproval(
+			toolName,
+			this.getPermissionRules(),
+			this.sessionGrants,
+		)
+	}
+
+	/**
+	 * Grant a session-scoped "always allow" for a tool's category.
+	 */
+	grantSessionCategory(category: ToolCategory): void {
+		this.sessionGrants.allowCategory(category)
+	}
+
+	/**
+	 * Grant a session-scoped "always allow" for a specific tool.
+	 */
+	grantSessionTool(toolName: string): void {
+		this.sessionGrants.allowTool(toolName)
+	}
+
+	/**
+	 * Get the tool category for display purposes.
+	 */
+	getToolCategory(toolName: string): ToolCategory | null {
+		return getToolCategory(toolName)
+	}
+
+	/**
+	 * Get current session grants for display.
+	 */
+	getSessionGrants(): { categories: ToolCategory[]; tools: string[] } {
+		return {
+			categories: this.sessionGrants.getGrantedCategories(),
+			tools: this.sessionGrants.getGrantedTools(),
+		}
+	}
+
+	/**
+	 * Update a category policy in the persisted permission rules.
+	 */
+	setPermissionCategory(
+		category: ToolCategory,
+		policy: "allow" | "ask" | "deny",
+	): void {
+		const rules = this.getPermissionRules()
+		rules.categories[category] = policy
+		this.setState({ permissionRules: rules } as Partial<z.infer<TState>>)
+	}
+
+	/**
+	 * Update a per-tool policy in the persisted permission rules.
+	 */
+	setPermissionTool(toolName: string, policy: "allow" | "ask" | "deny"): void {
+		const rules = this.getPermissionRules()
+		rules.tools[toolName] = policy
+		this.setState({ permissionRules: rules } as Partial<z.infer<TState>>)
+	}
+
+	/**
+	 * Get current permission rules for display.
+	 */
+	getPermissionRules_public(): PermissionRules {
+		return this.getPermissionRules()
 	}
 
 	// =========================================================================
@@ -1054,6 +1189,9 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			if (meta?.reflectionThreshold)
 				updates.reflectionThreshold = meta.reflectionThreshold
 			if (meta?.thinkingLevel) updates.thinkingLevel = meta.thinkingLevel
+			if (typeof meta?.yolo === "boolean") updates.yolo = meta.yolo
+			if (typeof meta?.escapeAsCancel === "boolean")
+				updates.escapeAsCancel = meta.escapeAsCancel
 			if (
 				meta?.sandboxAllowedPaths &&
 				Array.isArray(meta.sandboxAllowedPaths)
@@ -1256,7 +1394,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	getCurrentThreadId(): string | null {
 		return this.currentThreadId
 	}
-
 	/**
 	 * Get current resource ID.
 	 */
@@ -1265,11 +1402,49 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	}
 
 	/**
+	 * Get the auto-detected resource ID (before any overrides).
+	 */
+	getDefaultResourceId(): string {
+		return this.defaultResourceId
+	}
+
+	/**
+	 * Get current user ID (for thread attribution).
+	 */
+	getUserId(): string | undefined {
+		return this.userId
+	}
+
+	/**
+	 * Whether the storage backend is remote.
+	 */
+	getIsRemoteStorage(): boolean {
+		return this.isRemoteStorage
+	}
+	/**
 	 * Set the current resource ID (for switching between projects/resources).
 	 */
 	setResourceId(resourceId: string): void {
 		this.resourceId = resourceId
 		this.currentThreadId = null
+	}
+
+	/**
+	 * Get distinct resource IDs from all existing threads.
+	 * Useful for showing a list of known resources to pick from.
+	 */
+	async getKnownResourceIds(): Promise<string[]> {
+		const threads = await this.listThreads({
+			allResources: true,
+			allPaths: true,
+		})
+		const ids = new Set<string>()
+		for (const t of threads) {
+			ids.add(t.resourceId)
+		}
+		// Put the current resource ID first, then sort the rest
+		const sorted = [...ids].filter((id) => id !== this.resourceId).sort()
+		return [this.resourceId, ...sorted]
 	}
 
 	/**
@@ -1294,18 +1469,48 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		const lastModelId = this.config.authStorage?.getLastModelId()
 		const modelId =
 			currentStateModel || currentMode.defaultModelId || lastModelId
-
 		// Build metadata with both global and per-mode model ID
 		const metadata: Record<string, unknown> = {}
 		if (modelId) {
 			metadata.currentModelId = modelId
 			metadata[`modeModelId_${this.currentModeId}`] = modelId
 		}
+		// Inherit resource-level settings from the most recent thread
+		try {
+			const existingThreads = await this.listThreads()
+			if (existingThreads.length > 0) {
+				const sorted = [...existingThreads].sort(
+					(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+				)
+				const prevMeta = sorted[0].metadata as
+					| Record<string, unknown>
+					| undefined
+				if (prevMeta) {
+					if (typeof prevMeta.yolo === "boolean") {
+						metadata.yolo = prevMeta.yolo
+						this.setState({ yolo: prevMeta.yolo } as Partial<z.infer<TState>>)
+					}
+					if (typeof prevMeta.escapeAsCancel === "boolean") {
+						metadata.escapeAsCancel = prevMeta.escapeAsCancel
+						this.setState({
+							escapeAsCancel: prevMeta.escapeAsCancel,
+						} as Partial<z.infer<TState>>)
+					}
+				}
+			}
+		} catch {
+			// Non-critical — proceed without inheriting
+		}
 
 		// Store project path for directory-aware thread filtering (worktrees, etc.)
 		const projectPath = (this.state as any)?.projectPath
 		if (projectPath) {
 			metadata.projectPath = projectPath
+		}
+
+		// Store user identity for multi-user thread attribution
+		if (this.userId) {
+			metadata.createdBy = this.userId
 		}
 
 		// Persist thread to storage with model ID
@@ -1320,6 +1525,11 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
 			},
 		})
+		// Release lock on previous thread, acquire lock on new one
+		if (this.currentThreadId) {
+			releaseThreadLock(this.currentThreadId)
+		}
+		acquireThreadLock(thread.id)
 
 		// Switch to this new thread
 		this.currentThreadId = thread.id
@@ -1382,7 +1592,13 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			throw new Error(`Thread not found: ${threadId}`)
 		}
 
+		// Acquire lock on new thread before releasing old one
+		acquireThreadLock(threadId)
+
 		const previousThreadId = this.currentThreadId
+		if (previousThreadId) {
+			releaseThreadLock(previousThreadId)
+		}
 		this.currentThreadId = threadId
 
 		// Load token usage and model ID for this thread
@@ -1398,13 +1614,29 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	 * List threads. By default lists only threads for the current resource AND project path.
 	 * Pass `allResources: true` to list threads across all resources.
 	 * Pass `allPaths: true` to list threads across all paths for the current resource.
+	 * Pass `mineOnly: true` to filter to threads created by the current user.
+	 * When using remote storage, `mineOnly` defaults to `true`.
 	 */
 	async listThreads(options?: {
 		allResources?: boolean
 		allPaths?: boolean
+		mineOnly?: boolean
 	}): Promise<HarnessThread[]> {
 		const memoryStorage = await this.getMemoryStorage()
 		const projectPath = (this.state as any)?.projectPath as string | undefined
+
+		// Default mineOnly to true when remote storage + user ID are available
+		const mineOnly =
+			options?.mineOnly ??
+			(this.isRemoteStorage && !!this.userId && !options?.allResources)
+
+		const metadataFilter: Record<string, unknown> = {}
+		if (!options?.allPaths && projectPath) {
+			metadataFilter.projectPath = projectPath
+		}
+		if (mineOnly && this.userId) {
+			metadataFilter.createdBy = this.userId
+		}
 
 		const filter:
 			| { resourceId?: string; metadata?: Record<string, unknown> }
@@ -1412,8 +1644,8 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			? undefined
 			: {
 					resourceId: this.resourceId,
-					...(!options?.allPaths && projectPath
-						? { metadata: { projectPath } }
+					...(Object.keys(metadataFilter).length > 0
+						? { metadata: metadataFilter }
 						: {}),
 				}
 
@@ -1484,7 +1716,6 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		try {
 			// Build request context for tools
 			const requestContext = this.buildRequestContext()
-
 			// Stream the response
 			const streamOptions: Record<string, unknown> = {
 				memory: {
@@ -1494,6 +1725,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				abortSignal: this.abortController.signal,
 				requestContext,
 				maxSteps: 1000,
+				requireToolApproval: false,
 				modelSettings: {
 					temperature: 1,
 				},
@@ -1528,32 +1760,11 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				messageInput as any,
 				streamOptions as any,
 			)
-			// Process the stream
-			const lastMessage = await this.processStream(response)
+			// Process the stream. Tool approvals are handled inline via
+			// the permission system and TUI dialog.
+			let result = await this.processStream(response)
 
-			// Handle hook-blocked tool decline (queued during processStream)
-			if (
-				this.pendingDeclineToolCallId &&
-				this.currentOperationId === operationId
-			) {
-				const toolCallId = this.pendingDeclineToolCallId
-				this.pendingDeclineToolCallId = null
-				await this.declineToolCall(toolCallId)
-				return
-			}
-
-			// Handle YOLO auto-approval (queued during processStream to avoid race condition)
-			if (
-				this.pendingApprovalToolCallId &&
-				this.currentOperationId === operationId
-			) {
-				const toolCallId = this.pendingApprovalToolCallId
-				this.pendingApprovalToolCallId = null
-				await this.approveToolCall(toolCallId)
-				// After approval completes, the resumed stream has been fully processed
-				// Don't emit agent_end here — approveToolCall's processStream will handle it
-				return
-			}
+			const lastMessage = result.message
 
 			// Run Stop hooks (blocking: exit 2 = agent keeps working)
 			if (this.hookManager && this.currentOperationId === operationId) {
@@ -1616,6 +1827,20 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 						`Shell commands like git, npm, etc. must be run via the execute_command tool. ` +
 						`Please retry with the correct tool name.`,
 				)
+				this.emit({ type: "agent_end", reason: "error" })
+			} else if (
+				errorContains(error, "must end with a user message") ||
+				errorContains(error, "assistant message prefill")
+			) {
+				// Conversation ends with an assistant message (e.g. after
+				// OM activation) — inject a synthetic user message
+				// and retry so the model can continue.
+				this.followUpQueue.unshift("<continue>")
+				this.emit({
+					type: "error",
+					error: new Error("Prefill rejection — patching chat and retrying"),
+					retryable: true,
+				})
 				this.emit({ type: "agent_end", reason: "error" })
 			} else {
 				// Parse the error for better user feedback
@@ -1921,86 +2146,88 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	getCurrentRunId(): string | null {
 		return this.currentRunId
 	}
-
 	/**
-	 * Approve a pending tool call and resume execution.
-	 * Used when the agent requires tool approval.
+	 * Respond to a pending tool approval from the TUI.
 	 */
-	async approveToolCall(toolCallId?: string): Promise<void> {
+	resolveToolApprovalDecision(
+		decision: "approve" | "decline" | "always_allow_category",
+	): void {
+		if (this.pendingApprovalResolve) {
+			this.pendingApprovalResolve(decision)
+			this.pendingApprovalResolve = null
+		}
+	}
+	/**
+	 * Approve a tool call and resume the suspended stream.
+	 * Called from within processStream — reuses the existing abortController.
+	 */
+	private async handleToolApprove(toolCallId?: string): Promise<{
+		message: HarnessMessage
+	}> {
 		if (!this.currentRunId) {
 			throw new Error("No active run to approve tool call for")
 		}
 
 		const agent = this.getCurrentAgent()
-		this.abortController = new AbortController()
-
-		try {
-			const response = await agent.approveToolCall({
-				runId: this.currentRunId,
-				toolCallId,
-				memory: this.currentThreadId
-					? {
-							thread: this.currentThreadId,
-							resource: this.resourceId,
-						}
-					: undefined,
-				abortSignal: this.abortController.signal,
-				requestContext: this.buildRequestContext(),
-			})
-
-			// Process the resumed stream
-			await this.processStream(response)
-
-			// Handle chained YOLO approvals (if another tool-call-approval was queued)
-			if (this.pendingApprovalToolCallId) {
-				const nextToolCallId = this.pendingApprovalToolCallId
-				this.pendingApprovalToolCallId = null
-				await this.approveToolCall(nextToolCallId)
-			}
-		} finally {
-			this.abortController = null
+		if (!this.abortController) {
+			this.abortController = new AbortController()
 		}
+
+		const response = await agent.approveToolCall({
+			runId: this.currentRunId,
+			toolCallId,
+			memory: this.currentThreadId
+				? {
+						thread: this.currentThreadId,
+						resource: this.resourceId,
+					}
+				: undefined,
+			abortSignal: this.abortController.signal,
+			requestContext: this.buildRequestContext(),
+		})
+
+		return await this.processStream(response)
 	}
 
 	/**
-	 * Decline a pending tool call and resume execution.
-	 * The agent will be informed that the tool call was rejected.
+	 * Decline a tool call and resume the suspended stream.
+	 * Called from within processStream — reuses the existing abortController.
 	 */
-	async declineToolCall(toolCallId?: string): Promise<void> {
+	private async handleToolDecline(toolCallId?: string): Promise<{
+		message: HarnessMessage
+	}> {
 		if (!this.currentRunId) {
 			throw new Error("No active run to decline tool call for")
 		}
 
 		const agent = this.getCurrentAgent()
-		this.abortController = new AbortController()
-
-		try {
-			const response = await agent.declineToolCall({
-				runId: this.currentRunId,
-				toolCallId,
-				memory: this.currentThreadId
-					? {
-							thread: this.currentThreadId,
-							resource: this.resourceId,
-						}
-					: undefined,
-				abortSignal: this.abortController.signal,
-				requestContext: this.buildRequestContext(),
-			})
-
-			// Process the resumed stream
-			await this.processStream(response)
-		} finally {
-			this.abortController = null
+		if (!this.abortController) {
+			this.abortController = new AbortController()
 		}
-	}
 
+		const response = await agent.declineToolCall({
+			runId: this.currentRunId,
+			toolCallId,
+			memory: this.currentThreadId
+				? {
+						thread: this.currentThreadId,
+						resource: this.resourceId,
+					}
+				: undefined,
+			abortSignal: this.abortController.signal,
+			requestContext: this.buildRequestContext(),
+		})
+
+		return await this.processStream(response)
+	}
 	/**
 	 * Process a stream response (shared between sendMessage and tool approval).
 	 */
 	private async processStream(response: {
 		fullStream: AsyncIterable<any>
-	}): Promise<HarnessMessage> {
+	}): Promise<{
+		message: HarnessMessage
+	}> {
 		let currentMessage: HarnessMessage = {
 			id: this.generateId(),
 			role: "assistant",
@@ -2013,7 +2240,16 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 			string,
 			{ index: number; text: string }
 		>()
+		const debugFile = this.streamDebug
+			? join(process.cwd(), "stream-debug.jsonl")
+			: null
+
 		for await (const chunk of response.fullStream) {
+			if (debugFile) {
+				try {
+					appendFileSync(debugFile, JSON.stringify(chunk) + "\n")
+				} catch {}
+			}
 			if ("runId" in chunk && chunk.runId) {
 				this.currentRunId = chunk.runId
 			}
@@ -2137,9 +2373,12 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					const toolCallId = chunk.payload.toolCallId
 					const toolName = chunk.payload.toolName
 					const toolArgs = chunk.payload.args
+					// The stream is now suspended — no more chunks will arrive
+					// until approveToolCall() or declineToolCall() is called.
 
-					// Run PreToolUse hooks BEFORE YOLO decision
-					let hookBlocked = false
+					let action: "allow" | "deny" | "ask" = "ask"
+
+					// Run PreToolUse hooks first
 					if (this.hookManager) {
 						const hookResult = await this.hookManager.runPreToolUse(
 							toolName,
@@ -2152,45 +2391,86 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 							})
 						}
 						if (!hookResult.allowed) {
-							hookBlocked = true
-							this.emit({
-								type: "tool_end",
-								toolCallId,
-								result: `Blocked by hook: ${hookResult.blockReason || "Policy violation"}`,
-								isError: true,
-							})
-							// Queue decline for after stream finishes (same pattern as pendingApproval)
-							this.pendingDeclineToolCallId = toolCallId
+							action = "deny"
 						}
 					}
+					// Resolve via YOLO / permission rules / session grants
+					if (action !== "deny") {
+						action = this.resolveToolApproval(toolName)
+					}
 
-					if (!hookBlocked) {
-						// Check YOLO mode — auto-approve if enabled
-						const isYolo = (this.state as any)?.yolo === true
-						if (isYolo) {
-							// Queue for approval after stream finishes (don't call from inside processStream
-							// — the workflow snapshot may not be saved yet, causing "No snapshot found" errors)
-							this.pendingApprovalToolCallId = toolCallId
+					if (action === "allow") {
+						// Auto-approve: resume the stream and process it
+						const result = await this.handleToolApprove(toolCallId)
+						currentMessage = result.message
+						// Stream is done after approval handling
+						return { message: currentMessage }
+					} else if (action === "deny") {
+						// Auto-deny: decline and process the resumed stream
+						const result = await this.handleToolDecline(toolCallId)
+						currentMessage = result.message
+						return { message: currentMessage }
+					} else {
+						// Ask the user — emit event and wait for decision
+						const category = getToolCategory(toolName)
+
+						this.emit({
+							type: "tool_approval_required",
+							toolCallId,
+							toolName,
+							args: toolArgs,
+						})
+
+						// Wait for TUI to call resolveToolApprovalDecision()
+						const decision = await new Promise<
+							"approve" | "decline" | "always_allow_category"
+						>((resolve) => {
+							this.pendingApprovalResolve = resolve
+						})
+
+						if (decision === "always_allow_category" && category) {
+							this.sessionGrants.allowCategory(category)
+						}
+
+						if (
+							decision === "approve" ||
+							decision === "always_allow_category"
+						) {
+							const result = await this.handleToolApprove(toolCallId)
+							currentMessage = result.message
+							return { message: currentMessage }
 						} else {
-							// Tool requires user approval before execution
-							this.emit({
-								type: "tool_approval_required",
-								toolCallId,
-								toolName,
-								args: toolArgs,
-							})
+							const result = await this.handleToolDecline(toolCallId)
+							currentMessage = result.message
+							return { message: currentMessage }
 						}
 					}
-					break
 				}
-
 				case "error": {
+					const streamError =
+						chunk.payload.error instanceof Error
+							? chunk.payload.error
+							: new Error(String(chunk.payload.error))
+
+					if (
+						errorContains(streamError, "must end with a user message") ||
+						errorContains(streamError, "assistant message prefill")
+					) {
+						// Prefill error from stream — inject synthetic user message and retry
+						this.followUpQueue.unshift("<continue>")
+						this.emit({
+							type: "error",
+							error: new Error(
+								"Prefill rejection — patching chat and retrying",
+							),
+							retryable: true,
+						})
+						break
+					}
+
 					this.emit({
 						type: "error",
-						error:
-							chunk.payload.error instanceof Error
-								? chunk.payload.error
-								: new Error(String(chunk.payload.error)),
+						error: streamError,
 					})
 					break
 				}
@@ -2230,6 +2510,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					} else {
 						currentMessage.stopReason = "complete"
 					}
+					this.emit({ type: "info", message: `finish reason: ${finishReason}` })
 					break
 				}
 				// Observational Memory data parts
@@ -2303,7 +2584,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 					break
 				}
 				case "data-om-observation-end": {
-					const payload = (chunk as any).data as Record<string, any> | undefined
+					const payload = chunk.data
 					if (payload && payload.cycleId) {
 						// Use operationType to distinguish reflection from observation
 						if (payload.operationType === "reflection") {
@@ -2416,7 +2697,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		}
 
 		this.emit({ type: "message_end", message: currentMessage })
-		return currentMessage
+		return { message: currentMessage }
 	}
 
 	// ===========================================================================
@@ -2437,15 +2718,10 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		}
 	}
 
-	private emit(event: HarnessEvent): void {
+	private async emit(event: HarnessEvent): Promise<void> {
 		for (const listener of this.listeners) {
 			try {
-				const result = listener(event)
-				if (result instanceof Promise) {
-					result.catch((err) => {
-						console.error("Error in harness event listener:", err)
-					})
-				}
+				await listener(event)
 			} catch (err) {
 				console.error("Error in harness event listener:", err)
 			}
@@ -2618,6 +2894,15 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 	// ===========================================================================
 	// Utilities
 	// ===========================================================================
+	/**
+	 * Release the lock on the current thread.
+	 * Call this when the process is exiting.
+	 */
+	releaseCurrentThreadLock(): void {
+		if (this.currentThreadId) {
+			releaseThreadLock(this.currentThreadId)
+		}
+	}
 
 	private generateId(): string {
 		return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`

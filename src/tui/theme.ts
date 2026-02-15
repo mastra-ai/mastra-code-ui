@@ -6,6 +6,43 @@
 import chalk from "chalk"
 
 // =============================================================================
+// Mastra Brand Palette
+// =============================================================================
+
+/** Mastra brand colors — single source of truth for all hex values. */
+export const mastra = {
+	purple: "#7f45e0", // #b588fe brand is too washed out for terminal
+	green: "#059669", // #7aff78 too vibrant
+	orange: "#fdac53",
+	pink: "#ff69cc",
+	blue: "#2563eb", // #6ccdfb brand is to washed out
+	red: "#DC5663", // #ff4758 too intense
+	yellow: "#e7e67b",
+	// Surface colors
+	bg: "#020202",
+	antiGrid: "#0d0d0d",
+	elevationSm: "#1a1a1a",
+	elevationLg: "#141414",
+	hover: "#262626",
+	// Text colors
+	white: "#f0f0f0",
+	specialGray: "#cccccc",
+	mainGray: "#939393",
+	darkGray: "#424242",
+	// Border colors
+	borderAntiGrid: "#141414",
+	borderElevation: "#1a1a1a",
+} as const
+
+/** Tint a hex color by a brightness factor (0–1). e.g. tintHex("#ff8800", 0.15) → near-black orange */
+export function tintHex(hex: string, factor: number): string {
+	const r = Math.floor(parseInt(hex.slice(1, 3), 16) * factor)
+	const g = Math.floor(parseInt(hex.slice(3, 5), 16) * factor)
+	const b = Math.floor(parseInt(hex.slice(5, 7), 16) * factor)
+	return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`
+}
+
+// =============================================================================
 // Theme Colors
 // =============================================================================
 
@@ -116,9 +153,9 @@ const darkTheme: ThemeColors = {
 	number: "#fbbf24", // Yellow for line numbers
 	function: "#60a5fa", // Light blue for function names
 	// Selection
-	selectedBg: "#3f3f46",
+	selectedBg: mastra.hover,
 	// Overlays
-	overlayBg: "#15131f", // Darker purple tint for overlays
+	overlayBg: mastra.antiGrid,
 }
 
 // =============================================================================

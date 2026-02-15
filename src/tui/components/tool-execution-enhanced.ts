@@ -7,7 +7,7 @@ import * as os from "node:os"
 import { Box, Container, Spacer, Text, type TUI } from "@mariozechner/pi-tui"
 import chalk from "chalk"
 import { highlight } from "cli-highlight"
-import { theme } from "../theme.js"
+import { theme, mastra } from "../theme.js"
 import { CollapsibleComponent } from "./collapsible.js"
 import type {
 	IToolExecutionComponent,
@@ -689,7 +689,7 @@ export class ToolExecutionComponentEnhanced
 		let firstChangeIndex = -1
 
 		// Use soft red for removed, green for added
-		const removedColor = chalk.hex("#dc6868") // soft red
+		const removedColor = chalk.hex(mastra.red) // soft red
 		const addedColor = chalk.hex("#5cb85c") // soft green
 
 		const maxLines = Math.max(oldLines.length, newLines.length)

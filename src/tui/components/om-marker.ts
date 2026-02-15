@@ -42,6 +42,7 @@ export type OMMarkerData =
 			type: "om_buffering_end"
 			operationType: "observation" | "reflection"
 			tokensBuffered: number
+			bufferedTokens: number
 	  }
 	| {
 			type: "om_buffering_failed"
@@ -117,10 +118,15 @@ function formatMarker(data: OMMarkerData): string {
 			return fg("muted", `  ⟳ Buffering ${label.toLowerCase()}${tokens}...`)
 		}
 		case "om_buffering_end": {
-			const tokens = formatTokens(data.tokensBuffered)
+			const input = formatTokens(data.tokensBuffered)
+			const output = formatTokens(data.bufferedTokens)
+			const ratio =
+				data.tokensBuffered > 0 && data.bufferedTokens > 0
+					? ` (${Math.round(data.tokensBuffered / data.bufferedTokens)}x)`
+					: ""
 			return fg(
 				"success",
-				`  ✓ Buffered ${label.toLowerCase()}: ${tokens} tokens`,
+				`  ✓ Buffered ${label.toLowerCase()}: ${input} → ${output} tokens${ratio}`,
 			)
 		}
 		case "om_buffering_failed": {

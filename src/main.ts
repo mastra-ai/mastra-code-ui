@@ -20,6 +20,7 @@ import * as fs from "fs"
 import { Harness } from "./harness/harness.js"
 import type { HarnessRuntimeContext } from "./harness/types.js"
 import { MastraTUI } from "./tui/index.js"
+import { mastra } from "./tui/theme.js"
 import {
 	opencodeClaudeMaxProvider,
 	setAuthStorage,
@@ -33,10 +34,14 @@ import { HookManager } from "./hooks/index.js"
 import { MCPManager } from "./mcp/index.js"
 import {
 	detectProject,
-	getDatabasePath,
+	getStorageConfig,
+	getUserId,
+	getOmScope,
+	getResourceIdOverride,
 	getAppDataDir,
 } from "./utils/project.js"
 import { startGatewaySync } from "./utils/gateway-sync.js"
+import { releaseAllThreadLocks } from "./utils/thread-lock.js"
 import {
 	createViewTool,
 	createExecuteCommandTool,
@@ -44,6 +49,7 @@ import {
 	astSmartEditTool,
 	createWebSearchTool,
 	createWebExtractTool,
+	hasTavilyKey,
 	createGrepTool,
 	createGlobTool,
 	createWriteFileTool,
@@ -98,11 +104,24 @@ setOpenAIAuthStorage(authStorage)
 // =============================================================================
 
 const project = detectProject(process.cwd())
+const autoDetectedResourceId = project.resourceId
+
+// Apply resource ID override if configured (env var or .mastracode/database.json)
+const resourceIdOverride = getResourceIdOverride(project.rootPath)
+if (resourceIdOverride) {
+	project.resourceId = resourceIdOverride
+	project.resourceIdOverride = true
+}
 
 console.log(`Project: ${project.name}`)
-console.log(`Resource ID: ${project.resourceId}`)
+console.log(
+	`Resource ID: ${project.resourceId}${project.resourceIdOverride ? " (override)" : ""}`,
+)
 if (project.gitBranch) console.log(`Branch: ${project.gitBranch}`)
 if (project.isWorktree) console.log(`Worktree of: ${project.mainRepoPath}`)
+
+const userId = getUserId(project.rootPath)
+console.log(`User: ${userId}`)
 console.log()
 
 // =============================================================================
@@ -129,6 +148,13 @@ const stateSchema = z.object({
 	thinkingLevel: z.string().default("off"),
 	// YOLO mode — auto-approve all tool calls
 	yolo: z.boolean().default(false),
+	// Permission rules — per-category and per-tool approval policies
+	permissionRules: z
+		.object({
+			categories: z.record(z.enum(["allow", "ask", "deny"])).default({}),
+			tools: z.record(z.enum(["allow", "ask", "deny"])).default({}),
+		})
+		.default({}),
 	// Smart editing mode — use AST-based analysis for code edits
 	smartEditing: z.boolean().default(true),
 	// Notification mode — alert when TUI needs user attention
@@ -155,14 +181,15 @@ const stateSchema = z.object({
 		.nullable()
 		.default(null),
 })
-
 // =============================================================================
 // Create Storage (shared across all projects)
 // =============================================================================
 
+const storageConfig = getStorageConfig(project.rootPath)
 const storage = new LibSQLStore({
 	id: "mastra-code-storage",
-	url: `file:${getDatabasePath()}`,
+	url: storageConfig.url,
+	...(storageConfig.authToken ? { authToken: storageConfig.authToken } : {}),
 })
 // =============================================================================
 // Create Memory with Observational Memory support
@@ -197,10 +224,12 @@ function getObserverModel() {
 function getReflectorModel() {
 	return resolveModel(omState.reflectorModelId)
 }
-
 // Cache for Memory instances by threshold config
 let cachedMemory: Memory | null = null
 let cachedMemoryKey: string | null = null
+
+// Resolved OM scope (read once at startup, can be changed via config)
+const omScope = getOmScope(project.rootPath)
 
 /**
  * Dynamic memory factory function.
@@ -220,7 +249,7 @@ function getDynamicMemory({
 	const obsThreshold = state?.observationThreshold ?? omState.obsThreshold
 	const refThreshold = state?.reflectionThreshold ?? omState.refThreshold
 
-	const cacheKey = `${obsThreshold}:${refThreshold}`
+	const cacheKey = `${obsThreshold}:${refThreshold}:${omScope}`
 	if (cachedMemory && cachedMemoryKey === cacheKey) {
 		return cachedMemory
 	}
@@ -230,20 +259,20 @@ function getDynamicMemory({
 		options: {
 			observationalMemory: {
 				enabled: true,
-				scope: "thread",
+				scope: omScope,
 				observation: {
-					bufferTokens: 1 / 5,
-					bufferActivation: 3 / 4,
+					bufferTokens: 1 / 10,
+					bufferActivation: 4.5 / 5,
 					model: getObserverModel,
 					messageTokens: obsThreshold,
-					blockAfter: 1.25,
+					blockAfter: 1,
 					modelSettings: {
 						maxOutputTokens: 60000,
 					},
 				},
 				reflection: {
-					bufferActivation: 1 / 3,
-					blockAfter: 1,
+					bufferActivation: 1 / 2,
+					blockAfter: 1.1,
 					model: getReflectorModel,
 					observationTokens: refThreshold,
 					modelSettings: {
@@ -520,9 +549,7 @@ const codeAgent = new Agent({
 		const harnessContext = requestContext.get("harness") as
 			| HarnessRuntimeContext<typeof stateSchema>
 			| undefined
-		const modelId = harnessContext?.state?.currentModelId ?? ""
 		const modeId = harnessContext?.modeId ?? "build"
-		const isAnthropicModel = modelId.startsWith("anthropic/")
 
 		// Build tool set based on mode
 		// NOTE: Tool names "grep" and "glob" are reserved by Anthropic's OAuth
@@ -558,12 +585,10 @@ const codeAgent = new Agent({
 		// Web tools — prefer Tavily when available (avoids Anthropic native
 		// web_search provider tool which can cause stream freezes). Fall back
 		// to Anthropic's native web search via getToolsets() for Anthropic models.
-		if (webSearchTool) {
+		// Note: hasTavilyKey() is checked at request time, not module load time,
+		// so the key can be set after startup and still be picked up.
+		if (hasTavilyKey()) {
 			tools.web_search = webSearchTool
-		} else if (!isAnthropicModel) {
-			// No Tavily key and non-Anthropic model — no web search available
-		}
-		if (webExtractTool) {
 			tools.web_extract = webExtractTool
 		}
 
@@ -574,6 +599,17 @@ const codeAgent = new Agent({
 		return tools
 	},
 })
+
+// Register the agent with a Mastra instance so that workflow snapshot storage
+// is available. This is required for requireToolApproval (approveToolCall /
+// declineToolCall use resumeStream which loads snapshots from storage).
+import { Mastra } from "@mastra/core"
+const mastraInstance = new Mastra({
+	agents: { codeAgent },
+	storage,
+})
+// Suppress internal logging after Mastra init (Mastra sets its own logger)
+mastraInstance.getLogger = () => noopLogger as any
 
 // Suppress @mastra/core's internal ConsoleLogger which dumps raw error objects
 // to the terminal. Our harness already catches and formats these errors properly.
@@ -589,7 +625,7 @@ function getToolsets(
 	modelId: string,
 ): Record<string, Record<string, unknown>> | undefined {
 	// If Tavily is available, skip Anthropic's native web search
-	if (webSearchTool) return undefined
+	if (hasTavilyKey()) return undefined
 
 	const isAnthropicModel = modelId.startsWith("anthropic/")
 	if (!isAnthropicModel) return undefined
@@ -626,6 +662,9 @@ const mcpManager = new MCPManager(project.rootPath)
 const harness = new Harness({
 	id: "mastra-code",
 	resourceId: project.resourceId,
+	defaultResourceId: autoDetectedResourceId,
+	userId,
+	isRemoteStorage: storageConfig.isRemote,
 	storage,
 	stateSchema,
 	initialState: {
@@ -643,21 +682,21 @@ const harness = new Harness({
 			name: "Build",
 			default: true,
 			defaultModelId: "anthropic/claude-opus-4-6",
-			color: "#7f45e0",
+			color: mastra.purple,
 			agent: codeAgent,
 		},
 		{
 			id: "plan",
 			name: "Plan",
 			defaultModelId: "openai/gpt-5.2-codex",
-			color: "#2563eb",
+			color: mastra.blue,
 			agent: codeAgent,
 		},
 		{
 			id: "fast",
 			name: "Fast",
 			defaultModelId: "cerebras/zai-glm-4.7",
-			color: "#059669",
+			color: mastra.green,
 			agent: codeAgent,
 		},
 	],
@@ -748,8 +787,22 @@ const tui = new MastraTUI({
 		process.exit(1)
 	})
 })()
-
 // Clean up MCP connections on exit
 process.on("beforeExit", async () => {
 	await mcpManager.disconnect()
+})
+
+// Release thread locks on exit (handles SIGINT, SIGTERM, and normal exit)
+const cleanupThreadLocks = () => {
+	harness.releaseCurrentThreadLock()
+	releaseAllThreadLocks()
+}
+process.on("exit", cleanupThreadLocks)
+process.on("SIGINT", () => {
+	cleanupThreadLocks()
+	process.exit(0)
+})
+process.on("SIGTERM", () => {
+	cleanupThreadLocks()
+	process.exit(0)
 })

@@ -22,21 +22,22 @@ Usage notes:
 - The path is relative to the project root directory.
 - NEVER create files unless absolutely necessary. Prefer editing existing files.
 - Do not create documentation files (README, *.md) unless the user explicitly asks.`,
+		// requireApproval: true,
 		inputSchema: z.object({
 			path: z
 				.string()
 				.describe("File path to write to (relative to project root)"),
 			content: z.string().describe("The full content to write to the file"),
 		}),
-        execute: async (context, toolContext) => {
-            try {
-                const root = projectRoot || process.cwd()
-                const filePath = context.path
-                const absolutePath = path.resolve(root, filePath)
-                const allowedPaths = getAllowedPathsFromContext(toolContext)
+		execute: async (context, toolContext) => {
+			try {
+				const root = projectRoot || process.cwd()
+				const filePath = context.path
+				const absolutePath = path.resolve(root, filePath)
+				const allowedPaths = getAllowedPathsFromContext(toolContext)
 
-                // Security: ensure the path is within the project root or allowed paths
-                assertPathAllowed(absolutePath, root, allowedPaths)
+				// Security: ensure the path is within the project root or allowed paths
+				assertPathAllowed(absolutePath, root, allowedPaths)
 
 				// Check if file exists
 				const exists = fs.existsSync(absolutePath)

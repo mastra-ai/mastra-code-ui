@@ -61,13 +61,31 @@ export interface HarnessConfig<
 > {
 	/** Unique identifier for this harness instance */
 	id: string
-
 	/**
 	 * Resource ID for grouping threads (e.g., project identifier).
 	 * Threads are scoped to this resource ID.
 	 * Typically derived from git URL or project path.
 	 */
 	resourceId: string
+
+	/**
+	 * The auto-detected resource ID before any overrides.
+	 * Used by `/resource reset` to restore the default.
+	 * If not provided, defaults to `resourceId`.
+	 */
+	defaultResourceId?: string
+
+	/**
+	 * User ID for thread attribution (e.g., git user.email).
+	 * Stored as `createdBy` in thread metadata for multi-user visibility.
+	 */
+	userId?: string
+
+	/**
+	 * Whether the storage backend is remote (e.g., Turso).
+	 * Affects default behavior for thread visibility filtering.
+	 */
+	isRemoteStorage?: boolean
 
 	/** Storage backend for persistence (threads, messages, state) */
 	storage: MastraCompositeStore
@@ -232,6 +250,7 @@ export type HarnessEvent =
 			stream: "stdout" | "stderr"
 	  }
 	| { type: "usage_update"; usage: TokenUsage }
+	| { type: "info"; message: string }
 	| {
 			type: "error"
 			error: Error

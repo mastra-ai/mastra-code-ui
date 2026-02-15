@@ -73,7 +73,6 @@ ${availableTypesDocs}
 The subagent runs in its own context — it does NOT see the parent conversation history. Write a clear, self-contained task description.
 
 Use this tool when:
-- You need to explore a large area of the codebase before making changes
 - You want to run multiple investigations in parallel
 - The task is self-contained and can be delegated${hasExecute ? "\n- You want to perform a focused implementation task (execute type)" : ""}`,
 		inputSchema: z.object({

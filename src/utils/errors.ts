@@ -74,12 +74,7 @@ export function parseError(error: unknown): ParsedError {
 	}
 
 	// Check for forbidden/permission errors
-	if (
-		message.includes("forbidden") ||
-		message.includes("permission") ||
-		errorObj.statusCode === 403 ||
-		errorObj.status === 403
-	) {
+	if (errorObj.statusCode === 403 || errorObj.status === 403) {
 		return {
 			message: "Access denied. You may not have permission to use this model.",
 			type: "auth",

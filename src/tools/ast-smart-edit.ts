@@ -65,18 +65,28 @@ Examples:
 - Add import: { transform: 'add-import', importSpec: { module: 'react', names: ['useState'] } }
 - Rename function: { transform: 'rename-function', targetName: 'oldFunc', newName: 'newFunc' }
 - Pattern replace: { pattern: 'console.log($ARG)', replacement: 'logger.debug($ARG)' }`,
+	// requireApproval: true,
 	inputSchema: astSmartEditSchema,
-    execute: async (
-        { path, pattern, replacement, selector, transform, targetName, newName, importSpec },
-        toolContext,
-    ) => {
-        try {
-            const projectRoot = getProjectRoot()
-            const filePath = resolve(projectRoot, path)
+	execute: async (
+		{
+			path,
+			pattern,
+			replacement,
+			selector,
+			transform,
+			targetName,
+			newName,
+			importSpec,
+		},
+		toolContext,
+	) => {
+		try {
+			const projectRoot = getProjectRoot()
+			const filePath = resolve(projectRoot, path)
 
-            // Security: ensure the path is within the project root or allowed paths
-            const allowedPaths = getAllowedPathsFromContext(toolContext)
-            assertPathAllowed(filePath, projectRoot, allowedPaths)
+			// Security: ensure the path is within the project root or allowed paths
+			const allowedPaths = getAllowedPathsFromContext(toolContext)
+			assertPathAllowed(filePath, projectRoot, allowedPaths)
 
 			// Read the file
 			const content = readFileSync(filePath, "utf-8")

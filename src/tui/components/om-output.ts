@@ -7,6 +7,7 @@
 
 import { Container, Text, Spacer } from "@mariozechner/pi-tui"
 import chalk from "chalk"
+import { mastra } from "../theme.js"
 
 const OBSERVER_COLOR = "#f59e0b"
 const REFLECTOR_COLOR = "#ef4444"
@@ -183,27 +184,35 @@ export class OMOutputComponent extends Container {
 
 			if (truncated) {
 				for (const line of headLines) {
-					borderedLines.push(border("│") + " " + chalk.hex("#a1a1aa")(line))
+					borderedLines.push(
+						border("│") + " " + chalk.hex(mastra.specialGray)(line),
+					)
 				}
 				borderedLines.push(
 					border("│") +
 						" " +
-						chalk.hex("#71717a")(
+						chalk.hex(mastra.mainGray)(
 							`... ${originalLineCount} lines total (ctrl+e to expand)`,
 						),
 				)
 				for (const line of tailLines) {
-					borderedLines.push(border("│") + " " + chalk.hex("#a1a1aa")(line))
+					borderedLines.push(
+						border("│") + " " + chalk.hex(mastra.specialGray)(line),
+					)
 				}
 			} else {
 				// Edge case: all groups fit when snapped to boundaries
 				for (const line of wrappedLines) {
-					borderedLines.push(border("│") + " " + chalk.hex("#a1a1aa")(line))
+					borderedLines.push(
+						border("│") + " " + chalk.hex(mastra.specialGray)(line),
+					)
 				}
 			}
 		} else {
 			for (const line of wrappedLines) {
-				borderedLines.push(border("│") + " " + chalk.hex("#a1a1aa")(line))
+				borderedLines.push(
+					border("│") + " " + chalk.hex(mastra.specialGray)(line),
+				)
 			}
 		}
 
@@ -218,7 +227,7 @@ export class OMOutputComponent extends Container {
 				border("│") +
 				" " +
 				chalk.hex(color).bold("Current task: ") +
-				chalk.hex("#d4d4d8")(this.data.currentTask)
+				chalk.hex(mastra.specialGray)(this.data.currentTask)
 			this.addChild(new Text(truncateAnsi(taskLine, termWidth - 2), 0, 0))
 		}
 
@@ -227,7 +236,7 @@ export class OMOutputComponent extends Container {
 				border("│") +
 				" " +
 				chalk.hex(color).bold("Suggested response: ") +
-				chalk.hex("#d4d4d8")(this.data.suggestedResponse)
+				chalk.hex(mastra.specialGray)(this.data.suggestedResponse)
 			this.addChild(new Text(truncateAnsi(sugLine, termWidth - 2), 0, 0))
 		}
 
@@ -254,7 +263,7 @@ export class OMOutputComponent extends Container {
 				? ` in ${(this.data.durationMs / 1000).toFixed(1)}s`
 				: ""
 			const ratioStr = ratio ? ` (${ratio} compression)` : ""
-			return `${emoji} ${chalk.hex(color)(`Reflected: ${observed} → ${compressed} tokens${ratioStr}${durationStr}`)} ${chalk.hex("#22c55e")("✓")}`
+			return `${emoji} ${chalk.hex(color)(`Reflected: ${observed} → ${compressed} tokens${ratioStr}${durationStr}`)} ${chalk.hex(mastra.green)("✓")}`
 		} else {
 			// Observation: "🧠 Observed: Xk → Yk tokens (Zx compression) in Ns ✓"
 			const observed = formatTokens(this.data.tokensObserved ?? 0)
@@ -268,7 +277,7 @@ export class OMOutputComponent extends Container {
 				? ` in ${(this.data.durationMs / 1000).toFixed(1)}s`
 				: ""
 			const ratioStr = ratio ? ` (${ratio} compression)` : ""
-			return `${emoji} ${chalk.hex(color)(`Observed: ${observed} → ${compressed} tokens${ratioStr}${durationStr}`)} ${chalk.hex("#22c55e")("✓")}`
+			return `${emoji} ${chalk.hex(color)(`Observed: ${observed} → ${compressed} tokens${ratioStr}${durationStr}`)} ${chalk.hex(mastra.green)("✓")}`
 		}
 	}
 }

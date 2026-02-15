@@ -6,7 +6,7 @@
  */
 import { Container, Text, Spacer } from "@mariozechner/pi-tui"
 import chalk from "chalk"
-import { fg, bold } from "../theme.js"
+import { fg, bold, mastra } from "../theme.js"
 
 export interface TodoItem {
 	content: string
@@ -24,10 +24,10 @@ export class TodoProgressComponent extends Container {
 	/**
 	 * Replace the entire todo list and re-render.
 	 */
-    updateTodos(todos: TodoItem[]): void {
-        this.todos = todos
-        this.rebuildDisplay()
-    }
+	updateTodos(todos: TodoItem[]): void {
+		this.todos = todos
+		this.rebuildDisplay()
+	}
 
 	/**
 	 * Get the current todo list (read-only copy).

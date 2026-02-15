@@ -5,7 +5,7 @@
 
 import { Container, Text, Spacer } from "@mariozechner/pi-tui"
 import chalk from "chalk"
-import { fg, bold } from "../theme.js"
+import { fg, bold, mastra } from "../theme.js"
 
 export interface ProgressStep {
 	id: string
@@ -240,13 +240,13 @@ export class MultiStepProgressComponent extends Container {
 		const empty = width - filled
 		const bar = "█".repeat(filled) + "░".repeat(empty)
 
-		// Color based on progress
+		// Color based on progress — Mastra brand colors
 		if (percent === 100) {
-			return chalk.green(bar)
+			return chalk.hex(mastra.green)(bar) // Mastra green
 		} else if (percent >= 75) {
-			return chalk.yellow(bar)
+			return chalk.hex(mastra.yellow)(bar) // Mastra yellow
 		} else {
-			return chalk.cyan(bar)
+			return chalk.hex(mastra.purple)(bar) // Mastra purple
 		}
 	}
 

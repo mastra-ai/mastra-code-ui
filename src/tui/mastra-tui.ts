@@ -28,6 +28,7 @@ import type {
 } from "../harness/types.js"
 import type { Workspace } from "@mastra/core/workspace"
 import { detectProject, type ProjectInfo } from "../utils/project.js"
+import { ThreadLockError } from "../utils/thread-lock.js"
 import { parseError } from "../utils/errors.js"
 import {
 	loadCustomCommands,
@@ -65,7 +66,10 @@ import {
 	PlanApprovalInlineComponent,
 	PlanResultComponent,
 } from "./components/plan-approval-inline.js"
-import { ToolApprovalDialogComponent } from "./components/tool-approval-dialog.js"
+import {
+	ToolApprovalDialogComponent,
+	type ApprovalAction,
+} from "./components/tool-approval-dialog.js"
 import {
 	ToolExecutionComponentEnhanced,
 	type ToolResult,
@@ -78,6 +82,7 @@ import {
 	type TodoItem,
 } from "./components/todo-progress.js"
 import { UserMessageComponent } from "./components/user-message.js"
+import { SlashCommandComponent } from "./components/slash-command.js"
 import { SystemReminderComponent } from "./components/system-reminder.js"
 import { ShellOutputComponent } from "./components/shell-output.js"
 import { DiffOutputComponent } from "./components/diff-output.js"
@@ -89,12 +94,15 @@ import {
 	bold,
 	getContrastText,
 	theme,
+	mastra,
+	tintHex,
 } from "./theme.js"
 import {
 	sendNotification,
 	type NotificationMode,
 	type NotificationReason,
 } from "./notify.js"
+import { getToolCategory, TOOL_CATEGORIES } from "../permissions.js"
 
 // =============================================================================
 // Types
@@ -152,10 +160,15 @@ export class MastraTUI {
 	private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
 	private subagentToolCallIds = new Set<string>() // Track subagent tool call IDs to skip in trailing content logic
 	private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
+	private allSlashCommandComponents: SlashCommandComponent[] = [] // Track slash command boxes for expand/collapse
 	private pendingSubagents = new Map<string, SubagentExecutionComponent>() // Track active subagent tasks
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
+	private pendingLockConflict: {
+		threadTitle: string
+		ownerPid: number
+	} | null = null
 	private lastAskUserComponent?: IToolExecutionComponent // Track the most recent ask_user tool for inline question placement
 	private lastClearedText = "" // Saved editor text for Ctrl+Z undo
 
@@ -204,6 +217,9 @@ export class MastraTUI {
 	// Follow-up messages sent via Ctrl+F while streaming
 	// These must stay anchored at the bottom of the chat stream
 	private followUpComponents: UserMessageComponent[] = []
+
+	// Active approval dialog dismiss callback — called on Ctrl+C to unblock the dialog
+	private pendingApprovalDismiss: (() => void) | null = null
 
 	// Ctrl+C double-tap tracking
 	private lastCtrlCTime = 0
@@ -288,7 +304,14 @@ export class MastraTUI {
 			}
 			this.lastCtrlCTime = now
 
-			if (this.harness.isRunning()) {
+			if (this.pendingApprovalDismiss) {
+				// Dismiss active approval dialog and abort
+				this.pendingApprovalDismiss()
+				this.activeInlinePlanApproval = undefined
+				this.activeInlineQuestion = undefined
+				this.userInitiatedAbort = true
+				this.harness.abort()
+			} else if (this.harness.isRunning()) {
 				// Clean up active inline components on abort
 				this.activeInlinePlanApproval = undefined
 				this.activeInlineQuestion = undefined
@@ -324,12 +347,14 @@ export class MastraTUI {
 			this.hideThinkingBlock = !this.hideThinkingBlock
 			this.ui.requestRender()
 		})
-
 		// Ctrl+E - expand/collapse tool outputs
 		this.editor.onAction("expandTools", () => {
 			this.toolOutputExpanded = !this.toolOutputExpanded
 			for (const tool of this.allToolComponents) {
 				tool.setExpanded(this.toolOutputExpanded)
+			}
+			for (const sc of this.allSlashCommandComponents) {
+				sc.setExpanded(this.toolOutputExpanded)
 			}
 			this.ui.requestRender()
 		})
@@ -352,6 +377,13 @@ export class MastraTUI {
 			await this.harness.switchMode(nextMode.id)
 			// The mode_changed event handler will show the info message
 			this.updateStatusLine()
+		})
+		// Ctrl+Y - toggle YOLO mode
+		this.editor.onAction("toggleYolo", () => {
+			const current = this.harness.getYoloMode()
+			this.harness.setYoloMode(!current)
+			this.updateStatusLine()
+			this.showInfo(current ? "YOLO mode off" : "YOLO mode on")
 		})
 
 		// Ctrl+F - queue follow-up message while streaming
@@ -557,11 +589,19 @@ export class MastraTUI {
 
 		// Set terminal title
 		this.updateTerminalTitle()
-
 		// Render existing messages
 		await this.renderExistingMessages()
 		// Render existing todos if any
 		await this.renderExistingTodos()
+
+		// Show deferred thread lock prompt (must happen after TUI is started)
+		if (this.pendingLockConflict) {
+			this.showThreadLockPrompt(
+				this.pendingLockConflict.threadTitle,
+				this.pendingLockConflict.ownerPid,
+			)
+			this.pendingLockConflict = null
+		}
 	}
 
 	/**
@@ -600,11 +640,22 @@ export class MastraTUI {
 		const sortedThreads = [...threads].sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		)
-
 		const mostRecent = sortedThreads[0]
-
 		// Auto-resume the most recent thread for this directory
-		await this.harness.switchThread(mostRecent.id)
+		try {
+			await this.harness.switchThread(mostRecent.id)
+		} catch (error) {
+			if (error instanceof ThreadLockError) {
+				// Defer the lock conflict prompt until after the TUI is started
+				this.pendingNewThread = true
+				this.pendingLockConflict = {
+					threadTitle: mostRecent.title || mostRecent.id,
+					ownerPid: error.ownerPid,
+				}
+				return
+			}
+			throw error
+		}
 	}
 	/**
 	 * Extract text content from a harness message.
@@ -630,12 +681,18 @@ export class MastraTUI {
 		const appName = this.options.appName || "Mastra Code"
 		const version = this.options.version || "0.1.0"
 
-		const logo = bold(fg("accent", appName)) + fg("dim", ` v${version}`)
+		const logo =
+			fg("accent", "◆") +
+			" " +
+			bold(fg("accent", appName)) +
+			fg("dim", ` v${version}`)
 
+		const keyStyle = (k: string) => fg("accent", k)
+		const sep = fg("dim", " · ")
 		const instructions = [
-			`${fg("muted", "Ctrl+C")} interrupt/clear  ${fg("muted", "Ctrl+C×2")} exit`,
-			`${fg("muted", "Enter")} while working → steer  ${fg("muted", "Ctrl+F")} → queue follow-up`,
-			`${fg("muted", "/")} commands  ${fg("muted", "!")} shell  ${fg("muted", "Ctrl+T")} thinking  ${fg("muted", "Ctrl+E")} tools${this.harness.getModes().length > 1 ? `  ${fg("muted", "⇧Tab")} mode` : ""}`,
+			`  ${keyStyle("Ctrl+C")} ${fg("muted", "interrupt/clear")}${sep}${keyStyle("Ctrl+C×2")} ${fg("muted", "exit")}`,
+			`  ${keyStyle("Enter")} ${fg("muted", "while working → steer")}${sep}${keyStyle("Ctrl+F")} ${fg("muted", "→ queue follow-up")}`,
+			`  ${keyStyle("/")} ${fg("muted", "commands")}${sep}${keyStyle("!")} ${fg("muted", "shell")}${sep}${keyStyle("Ctrl+T")} ${fg("muted", "thinking")}${sep}${keyStyle("Ctrl+E")} ${fg("muted", "tools")}${this.harness.getModes().length > 1 ? `${sep}${keyStyle("⇧Tab")} ${fg("muted", "mode")}` : ""}`,
 		].join("\n")
 
 		this.ui.addChild(new Spacer(1))
@@ -687,8 +744,8 @@ ${instructions}`,
 		const showOMMode = isObserving || isReflecting
 
 		// Colors for OM modes
-		const OBSERVER_COLOR = "#f59e0b" // amber/yellow
-		const REFLECTOR_COLOR = "#ef4444" // red/orange
+		const OBSERVER_COLOR = mastra.orange // Mastra orange
+		const REFLECTOR_COLOR = mastra.pink // Mastra pink
 
 		// --- Mode badge ---
 		let modeBadge = ""
@@ -711,7 +768,6 @@ ${instructions}`,
 			: currentMode
 				? currentMode.name || currentMode.id || "unknown"
 				: undefined
-
 		if (badgeName && modeColor) {
 			const [mcr, mcg, mcb] = [
 				parseInt(modeColor.slice(1, 3), 16),
@@ -738,7 +794,7 @@ ${instructions}`,
 			]
 			modeBadge = chalk
 				.bgRgb(mr, mg, mb)
-				.hex("#0a0a0a")
+				.hex(mastra.bg)
 				.bold(` ${badgeName.toLowerCase()} `)
 			modeBadgeWidth = badgeName.length + 2
 		} else if (badgeName) {
@@ -788,6 +844,7 @@ ${instructions}`,
 		}
 
 		// --- Helper to style the model ID ---
+		const isYolo = this.harness.getYoloMode()
 		const styleModelId = (id: string): string => {
 			if (!this.modelAuthStatus.hasAuth) {
 				const envVar = this.modelAuthStatus.apiKeyEnvVar
@@ -798,26 +855,15 @@ ${instructions}`,
 				)
 			}
 			// Tinted near-black background from mode color
-			const tintBg = modeColor
-				? `#${Math.floor(parseInt(modeColor.slice(1, 3), 16) * 0.15)
-						.toString(16)
-						.padStart(2, "0")}${Math.floor(
-						parseInt(modeColor.slice(3, 5), 16) * 0.15,
-					)
-						.toString(16)
-						.padStart(2, "0")}${Math.floor(
-						parseInt(modeColor.slice(5, 7), 16) * 0.15,
-					)
-						.toString(16)
-						.padStart(2, "0")}`
-				: undefined
+			const tintBg = modeColor ? tintHex(modeColor, 0.15) : undefined
+			const padded = ` ${id} `
 
 			if (this.gradientAnimator?.isRunning() && modeColor) {
 				const fade = this.gradientAnimator.getFadeProgress()
 				if (fade < 1) {
 					// During active or fade-out: interpolate gradient toward idle color
 					const text = applyGradientSweep(
-						` ${id} `,
+						padded,
 						this.gradientAnimator.getOffset(),
 						modeColor,
 						fade, // pass fade progress to flatten the gradient
@@ -835,10 +881,10 @@ ${instructions}`,
 				const dim = 0.8
 				const fg = chalk
 					.rgb(Math.floor(r * dim), Math.floor(g * dim), Math.floor(b * dim))
-					.bold(` ${id} `)
+					.bold(padded)
 				return tintBg ? chalk.bgHex(tintBg)(fg) : fg
 			}
-			return chalk.hex("#a1a1aa").bold(id)
+			return chalk.hex(mastra.specialGray).bold(id)
 		}
 		// --- Build line with progressive reduction ---
 		// Strategy: progressively drop less-important elements to fit terminal width.
@@ -871,7 +917,7 @@ ${instructions}`,
 			]
 			shortModeBadge = chalk
 				.bgRgb(sr, sg, sb)
-				.hex("#0a0a0a")
+				.hex(mastra.bg)
 				.bold(` ${shortName} `)
 			shortModeBadgeWidth = shortName.length + 2
 		} else if (badgeName) {
@@ -888,10 +934,22 @@ ${instructions}`,
 		}): { plain: string; styled: string } | null => {
 			const parts: Array<{ plain: string; styled: string }> = []
 			// Model ID (always present) — styleModelId adds padding spaces
-			parts.push({
-				plain: ` ${opts.modelId} `,
-				styled: styleModelId(opts.modelId),
-			})
+			// When YOLO, append ⚒ box flush (no SEP gap)
+			if (isYolo && modeColor) {
+				const yBox = chalk
+					.bgHex(tintHex(modeColor, 0.25))
+					.hex(tintHex(modeColor, 0.9))
+					.bold(" ⚒ ")
+				parts.push({
+					plain: ` ${opts.modelId}  ⚒ `,
+					styled: styleModelId(opts.modelId) + yBox,
+				})
+			} else {
+				parts.push({
+					plain: ` ${opts.modelId} `,
+					styled: styleModelId(opts.modelId),
+				})
+			}
 			const useBadge = opts.badge === "short" ? shortModeBadge : modeBadge
 			const useBadgeWidth =
 				opts.badge === "short" ? shortModeBadgeWidth : modeBadgeWidth
@@ -1019,7 +1077,15 @@ ${instructions}`,
 			})
 
 		this.statusLine.setText(
-			result?.styled ?? shortModeBadge + styleModelId(tinyModelId),
+			result?.styled ??
+				shortModeBadge +
+					styleModelId(tinyModelId) +
+					(isYolo && modeColor
+						? chalk
+								.bgHex(tintHex(modeColor, 0.25))
+								.hex(tintHex(modeColor, 0.9))
+								.bold(" ⚒ ")
+						: ""),
 		)
 
 		// Line 2: hidden — dir only shows on line 1 when it fits
@@ -1048,6 +1114,10 @@ ${instructions}`,
 			{ name: "cost", description: "Show token usage and estimated costs" },
 			{ name: "diff", description: "Show modified files or git diff" },
 			{ name: "name", description: "Rename current thread" },
+			{
+				name: "resource",
+				description: "Show/switch resource ID (tag for sharing)",
+			},
 			{ name: "logout", description: "Logout from OAuth provider" },
 			{ name: "hooks", description: "Show/reload configured hooks" },
 			{ name: "mcp", description: "Show/reload MCP server connections" },
@@ -1060,8 +1130,16 @@ ${instructions}`,
 				description: "Manage allowed paths (add/remove directories)",
 			},
 			{
+				name: "permissions",
+				description: "View/manage tool approval permissions",
+			},
+			{
 				name: "settings",
 				description: "General settings (notifications, YOLO, thinking)",
+			},
+			{
+				name: "yolo",
+				description: "Toggle YOLO mode (auto-approve all tools)",
 			},
 			{ name: "review", description: "Review a GitHub pull request" },
 			{ name: "exit", description: "Exit the TUI" },
@@ -1128,6 +1206,9 @@ ${instructions}`,
 				process.exit(0)
 			}
 			this.lastCtrlCTime = now
+			if (this.pendingApprovalDismiss) {
+				this.pendingApprovalDismiss()
+			}
 			this.userInitiatedAbort = true
 			this.harness.abort()
 		})
@@ -1187,13 +1268,12 @@ ${instructions}`,
 			case "message_end":
 				this.handleMessageEnd(event.message)
 				break
-
 			case "tool_start":
 				this.handleToolStart(event.toolCallId, event.toolName, event.args)
 				break
 
 			case "tool_approval_required":
-				await this.handleToolApprovalRequired(
+				this.handleToolApprovalRequired(
 					event.toolCallId,
 					event.toolName,
 					event.args,
@@ -1210,6 +1290,9 @@ ${instructions}`,
 
 			case "tool_end":
 				this.handleToolEnd(event.toolCallId, event.result, event.isError)
+				break
+			case "info":
+				this.showInfo(event.message)
 				break
 
 			case "error":
@@ -1245,10 +1328,16 @@ ${instructions}`,
 				}
 				break
 			}
-
-			case "thread_created":
+			case "thread_created": {
 				this.showInfo(`Created thread: ${event.thread.id}`)
+				// Sync inherited resource-level settings
+				const tState = this.harness.getState() as any
+				if (typeof tState?.escapeAsCancel === "boolean") {
+					this.editor.escapeEnabled = tState.escapeAsCancel
+				}
+				this.updateStatusLine()
 				break
+			}
 
 			case "usage_update":
 				this.handleUsageUpdate(event.usage)
@@ -1319,6 +1408,7 @@ ${instructions}`,
 						type: "om_buffering_end",
 						operationType: event.operationType,
 						tokensBuffered: event.tokensBuffered,
+						bufferedTokens: event.bufferedTokens,
 					})
 				}
 				this.activeBufferingMarker = undefined
@@ -2019,6 +2109,57 @@ ${instructions}`,
 		}
 		this.chatContainer.addChild(child)
 	}
+	private handleToolApprovalRequired(
+		toolCallId: string,
+		toolName: string,
+		args: unknown,
+	): void {
+		// Compute category label for the dialog
+		const category = getToolCategory(toolName)
+		const categoryLabel = category
+			? TOOL_CATEGORIES[category]?.label
+			: undefined
+
+		// Send notification to alert the user
+		this.notify("tool_approval", `Approve ${toolName}?`)
+
+		const dialog = new ToolApprovalDialogComponent({
+			toolCallId,
+			toolName,
+			args,
+			categoryLabel,
+			onAction: (action: ApprovalAction) => {
+				this.ui.hideOverlay()
+				this.pendingApprovalDismiss = null
+				if (action.type === "approve") {
+					this.harness.resolveToolApprovalDecision("approve")
+				} else if (action.type === "always_allow_category") {
+					this.harness.resolveToolApprovalDecision("always_allow_category")
+				} else if (action.type === "yolo") {
+					this.harness.setYoloMode(true)
+					this.harness.resolveToolApprovalDecision("approve")
+					this.updateStatusLine()
+				} else {
+					this.harness.resolveToolApprovalDecision("decline")
+				}
+			},
+		})
+
+		// Set up Ctrl+C dismiss to decline
+		this.pendingApprovalDismiss = () => {
+			this.ui.hideOverlay()
+			this.pendingApprovalDismiss = null
+			this.harness.resolveToolApprovalDecision("decline")
+		}
+
+		// Show the dialog as an overlay
+		this.ui.showOverlay(dialog, {
+			width: "70%",
+			anchor: "center",
+		})
+		dialog.focused = true
+		this.ui.requestRender()
+	}
 
 	private handleToolStart(
 		toolCallId: string,
@@ -2102,54 +2243,6 @@ ${instructions}`,
 			component.appendStreamingOutput(output)
 			this.ui.requestRender()
 		}
-	}
-
-	/**
-	 * Handle a tool that requires user approval before execution.
-	 */
-	private async handleToolApprovalRequired(
-		toolCallId: string,
-		toolName: string,
-		args: unknown,
-	): Promise<void> {
-		return new Promise((resolve) => {
-			const dialog = new ToolApprovalDialogComponent({
-				toolCallId,
-				toolName,
-				args,
-				onApprove: async () => {
-					this.ui.hideOverlay()
-					this.showInfo(`Approved: ${toolName}`)
-					try {
-						await this.harness.approveToolCall(toolCallId)
-					} catch (error) {
-						this.showError(
-							error instanceof Error ? error.message : "Failed to approve tool",
-						)
-					}
-					resolve()
-				},
-				onDecline: async () => {
-					this.ui.hideOverlay()
-					this.showInfo(`Declined: ${toolName}`)
-					try {
-						await this.harness.declineToolCall(toolCallId)
-					} catch (error) {
-						this.showError(
-							error instanceof Error ? error.message : "Failed to decline tool",
-						)
-					}
-					resolve()
-				},
-			})
-			this.ui.showOverlay(dialog, {
-				width: "80%",
-				anchor: "center",
-			})
-			dialog.focused = true
-
-			this.notify("tool_approval", `Tool "${toolName}" requires approval`)
-		})
 	}
 
 	/**
@@ -2520,8 +2613,8 @@ ${instructions}`,
 		const remaining = shouldCollapse ? todos.length - MAX_VISIBLE : 0
 
 		for (const todo of visible) {
-			const icon = chalk.green("\u2713")
-			const text = chalk.green(todo.content)
+			const icon = chalk.hex(mastra.green)("✓")
+			const text = chalk.hex(mastra.green)(todo.content)
 			container.addChild(new Text(`  ${icon} ${text}`, 0, 0))
 		}
 		if (remaining > 0) {
@@ -2562,7 +2655,9 @@ ${instructions}`,
 		container.addChild(new Text(fg("accent", `${label} cleared`), 0, 0))
 		for (const todo of clearedTodos) {
 			const icon =
-				todo.status === "completed" ? chalk.green("✓") : chalk.dim("○")
+				todo.status === "completed"
+					? chalk.hex(mastra.green)("✓")
+					: chalk.hex(mastra.darkGray)("○")
 			const text = chalk.dim.strikethrough(todo.content)
 			container.addChild(new Text(`  ${icon} ${text}`, 0, 0))
 		}
@@ -2711,8 +2806,19 @@ ${instructions}`,
 					if (thread.resourceId !== currentResourceId) {
 						this.harness.setResourceId(thread.resourceId)
 					}
-
-					await this.harness.switchThread(thread.id)
+					try {
+						await this.harness.switchThread(thread.id)
+					} catch (error) {
+						if (error instanceof ThreadLockError) {
+							this.showThreadLockPrompt(
+								thread.title || thread.id,
+								error.ownerPid,
+							)
+							resolve()
+							return
+						}
+						throw error
+					}
 					this.pendingNewThread = false
 
 					// Clear chat and render existing messages
@@ -2799,6 +2905,43 @@ ${instructions}`,
 			this.ui.requestRender()
 			this.chatContainer.invalidate()
 		})
+	}
+	/**
+	 * Show an inline prompt when a thread is locked by another process.
+	 * User can create a new thread (y) or exit (n).
+	 */
+	private showThreadLockPrompt(threadTitle: string, ownerPid: number): void {
+		const questionComponent = new AskQuestionInlineComponent(
+			{
+				question: `Thread "${threadTitle}" is locked by pid ${ownerPid}. Create a new thread?`,
+				options: [
+					{ label: "Yes", description: "Start a new thread" },
+					{ label: "No", description: "Exit" },
+				],
+				formatResult: (answer) =>
+					answer === "Yes" ? "Thread created" : "Exiting.",
+				onSubmit: async (answer) => {
+					this.activeInlineQuestion = undefined
+					if (answer.toLowerCase().startsWith("y")) {
+						// pendingNewThread is already true — thread will be
+						// created lazily on first message
+					} else {
+						process.exit(0)
+					}
+				},
+				onCancel: () => {
+					this.activeInlineQuestion = undefined
+					process.exit(0)
+				},
+			},
+			this.ui,
+		)
+
+		this.activeInlineQuestion = questionComponent
+		this.chatContainer.addChild(questionComponent)
+		this.chatContainer.addChild(new Spacer(1))
+		this.ui.requestRender()
+		this.chatContainer.invalidate()
 	}
 
 	// ===========================================================================
@@ -3408,6 +3551,65 @@ ${instructions}`,
 	// ===========================================================================
 	// General Settings
 	// ===========================================================================
+	private async showPermissions(): Promise<void> {
+		const { TOOL_CATEGORIES, getToolsForCategory } =
+			await import("../permissions.js")
+		const rules = this.harness.getPermissionRules_public()
+		const grants = this.harness.getSessionGrants()
+		const isYolo = this.harness.getYoloMode()
+
+		const lines: string[] = []
+		lines.push("Tool Approval Permissions")
+		lines.push("─".repeat(40))
+
+		if (isYolo) {
+			lines.push("")
+			lines.push("⚡ YOLO mode is ON — all tools are auto-approved")
+			lines.push("  Use /yolo to toggle off")
+		}
+
+		lines.push("")
+		lines.push("Category Policies:")
+		for (const [cat, meta] of Object.entries(TOOL_CATEGORIES)) {
+			const policy =
+				rules.categories[cat as keyof typeof rules.categories] || "ask"
+			const sessionGranted = grants.categories.includes(cat as any)
+			const tools = getToolsForCategory(cat as any)
+			const status = sessionGranted
+				? `${policy} (session: always allow)`
+				: policy
+			lines.push(
+				`  ${meta.label.padEnd(12)} ${status.padEnd(16)} tools: ${tools.join(", ")}`,
+			)
+		}
+
+		if (Object.keys(rules.tools).length > 0) {
+			lines.push("")
+			lines.push("Per-tool Overrides:")
+			for (const [tool, policy] of Object.entries(rules.tools)) {
+				lines.push(`  ${tool.padEnd(24)} ${policy}`)
+			}
+		}
+
+		if (grants.categories.length > 0 || grants.tools.length > 0) {
+			lines.push("")
+			lines.push("Session Grants (reset on restart):")
+			if (grants.categories.length > 0) {
+				lines.push(`  Categories: ${grants.categories.join(", ")}`)
+			}
+			if (grants.tools.length > 0) {
+				lines.push(`  Tools: ${grants.tools.join(", ")}`)
+			}
+		}
+
+		lines.push("")
+		lines.push("Commands:")
+		lines.push("  /permissions set <category> <allow|ask|deny>")
+		lines.push("  /yolo — toggle auto-approve all tools")
+
+		this.showInfo(lines.join("\n"))
+	}
+
 	private async showSettings(): Promise<void> {
 		const state = this.harness.getState() as any
 		const config = {
@@ -3434,6 +3636,7 @@ ${instructions}`,
 				onEscapeAsCancelChange: async (enabled) => {
 					this.editor.escapeEnabled = enabled
 					await this.harness.setState({ escapeAsCancel: enabled })
+					await this.harness.persistThreadSetting("escapeAsCancel", enabled)
 				},
 				onClose: () => {
 					this.ui.hideOverlay()
@@ -3729,6 +3932,31 @@ ${modeList}`)
 				this.updateStatusLine()
 				return true
 			}
+			case "permissions": {
+				if (args[0] === "set" && args.length >= 3) {
+					const category = args[1] as any
+					const policy = args[2] as any
+					const validCategories = ["read", "edit", "execute", "mcp"]
+					const validPolicies = ["allow", "ask", "deny"]
+					if (!validCategories.includes(category)) {
+						this.showInfo(
+							`Invalid category: ${category}. Must be one of: ${validCategories.join(", ")}`,
+						)
+						return true
+					}
+					if (!validPolicies.includes(policy)) {
+						this.showInfo(
+							`Invalid policy: ${policy}. Must be one of: ${validPolicies.join(", ")}`,
+						)
+						return true
+					}
+					this.harness.setPermissionCategory(category, policy)
+					this.showInfo(`Set ${category} policy to: ${policy}`)
+					return true
+				}
+				await this.showPermissions()
+				return true
+			}
 			case "yolo": {
 				const current = this.harness.getYoloMode()
 				this.harness.setYoloMode(!current)
@@ -3778,6 +4006,48 @@ ${modeList}`)
 				this.showInfo(`Thread renamed to: ${title}`)
 				return true
 			}
+			case "resource": {
+				const sub = args[0]?.trim()
+				const current = this.harness.getResourceId()
+				const defaultId = this.harness.getDefaultResourceId()
+
+				if (!sub) {
+					// Show current resource ID and list known ones
+					const knownIds = await this.harness.getKnownResourceIds()
+					const isOverridden = current !== defaultId
+					const lines = [
+						`Current: ${current}${isOverridden ? ` (auto-detected: ${defaultId})` : ""}`,
+						"",
+						"Known resource IDs:",
+						...knownIds.map((id) => `  ${id === current ? "* " : "  "}${id}`),
+						"",
+						"Usage:",
+						"  /resource <id>    - Switch to a resource ID",
+						"  /resource reset   - Reset to auto-detected ID",
+					]
+					this.showInfo(lines.join("\n"))
+				} else if (sub === "reset") {
+					this.harness.setResourceId(defaultId)
+					this.pendingNewThread = true
+					this.chatContainer.clear()
+					this.pendingTools.clear()
+					this.allToolComponents = []
+					this.resetStatusLineState()
+					this.ui.requestRender()
+					this.showInfo(`Resource ID reset to: ${defaultId}`)
+				} else {
+					const newId = args.join(" ").trim()
+					this.harness.setResourceId(newId)
+					this.pendingNewThread = true
+					this.chatContainer.clear()
+					this.pendingTools.clear()
+					this.allToolComponents = []
+					this.resetStatusLineState()
+					this.ui.requestRender()
+					this.showInfo(`Switched to resource: ${newId}`)
+				}
+				return true
+			}
 
 			case "exit":
 				this.stop()
@@ -3806,9 +4076,11 @@ ${modeList}`)
   /threads       - Switch between threads
   /thread:tag-dir - Tag thread with current directory
   /name          - Rename current thread
+  /resource      - Show/switch resource ID (tag for sharing)
   /skills        - List available skills
   /models    - Configure model (global/thread/mode)
   /subagents - Configure subagent model defaults
+  /permissions - View/manage tool approval permissions
   /settings - General settings (notifications, YOLO, thinking)
   /om       - Configure Observational Memory
   /review   - Review a GitHub pull request
@@ -4092,15 +4364,21 @@ Keyboard shortcuts:
 				args,
 				process.cwd(),
 			)
-
 			// Add the processed content as a system message / context
 			if (processedContent.trim()) {
-				// Show what was processed
-				this.showInfo(`Executed //${command.name}`)
+				// Show bordered indicator immediately with content
+				const slashComp = new SlashCommandComponent(
+					command.name,
+					processedContent.trim(),
+				)
+				this.allSlashCommandComponents.push(slashComp)
+				this.chatContainer.addChild(slashComp)
+				this.ui.requestRender()
 
-				// Add the content to the conversation as a user message
-				// This allows the agent to see and act on the command output
-				await this.harness.sendMessage(processedContent)
+				// Wrap in <slash-command> tags so the assistant sees the full
+				// content but addUserMessage won't double-render it.
+				const wrapped = `<slash-command name="${command.name}">\n${processedContent.trim()}\n</slash-command>`
+				await this.harness.sendMessage(wrapped)
 			} else {
 				this.showInfo(`Executed //${command.name} (no output)`)
 			}
@@ -4128,7 +4406,6 @@ Keyboard shortcuts:
 			imageCount > 0
 				? textContent.replace(/\[image\]\s*/g, "").trim()
 				: textContent.trim()
-
 		// Check for system reminder tags
 		const systemReminderMatch = displayText.match(
 			/<system-reminder>([\s\S]*?)<\/system-reminder>/,
@@ -4142,6 +4419,20 @@ Keyboard shortcuts:
 			// System reminders always go at the end (after plan approval)
 			this.chatContainer.addChild(new Spacer(1))
 			this.chatContainer.addChild(reminderComponent)
+			this.ui.requestRender()
+			return
+		}
+
+		// Check for slash command tags
+		const slashCommandMatch = displayText.match(
+			/<slash-command\s+name="([^"]*)">([\s\S]*?)<\/slash-command>/,
+		)
+		if (slashCommandMatch) {
+			const commandName = slashCommandMatch[1]
+			const commandContent = slashCommandMatch[2].trim()
+			const slashComp = new SlashCommandComponent(commandName, commandContent)
+			this.allSlashCommandComponents.push(slashComp)
+			this.chatContainer.addChild(slashComp)
 			this.ui.requestRender()
 			return
 		}

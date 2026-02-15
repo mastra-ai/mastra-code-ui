@@ -1,32 +1,43 @@
 /**
  * Tool approval dialog component.
  * Shows tool details and prompts user to approve or decline execution.
+ *
+ * Keyboard shortcuts:
+ *   y       — approve this one call
+ *   n / Esc — decline this call
+ *   a       — always allow this category for the session
+ *   Y       — switch to YOLO mode (approve all)
  */
-
+import chalk from "chalk"
 import {
 	Box,
 	type Focusable,
 	getEditorKeybindings,
-	Input,
 	Spacer,
 	Text,
 } from "@mariozechner/pi-tui"
 import { bg, fg } from "../theme.js"
 
+export type ApprovalAction =
+	| { type: "approve" }
+	| { type: "decline" }
+	| { type: "always_allow_category" }
+	| { type: "yolo" }
+
 export interface ToolApprovalDialogOptions {
 	toolCallId: string
 	toolName: string
 	args: unknown
-	onApprove: () => void
-	onDecline: () => void
+	/** Human-readable category label, e.g. "Edit" or "Execute" */
+	categoryLabel?: string
+	onAction: (action: ApprovalAction) => void
 }
 
 export class ToolApprovalDialogComponent extends Box implements Focusable {
 	private toolName: string
 	private args: unknown
-	private onApprove: () => void
-	private onDecline: () => void
-	public input: Input
+	private categoryLabel: string | undefined
+	private onAction: (action: ApprovalAction) => void
 
 	// Focusable implementation
 	private _focused = false
@@ -35,7 +46,6 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 	}
 	set focused(value: boolean) {
 		this._focused = value
-		this.input.focused = value
 	}
 
 	constructor(options: ToolApprovalDialogOptions) {
@@ -43,12 +53,8 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 
 		this.toolName = options.toolName
 		this.args = options.args
-		this.onApprove = options.onApprove
-		this.onDecline = options.onDecline
-
-		// Create input for y/n response
-		this.input = new Input()
-		this.input.onSubmit = (value: string) => this.handleSubmit(value)
+		this.categoryLabel = options.categoryLabel
+		this.onAction = options.onAction
 
 		this.buildUI()
 	}
@@ -62,6 +68,15 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 		this.addChild(
 			new Text(fg("accent", `Tool: `) + fg("text", this.toolName), 0, 0),
 		)
+		if (this.categoryLabel) {
+			this.addChild(
+				new Text(
+					fg("accent", `Category: `) + fg("text", this.categoryLabel),
+					0,
+					0,
+				),
+			)
+		}
 		this.addChild(new Spacer(1))
 
 		// Arguments (formatted)
@@ -75,14 +90,27 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 		}
 
 		this.addChild(new Spacer(1))
-
-		// Prompt text
+		// Prompt text with keyboard shortcuts
+		const categoryHint = this.categoryLabel
+			? `lways allow ${this.categoryLabel.toLowerCase()}`
+			: "lways allow category"
+		const dim = chalk.hex("#555")
+		const key = chalk.white.bold
 		this.addChild(
-			new Text(fg("accent", "Allow? ") + fg("muted", "(y/n) "), 0, 0),
+			new Text(
+				fg("accent", "Allow? ") +
+					key("y") +
+					dim("es  ") +
+					key("n") +
+					dim("o  ") +
+					key("a") +
+					dim(categoryHint + "  ") +
+					key("Y") +
+					dim("olo"),
+				0,
+				0,
+			),
 		)
-
-		// Input
-		this.addChild(this.input)
 	}
 
 	private formatArgs(args: unknown): string {
@@ -90,40 +118,46 @@ export class ToolApprovalDialogComponent extends Box implements Focusable {
 			return "(none)"
 		}
 
-		try {
-			if (typeof args === "object") {
-				return JSON.stringify(args, null, 2)
-			}
-			return String(args)
-		} catch {
+		if (typeof args !== "object") {
 			return String(args)
 		}
-	}
 
-	private handleSubmit(value: string): void {
-		const normalized = value.toLowerCase().trim()
+		const entries = Object.entries(args as Record<string, unknown>)
+		if (entries.length === 0) return "(none)"
 
-		if (normalized === "y" || normalized === "yes") {
-			this.onApprove()
-		} else if (normalized === "n" || normalized === "no") {
-			this.onDecline()
-		} else {
-			// Invalid input - clear and let them try again
-			this.input.setValue("")
+		const lines: string[] = []
+		for (const [key, value] of entries) {
+			const str = typeof value === "string" ? value : JSON.stringify(value)
+			const maxLen = 120
+			const firstLine = str.split("\n")[0] ?? ""
+			const lineCount = typeof value === "string" ? str.split("\n").length : 0
+			const suffix = lineCount > 1 ? ` (${lineCount} lines)` : ""
+			const display =
+				firstLine.length > maxLen ? firstLine.slice(0, maxLen) + "…" : firstLine
+			lines.push(`${key}: ${display}${suffix}`)
 		}
+		return lines.join("\n")
 	}
 
 	handleInput(data: string): void {
 		const kb = getEditorKeybindings()
 
-		// Handle escape to decline
+		// Escape to decline
 		if (kb.matches(data, "selectCancel")) {
-			this.onDecline()
+			this.onAction({ type: "decline" })
 			return
 		}
 
-		// Pass to input
-		this.input.handleInput(data)
+		// Single keypress shortcuts
+		if (data === "y") {
+			this.onAction({ type: "approve" })
+		} else if (data === "n") {
+			this.onAction({ type: "decline" })
+		} else if (data === "a") {
+			this.onAction({ type: "always_allow_category" })
+		} else if (data === "Y") {
+			this.onAction({ type: "yolo" })
+		}
 	}
 
 	render(maxWidth: number): string[] {
