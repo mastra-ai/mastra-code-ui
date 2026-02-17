@@ -10,6 +10,7 @@ interface FileEntry {
 interface FileTreeProps {
 	projectName: string
 	onFileClick?: (filePath: string) => void
+	activeFilePath?: string | null
 }
 
 function FileIcon({
@@ -53,10 +54,12 @@ function DirectoryNode({
 	entry,
 	depth,
 	onFileClick,
+	activeFilePath,
 }: {
 	entry: FileEntry
 	depth: number
 	onFileClick?: (filePath: string) => void
+	activeFilePath?: string | null
 }) {
 	const [expanded, setExpanded] = useState(false)
 	const [children, setChildren] = useState<FileEntry[] | null>(null)
@@ -138,6 +141,7 @@ function DirectoryNode({
 								entry={child}
 								depth={depth + 1}
 								onFileClick={onFileClick}
+								activeFilePath={activeFilePath}
 							/>
 						) : (
 							<FileNode
@@ -145,6 +149,7 @@ function DirectoryNode({
 								entry={child}
 								depth={depth + 1}
 								onFileClick={onFileClick}
+								isActive={child.path === activeFilePath}
 							/>
 						),
 					)}
@@ -170,10 +175,12 @@ function FileNode({
 	entry,
 	depth,
 	onFileClick,
+	isActive,
 }: {
 	entry: FileEntry
 	depth: number
 	onFileClick?: (filePath: string) => void
+	isActive?: boolean
 }) {
 	return (
 		<button
@@ -183,13 +190,16 @@ function FileNode({
 				alignItems: "center",
 				width: "100%",
 				padding: "3px 8px",
-				paddingLeft: 20 + depth * 16,
+				paddingLeft: isActive ? 18 + depth * 16 : 20 + depth * 16,
 				fontSize: 12,
 				color: "var(--text)",
 				textAlign: "left",
 				cursor: "pointer",
 				borderRadius: 0,
-				background: "transparent",
+				background: isActive ? "var(--selected-bg)" : "transparent",
+				borderLeft: isActive
+					? "2px solid var(--accent)"
+					: "2px solid transparent",
 			}}
 		>
 			<FileIcon isDirectory={false} name={entry.name} />
@@ -206,7 +216,11 @@ function FileNode({
 	)
 }
 
-export function FileTree({ projectName, onFileClick }: FileTreeProps) {
+export function FileTree({
+	projectName,
+	onFileClick,
+	activeFilePath,
+}: FileTreeProps) {
 	const [rootEntries, setRootEntries] = useState<FileEntry[] | null>(null)
 
 	useEffect(() => {
@@ -262,6 +276,7 @@ export function FileTree({ projectName, onFileClick }: FileTreeProps) {
 							entry={entry}
 							depth={0}
 							onFileClick={onFileClick}
+							activeFilePath={activeFilePath}
 						/>
 					) : (
 						<FileNode
@@ -269,6 +284,7 @@ export function FileTree({ projectName, onFileClick }: FileTreeProps) {
 							entry={entry}
 							depth={0}
 							onFileClick={onFileClick}
+							isActive={entry.path === activeFilePath}
 						/>
 					),
 				)

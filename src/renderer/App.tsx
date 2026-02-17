@@ -1425,6 +1425,8 @@ export function App() {
 				projectPath={projectInfo?.rootPath ?? null}
 				onFileClick={handleFileClick}
 				onDiffClick={handleDiffClick}
+				activeFilePath={openFiles.includes(activeTab) ? activeTab : null}
+				activeDiffPath={activeTab.startsWith("diff:") ? activeTab.slice(5) : null}
 			/>
 
 			{/* Modal dialogs */}

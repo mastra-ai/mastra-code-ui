@@ -19,6 +19,8 @@ interface RightSidebarProps {
 	projectPath?: string | null
 	onFileClick: (filePath: string) => void
 	onDiffClick: (filePath: string) => void
+	activeFilePath?: string | null
+	activeDiffPath?: string | null
 }
 
 export function RightSidebar({
@@ -29,6 +31,8 @@ export function RightSidebar({
 	projectPath,
 	onFileClick,
 	onDiffClick,
+	activeFilePath,
+	activeDiffPath,
 }: RightSidebarProps) {
 	const [terminalHeight, setTerminalHeight] = useState(350)
 	const [width, setWidth] = useState(380)
@@ -138,9 +142,9 @@ export function RightSidebar({
 				{/* Tab content */}
 				<div style={{ flex: 1, overflow: "hidden" }}>
 					{activeTab === "files" && (
-						<FileTree projectName={projectName} onFileClick={onFileClick} />
+						<FileTree projectName={projectName} onFileClick={onFileClick} activeFilePath={activeFilePath} />
 					)}
-					{activeTab === "git" && <GitPanel onFileClick={onDiffClick} />}
+					{activeTab === "git" && <GitPanel onFileClick={onDiffClick} activeFilePath={activeDiffPath} />}
 				</div>
 
 				{/* Terminal pinned to bottom */}

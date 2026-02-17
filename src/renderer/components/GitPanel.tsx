@@ -17,9 +17,10 @@ interface GitStatus {
 
 interface GitPanelProps {
 	onFileClick?: (filePath: string) => void
+	activeFilePath?: string | null
 }
 
-export function GitPanel({ onFileClick }: GitPanelProps) {
+export function GitPanel({ onFileClick, activeFilePath }: GitPanelProps) {
 	const [status, setStatus] = useState<GitStatus | null>(null)
 
 	const refresh = useCallback(async () => {
@@ -133,7 +134,9 @@ export function GitPanel({ onFileClick }: GitPanelProps) {
 				>
 					{title} ({files.length})
 				</div>
-				{files.map((file) => (
+				{files.map((file) => {
+					const isActive = file.path === activeFilePath
+					return (
 					<button
 						key={file.path + file.status}
 						onClick={() => onFileClick?.(file.path)}
@@ -142,12 +145,16 @@ export function GitPanel({ onFileClick }: GitPanelProps) {
 							alignItems: "center",
 							width: "100%",
 							padding: "3px 12px",
+							paddingLeft: isActive ? 10 : 12,
 							fontSize: 12,
 							textAlign: "left",
 							cursor: "pointer",
 							gap: 6,
-							background: "transparent",
+							background: isActive ? "var(--selected-bg)" : "transparent",
 							border: "none",
+							borderLeft: isActive
+								? "2px solid var(--accent)"
+								: "2px solid transparent",
 						}}
 					>
 						<span
@@ -181,7 +188,7 @@ export function GitPanel({ onFileClick }: GitPanelProps) {
 							{statusLabel(file.status)}
 						</span>
 					</button>
-				))}
+				)})}
 			</div>
 		)
 	}
