@@ -1725,7 +1725,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 				abortSignal: this.abortController.signal,
 				requestContext,
 				maxSteps: 1000,
-				requireToolApproval: false,
+				requireToolApproval: this.getYoloMode() !== true,
 				modelSettings: {
 					temperature: 1,
 				},
@@ -2172,6 +2172,14 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 		if (!this.abortController) {
 			this.abortController = new AbortController()
 		}
+		function getRandomInteger(min: number, max: number) {
+			// Ensure min and max are treated as integers for the calculation
+			min = Math.ceil(min)
+			max = Math.floor(max)
+			// The formula for inclusive range: Math.floor(Math.random() * (max - min + 1)) + min
+			return Math.floor(Math.random() * (max - min + 1)) + min
+		}
+		await new Promise((res) => setTimeout(res, getRandomInteger(1000, 2000)))
 
 		const response = await agent.approveToolCall({
 			runId: this.currentRunId,

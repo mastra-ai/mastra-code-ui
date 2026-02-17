@@ -1409,6 +1409,7 @@ ${instructions}`,
 						operationType: event.operationType,
 						tokensBuffered: event.tokensBuffered,
 						bufferedTokens: event.bufferedTokens,
+						observations: event.observations,
 					})
 				}
 				this.activeBufferingMarker = undefined

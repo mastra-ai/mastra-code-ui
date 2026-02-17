@@ -43,6 +43,7 @@ export type OMMarkerData =
 			operationType: "observation" | "reflection"
 			tokensBuffered: number
 			bufferedTokens: number
+			observations?: string
 	  }
 	| {
 			type: "om_buffering_failed"
@@ -119,10 +120,17 @@ function formatMarker(data: OMMarkerData): string {
 		}
 		case "om_buffering_end": {
 			const input = formatTokens(data.tokensBuffered)
-			const output = formatTokens(data.bufferedTokens)
+			// For observations: bufferedTokens is cumulative total, not this cycle's output.
+			// Estimate output from observations string (~4 chars/token).
+			// For reflections: bufferedTokens IS the output token count.
+			const outputTokens =
+				data.operationType === "observation" && data.observations
+					? Math.round(data.observations.length / 4)
+					: data.bufferedTokens
+			const output = formatTokens(outputTokens)
 			const ratio =
-				data.tokensBuffered > 0 && data.bufferedTokens > 0
-					? ` (${Math.round(data.tokensBuffered / data.bufferedTokens)}x)`
+				data.tokensBuffered > 0 && outputTokens > 0
+					? ` (${Math.round(data.tokensBuffered / outputTokens)}x)`
 					: ""
 			return fg(
 				"success",
