@@ -1,4 +1,4 @@
-import { useState, useCallback, useReducer, useEffect } from "react"
+import { useState, useCallback, useReducer, useEffect, useRef } from "react"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
 import { StatusBar } from "./components/StatusBar"
@@ -9,8 +9,6 @@ import { PlanApproval } from "./components/PlanApproval"
 import { ModelSelector } from "./components/ModelSelector"
 import { LoginDialog } from "./components/LoginDialog"
 import { WelcomeScreen } from "./components/WelcomeScreen"
-import { TerminalPanel } from "./components/TerminalPanel"
-import { ResizeHandle } from "./components/ResizeHandle"
 import { RightSidebar, type RightSidebarTab } from "./components/RightSidebar"
 import { FileEditor } from "./components/FileEditor"
 import { DiffEditor } from "./components/DiffEditor"
@@ -54,6 +52,7 @@ type SubagentState = {
 type ChatState = {
 	messages: Message[]
 	isAgentActive: boolean
+	agentStartedAt: number | null
 	streamingMessageId: string | null
 	tools: Map<string, ToolState>
 	subagents: Map<string, SubagentState>
@@ -107,20 +106,30 @@ type ChatAction =
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
 	switch (action.type) {
 		case "AGENT_START":
-			return { ...state, isAgentActive: true }
+			return { ...state, isAgentActive: true, agentStartedAt: Date.now() }
 		case "AGENT_END":
 			return {
 				...state,
 				isAgentActive: false,
 				streamingMessageId: null,
 			}
-		case "MESSAGE_START":
+		case "MESSAGE_START": {
+			// If this is a user message from the harness and we already have an
+			// optimistic user message with the same text, skip the duplicate
+			if (action.message.role === "user") {
+				const lastMsg = state.messages[state.messages.length - 1]
+				if (lastMsg?.role === "user") {
+					// Already have a user message at the end — skip
+					return state
+				}
+			}
 			return {
 				...state,
 				messages: [...state.messages, action.message],
 				streamingMessageId:
 					action.message.role === "assistant" ? action.message.id : null,
 			}
+		}
 		case "MESSAGE_UPDATE": {
 			const msgs = state.messages.map((m) =>
 				m.id === action.message.id ? action.message : m,
@@ -248,6 +257,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 			return {
 				messages: [],
 				isAgentActive: false,
+				agentStartedAt: null,
 				streamingMessageId: null,
 				tools: new Map(),
 				subagents: new Map(),
@@ -260,6 +270,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 const initialChatState: ChatState = {
 	messages: [],
 	isAgentActive: false,
+	agentStartedAt: null,
 	streamingMessageId: null,
 	tools: new Map(),
 	subagents: new Map(),
@@ -270,6 +281,80 @@ interface ProjectInfo {
 	rootPath: string
 	gitBranch?: string
 	isWorktree?: boolean
+}
+
+// R2D2-style completion sound using Web Audio API
+// AudioContext must be created during a user gesture (click/keypress) due to
+// browser autoplay policy. We lazily create it on the first user interaction
+// and reuse it for all subsequent sounds.
+let sharedAudioCtx: AudioContext | null = null
+
+function ensureAudioContext() {
+	if (!sharedAudioCtx) {
+		try {
+			sharedAudioCtx = new AudioContext()
+		} catch {
+			// Audio not available
+		}
+	}
+	// Resume if suspended (can happen after idle)
+	if (sharedAudioCtx?.state === "suspended") {
+		sharedAudioCtx.resume().catch(() => {})
+	}
+}
+
+function playCompletionSound() {
+	if (!sharedAudioCtx) return
+	try {
+		const ctx = sharedAudioCtx
+		if (ctx.state === "suspended") {
+			ctx.resume().catch(() => {})
+		}
+		const now = ctx.currentTime
+		const gain = ctx.createGain()
+		gain.connect(ctx.destination)
+		gain.gain.setValueAtTime(0.15, now)
+		gain.gain.linearRampToValueAtTime(0, now + 1.2)
+
+		// Chirp 1: rising sweep
+		const o1 = ctx.createOscillator()
+		o1.type = "square"
+		o1.frequency.setValueAtTime(800, now)
+		o1.frequency.exponentialRampToValueAtTime(2400, now + 0.12)
+		o1.frequency.exponentialRampToValueAtTime(1800, now + 0.2)
+		o1.connect(gain)
+		o1.start(now)
+		o1.stop(now + 0.2)
+
+		// Chirp 2: warble
+		const o2 = ctx.createOscillator()
+		o2.type = "sine"
+		o2.frequency.setValueAtTime(1200, now + 0.25)
+		o2.frequency.exponentialRampToValueAtTime(2800, now + 0.35)
+		o2.frequency.exponentialRampToValueAtTime(1600, now + 0.45)
+		o2.frequency.exponentialRampToValueAtTime(3200, now + 0.55)
+		o2.connect(gain)
+		o2.start(now + 0.25)
+		o2.stop(now + 0.55)
+
+		// Chirp 3: happy descending trill
+		const o3 = ctx.createOscillator()
+		o3.type = "square"
+		const g3 = ctx.createGain()
+		g3.gain.setValueAtTime(0.1, now + 0.6)
+		g3.gain.linearRampToValueAtTime(0, now + 1.1)
+		o3.connect(g3)
+		g3.connect(ctx.destination)
+		o3.frequency.setValueAtTime(2600, now + 0.6)
+		o3.frequency.exponentialRampToValueAtTime(3400, now + 0.7)
+		o3.frequency.exponentialRampToValueAtTime(2000, now + 0.85)
+		o3.frequency.exponentialRampToValueAtTime(2800, now + 0.95)
+		o3.frequency.exponentialRampToValueAtTime(1400, now + 1.1)
+		o3.start(now + 0.6)
+		o3.stop(now + 1.1)
+	} catch {
+		// Audio not available
+	}
 }
 
 export function App() {
@@ -301,13 +386,22 @@ export function App() {
 	const [openThreadTabs, setOpenThreadTabs] = useState<string[]>([]) // thread IDs
 	const [activeTab, setActiveTab] = useState<string>("chat") // "chat", "thread:<id>", file path, "diff:<path>"
 
-	// Terminal state
-	const [terminalVisible, setTerminalVisible] = useState(false)
-	const [terminalHeight, setTerminalHeight] = useState(250)
-
 	// Project state
 	const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
 	const [enrichedProjects, setEnrichedProjects] = useState<EnrichedProject[]>([])
+	const [unreadWorktrees, setUnreadWorktrees] = useState<Set<string>>(new Set())
+	const [activeWorktrees, setActiveWorktrees] = useState<Set<string>>(new Set())
+	const projectInfoRef = useRef<ProjectInfo | null>(null)
+
+	// Keep ref in sync for use in event handler closure
+	useEffect(() => {
+		projectInfoRef.current = projectInfo
+	}, [projectInfo])
+
+	// Sync dock badge count with unread worktrees
+	useEffect(() => {
+		window.api.setBadgeCount(unreadWorktrees.size)
+	}, [unreadWorktrees])
 
 	// Login dialog state
 	const [loginState, setLoginState] = useState<{
@@ -352,12 +446,27 @@ export function App() {
 			switch (event.type) {
 				case "agent_start":
 					dispatch({ type: "AGENT_START" })
+					if (projectInfoRef.current?.rootPath) {
+						setActiveWorktrees((prev) => new Set(prev).add(projectInfoRef.current!.rootPath))
+					}
 					break
-				case "agent_end":
+				case "agent_end": {
 					dispatch({ type: "AGENT_END" })
 					loadThreads()
-					// Title generation is async in Mastra's agent `after` hook — re-fetch after delay
-					setTimeout(() => loadThreads(), 3000)
+					const endPath = projectInfoRef.current?.rootPath
+					if (endPath) {
+						setActiveWorktrees((prev) => {
+							const next = new Set(prev)
+							next.delete(endPath)
+							return next
+						})
+						setUnreadWorktrees((prev) => new Set(prev).add(endPath))
+					}
+					playCompletionSound()
+					break
+				}
+				case "thread_title_updated":
+					loadThreads()
 					break
 				case "message_start":
 					dispatch({
@@ -445,10 +554,18 @@ export function App() {
 					loadMessages()
 					loadThreads()
 					break
-				case "thread_created":
-					setCurrentThreadId((event.thread as any)?.id ?? null)
+				case "thread_created": {
+					const newThreadId = (event.thread as any)?.id
+					if (newThreadId) {
+						setCurrentThreadId(newThreadId)
+						setOpenThreadTabs((prev) =>
+							prev.includes(newThreadId) ? prev : [...prev, newThreadId],
+						)
+						setActiveTab(`thread:${newThreadId}`)
+					}
 					loadThreads()
 					break
+				}
 				case "usage_update":
 					setTokenUsage(event.usage as TokenUsage)
 					break
@@ -505,7 +622,7 @@ export function App() {
 					const action = (event as { action?: string }).action
 					if (action === "new_thread") handleNewThread()
 					else if (action === "toggle_terminal")
-						setTerminalVisible((v) => !v)
+						setRightSidebarVisible((v) => !v)
 					else if (action === "toggle_sidebar")
 						setSidebarVisible((v) => !v)
 					else if (action === "toggle_right_sidebar")
@@ -563,15 +680,37 @@ export function App() {
 					}))
 					break
 				case "project_changed": {
+					// The old harness is now destroyed — if it had an active agent,
+					// move it from spinning to glowing (unread)
+					const oldPath = projectInfoRef.current?.rootPath
+					if (oldPath) {
+						setActiveWorktrees((prev) => {
+							if (!prev.has(oldPath)) return prev
+							setUnreadWorktrees((up) => new Set(up).add(oldPath))
+							const next = new Set(prev)
+							next.delete(oldPath)
+							return next
+						})
+					}
 					const proj = event.project as ProjectInfo
 					setProjectInfo(proj)
 					dispatch({ type: "CLEAR" })
 					setCurrentThreadId(null)
 					setThreads([])
 					setOpenFiles([])
+					setOpenThreadTabs([])
 					setActiveTab("chat")
-					loadThreads()
 					loadEnrichedProjects()
+					// Load threads and auto-open the most recent one
+					loadThreads().then(async (loaded) => {
+						if (loaded && loaded.length > 0) {
+							const recent = loaded[0]
+							await window.api.invoke({ type: "switchThread", threadId: recent.id })
+							setCurrentThreadId(recent.id)
+							setOpenThreadTabs([recent.id])
+							setActiveTab(`thread:${recent.id}`)
+						}
+					})
 					break
 				}
 			}
@@ -587,10 +726,10 @@ export function App() {
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			const isMod = e.metaKey || e.ctrlKey
-			// Cmd+` toggle terminal
+			// Cmd+` toggle right sidebar (terminal is pinned there)
 			if (isMod && e.key === "`") {
 				e.preventDefault()
-				setTerminalVisible((v) => !v)
+				setRightSidebarVisible((v) => !v)
 			}
 			// Cmd+B toggle left sidebar
 			if (isMod && e.key === "b") {
@@ -706,14 +845,16 @@ export function App() {
 		}
 	}
 
-	async function loadThreads() {
+	async function loadThreads(): Promise<ThreadInfo[] | undefined> {
 		try {
 			const list = (await window.api.invoke({
 				type: "listThreads",
 			})) as ThreadInfo[]
 			if (list) setThreads(list)
+			return list
 		} catch {
 			// Thread list fetch failed — will retry on next event
+			return undefined
 		}
 	}
 
@@ -729,10 +870,23 @@ export function App() {
 	}
 
 	const handleSend = useCallback(async (content: string) => {
+		// Ensure AudioContext is created during this user gesture
+		ensureAudioContext()
+		// Optimistically add the user message (harness doesn't emit message_start for user messages)
+		dispatch({
+			type: "MESSAGE_START",
+			message: {
+				id: `user-${Date.now()}`,
+				role: "user",
+				content: [{ type: "text", text: content }],
+				createdAt: new Date().toISOString(),
+			},
+		})
 		await window.api.invoke({ type: "sendMessage", content })
 	}, [])
 
 	const handleAbort = useCallback(async () => {
+		ensureAudioContext()
 		await window.api.invoke({ type: "abort" })
 	}, [])
 
@@ -844,9 +998,6 @@ export function App() {
 		setLoginState(null)
 	}, [])
 
-	const handleTerminalResize = useCallback((deltaY: number) => {
-		setTerminalHeight((h) => Math.max(100, Math.min(600, h + deltaY)))
-	}, [])
 
 	// File editor handlers
 	const handleFileClick = useCallback((filePath: string) => {
@@ -898,8 +1049,19 @@ export function App() {
 	}, [])
 
 	// Project handlers
-	const handleSwitchProject = useCallback(async (path: string) => {
-		await window.api.invoke({ type: "switchProject", path })
+	const handleSwitchProject = useCallback(async (switchPath: string) => {
+		// Clear unread + active for the project we're switching TO
+		setUnreadWorktrees((prev) => {
+			const next = new Set(prev)
+			next.delete(switchPath)
+			return next
+		})
+		setActiveWorktrees((prev) => {
+			const next = new Set(prev)
+			next.delete(switchPath)
+			return next
+		})
+		await window.api.invoke({ type: "switchProject", path: switchPath })
 	}, [])
 
 	const handleOpenFolder = useCallback(async () => {
@@ -912,6 +1074,21 @@ export function App() {
 			}
 		} catch {
 			// user cancelled
+		}
+	}, [])
+
+	const handleRemoveProject = useCallback(async (projectPath: string) => {
+		await window.api.invoke({ type: "removeRecentProject", path: projectPath })
+		loadEnrichedProjects()
+	}, [])
+
+	const handleCreateWorktree = useCallback(async (repoPath: string) => {
+		const result = (await window.api.invoke({
+			type: "createWorktree",
+			repoPath,
+		})) as { success: boolean; path?: string; error?: string }
+		if (result.success && result.path) {
+			await window.api.invoke({ type: "switchProject", path: result.path })
 		}
 	}, [])
 
@@ -936,12 +1113,17 @@ export function App() {
 				sidebarVisible={sidebarVisible}
 				enrichedProjects={enrichedProjects}
 				activeProjectPath={projectInfo?.rootPath ?? null}
+				isAgentActive={chat.isAgentActive}
+				activeWorktrees={activeWorktrees}
+				unreadWorktrees={unreadWorktrees}
 				onSwitchThread={handleSwitchThread}
 				onNewThread={handleNewThread}
 				onDeleteThread={handleDeleteThread}
 				onLogin={handleLogin}
 				onSwitchProject={handleSwitchProject}
 				onOpenFolder={handleOpenFolder}
+				onRemoveProject={handleRemoveProject}
+				onCreateWorktree={handleCreateWorktree}
 			/>
 
 			{/* Center panel */}
@@ -986,7 +1168,7 @@ export function App() {
 								cursor: "pointer",
 							}}
 						>
-							Chat
+							New Thread
 						</button>
 					) : (
 						openThreadTabs.map((threadId) => {
@@ -1188,6 +1370,7 @@ export function App() {
 								tools={chat.tools}
 								subagents={chat.subagents}
 								isAgentActive={chat.isAgentActive}
+								agentStartedAt={chat.agentStartedAt}
 								streamingMessageId={chat.streamingMessageId}
 								todos={todos}
 							/>
@@ -1196,8 +1379,6 @@ export function App() {
 								onAbort={handleAbort}
 								isAgentActive={chat.isAgentActive}
 								modeId={modeId}
-								modelId={modelId}
-								onOpenModelSelector={handleOpenModelSelector}
 							/>
 						</div>
 
@@ -1220,14 +1401,6 @@ export function App() {
 								/>
 							))}
 
-						{/* Terminal resize handle + panel */}
-						{terminalVisible && (
-							<ResizeHandle onResize={handleTerminalResize} />
-						)}
-						<TerminalPanel
-							height={terminalHeight}
-							isVisible={terminalVisible}
-						/>
 					</>
 				)}
 
@@ -1239,18 +1412,17 @@ export function App() {
 					isAgentActive={chat.isAgentActive}
 					projectName={projectInfo?.name}
 					gitBranch={projectInfo?.gitBranch}
-					terminalVisible={terminalVisible}
-					onToggleTerminal={() => setTerminalVisible((v) => !v)}
 					onOpenModelSelector={handleOpenModelSelector}
 				/>
 			</div>
 
-			{/* Right sidebar: Files + Git */}
+			{/* Right sidebar: Files + Git + Terminal */}
 			<RightSidebar
 				visible={rightSidebarVisible}
 				activeTab={rightSidebarTab}
 				onTabChange={setRightSidebarTab}
 				projectName={projectInfo?.name ?? ""}
+				projectPath={projectInfo?.rootPath ?? null}
 				onFileClick={handleFileClick}
 				onDiffClick={handleDiffClick}
 			/>

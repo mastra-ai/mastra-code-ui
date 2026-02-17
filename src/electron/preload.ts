@@ -26,6 +26,11 @@ const api = {
 		ipcRenderer.send("login:prompt-response", { cancelled: true })
 	},
 
+	/** Set dock badge count (macOS) */
+	setBadgeCount: (count: number): void => {
+		ipcRenderer.send("set-badge-count", count)
+	},
+
 	platform: process.platform,
 }
 

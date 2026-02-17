@@ -7,8 +7,6 @@ interface StatusBarProps {
 	isAgentActive: boolean
 	projectName?: string
 	gitBranch?: string
-	terminalVisible: boolean
-	onToggleTerminal: () => void
 	onOpenModelSelector: () => void
 }
 
@@ -30,8 +28,6 @@ export function StatusBar({
 	tokenUsage,
 	isAgentActive,
 	gitBranch,
-	terminalVisible,
-	onToggleTerminal,
 	onOpenModelSelector,
 }: StatusBarProps) {
 	const modeColor = modeColors[modeId] ?? "var(--accent)"
@@ -128,26 +124,6 @@ export function StatusBar({
 			)}
 
 			<div style={{ flex: 1 }} />
-
-			{/* Terminal toggle */}
-			<button
-				onClick={onToggleTerminal}
-				style={{
-					display: "flex",
-					alignItems: "center",
-					gap: 3,
-					background: "transparent",
-					border: "none",
-					color: terminalVisible ? "var(--text)" : "var(--muted)",
-					cursor: "pointer",
-					fontSize: 11,
-					padding: "1px 4px",
-					borderRadius: 3,
-				}}
-				title="Toggle Terminal (Cmd+`)"
-			>
-				&#x2318;`
-			</button>
 
 			{/* Token usage */}
 			<span>{formatTokens(tokenUsage.totalTokens)} tokens</span>

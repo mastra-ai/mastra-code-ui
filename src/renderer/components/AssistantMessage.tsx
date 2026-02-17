@@ -28,44 +28,61 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
 
 	return (
 		<div style={{ padding: "8px 0", lineHeight: 1.6 }}>
-			{/* Thinking block toggle */}
+			{/* Thinking block with inline preview */}
 			{thinking && (
 				<div style={{ marginBottom: 6 }}>
 					<button
 						onClick={() => setShowThinking(!showThinking)}
 						style={{
-							fontSize: 11,
-							color: "var(--thinking-text)",
-							cursor: "pointer",
 							display: "flex",
 							alignItems: "center",
-							gap: 4,
+							gap: 8,
+							padding: "3px 0",
+							cursor: "pointer",
+							fontSize: 13,
+							background: "none",
+							border: "none",
+							color: "inherit",
+							width: "100%",
+							textAlign: "left",
 						}}
 					>
-						<span
-							style={{
-								transform: showThinking
-									? "rotate(90deg)"
-									: "rotate(0deg)",
-								transition: "transform 0.15s",
-								display: "inline-block",
-							}}
-						>
-							&#9654;
+						<span style={{ fontSize: 14, flexShrink: 0, width: 20, textAlign: "center" }}>
+							&#9881;
 						</span>
-						Thinking...
+						<span style={{ color: "var(--muted)", fontWeight: 500 }}>
+							Thinking
+						</span>
+						{!showThinking && (
+							<span
+								style={{
+									background: "var(--bg-surface)",
+									padding: "1px 8px",
+									borderRadius: 4,
+									fontFamily: "var(--font-mono, 'SF Mono', Monaco, 'Cascadia Code', monospace)",
+									fontSize: 12,
+									color: "var(--thinking-text)",
+									overflow: "hidden",
+									textOverflow: "ellipsis",
+									whiteSpace: "nowrap",
+									flex: 1,
+									minWidth: 0,
+								}}
+							>
+								{thinking.replace(/\n/g, " ").slice(0, 120)}
+								{thinking.length > 120 ? "\u2026" : ""}
+							</span>
+						)}
 					</button>
 					{showThinking && (
 						<div
 							style={{
 								marginTop: 4,
-								padding: "8px 12px",
-								background: "var(--bg-surface)",
-								borderLeft: "2px solid var(--border-muted)",
-								borderRadius: 4,
+								paddingLeft: 28,
 								color: "var(--thinking-text)",
 								fontSize: 12,
 								whiteSpace: "pre-wrap",
+								lineHeight: 1.5,
 							}}
 						>
 							{thinking}

@@ -14,6 +14,7 @@
 		"preview:electron": "electron-vite preview",
 		"test": "vitest run",
 		"format": "prettier --write .",
+		"postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
 		"prepare": "husky"
 	},
 	"keywords": [],

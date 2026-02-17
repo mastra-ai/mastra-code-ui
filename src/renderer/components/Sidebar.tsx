@@ -10,12 +10,17 @@ interface SidebarProps {
 	sidebarVisible: boolean
 	enrichedProjects: EnrichedProject[]
 	activeProjectPath: string | null
+	isAgentActive: boolean
+	activeWorktrees: Set<string>
+	unreadWorktrees: Set<string>
 	onSwitchThread: (threadId: string) => void
 	onNewThread: () => void
 	onDeleteThread: (threadId: string) => void
 	onLogin: (providerId: string) => void
 	onSwitchProject: (path: string) => void
 	onOpenFolder: () => void
+	onRemoveProject: (path: string) => void
+	onCreateWorktree: (repoPath: string) => void
 }
 
 const providers = [
@@ -31,15 +36,21 @@ export function Sidebar({
 	sidebarVisible,
 	enrichedProjects,
 	activeProjectPath,
+	isAgentActive,
+	activeWorktrees,
+	unreadWorktrees,
 	onSwitchThread,
 	onNewThread,
 	onDeleteThread,
 	onLogin,
 	onSwitchProject,
 	onOpenFolder,
+	onRemoveProject,
+	onCreateWorktree,
 }: SidebarProps) {
 	const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null)
 	const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+	const [historyCollapsed, setHistoryCollapsed] = useState(false)
 
 	if (!sidebarVisible) return null
 
@@ -82,8 +93,13 @@ export function Sidebar({
 				<ProjectList
 					projects={enrichedProjects}
 					activeProjectPath={activeProjectPath}
+					isAgentActive={isAgentActive}
+					activeWorktrees={activeWorktrees}
+					unreadWorktrees={unreadWorktrees}
 					onSwitchProject={onSwitchProject}
 					onOpenFolder={onOpenFolder}
+					onRemoveProject={onRemoveProject}
+					onCreateWorktree={onCreateWorktree}
 				/>
 			</div>
 
@@ -96,17 +112,41 @@ export function Sidebar({
 			>
 				{/* Threads header */}
 				<div style={{ padding: "6px 12px 4px", display: "flex", alignItems: "center" }}>
-					<span
+					<button
+						onClick={() => setHistoryCollapsed(!historyCollapsed)}
 						style={{
-							fontSize: 10,
-							fontWeight: 600,
-							color: "var(--dim)",
-							textTransform: "uppercase",
-							letterSpacing: "0.5px",
+							display: "flex",
+							alignItems: "center",
+							gap: 4,
+							background: "transparent",
+							cursor: "pointer",
+							padding: 0,
+							border: "none",
 						}}
 					>
-						Threads
-					</span>
+						<span
+							style={{
+								fontSize: 8,
+								color: "var(--dim)",
+								display: "inline-block",
+								transition: "transform 0.15s ease",
+								transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+							}}
+						>
+							&#9660;
+						</span>
+						<span
+							style={{
+								fontSize: 10,
+								fontWeight: 600,
+								color: "var(--dim)",
+								textTransform: "uppercase",
+								letterSpacing: "0.5px",
+							}}
+						>
+							History
+						</span>
+					</button>
 					<div style={{ flex: 1 }} />
 					<button
 						onClick={onNewThread}
@@ -124,7 +164,7 @@ export function Sidebar({
 				</div>
 
 				{/* Thread list — scrollable, max height */}
-				<div
+				{!historyCollapsed && <div
 					style={{
 						maxHeight: 160,
 						overflowY: "auto",
@@ -213,7 +253,7 @@ export function Sidebar({
 							)}
 						</div>
 					))}
-				</div>
+				</div>}
 
 				<div
 					style={{

@@ -26,6 +26,7 @@ import {
 import { LibSQLStore } from "@mastra/libsql"
 import { Memory } from "@mastra/memory"
 import { z } from "zod"
+import { generateText } from "ai"
 import { createAnthropic } from "@ai-sdk/anthropic"
 
 import { Harness } from "../harness/harness.js"
@@ -119,6 +120,13 @@ function saveRecentProject(projectPath: string, name: string) {
 	if (projects.length > 10) projects.length = 10
 	const dir = path.dirname(getRecentProjectsPath())
 	if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+	fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2))
+}
+
+function removeRecentProject(projectPath: string) {
+	const projects = loadRecentProjects().filter(
+		(p) => p.rootPath !== projectPath,
+	)
 	fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2))
 }
 
@@ -263,7 +271,7 @@ async function createHarness(projectPath: string) {
 		cachedMemory = new Memory({
 			storage,
 			options: {
-				generateTitle: true,
+				generateTitle: false,
 				observationalMemory: {
 					enabled: true,
 					scope: "thread",
@@ -560,21 +568,63 @@ async function createHarness(projectPath: string) {
 		}
 	})
 
-	return { harness: _harness, mcpManager: _mcpManager }
+	return { harness: _harness, mcpManager: _mcpManager, resolveModel }
+}
+
+// =============================================================================
+// Title Generation
+// =============================================================================
+async function generateThreadTitle(
+	h: Harness<any>,
+	userMessage: string,
+	resolveModel: (modelId: string) => any,
+) {
+	try {
+		const modelId = h.getCurrentModelId()
+		if (!modelId) return
+		const model = resolveModel(modelId)
+		const result = await generateText({
+			model: model as any,
+			prompt: `Generate a very short title (5-8 words max) for a conversation that starts with this message. Return ONLY the title, no quotes or extra punctuation:\n\n${userMessage.slice(0, 500)}`,
+		})
+		const title = result.text?.trim()
+		if (title) {
+			await h.renameThread(title)
+			// Notify renderer so it can refresh the thread list
+			mainWindow?.webContents.send("harness:event", {
+				type: "thread_title_updated",
+				threadId: h.getCurrentThreadId(),
+				title,
+			})
+		}
+	} catch {
+		// Title generation is non-critical
+	}
 }
 
 // =============================================================================
 // IPC Handlers
 // =============================================================================
-function registerIpcHandlers(h: Harness<any>) {
+function registerIpcHandlers(
+	h: Harness<any>,
+	resolveModel: (modelId: string) => any,
+) {
 	ipcMain.handle("harness:command", async (_event, command) => {
 		switch (command.type) {
-			case "sendMessage":
+			case "sendMessage": {
+				const threadBefore = h.getCurrentThreadId()
 				await h.sendMessage(
 					command.content,
 					command.images ? { images: command.images } : undefined,
 				)
+				// Auto-generate title for new threads (Mastra core skips this
+				// because the harness pre-creates threads before streaming)
+				const threadAfter = h.getCurrentThreadId()
+				if (threadAfter && threadAfter !== threadBefore) {
+					generateThreadTitle(h, command.content, resolveModel).catch(() => {})
+				}
 				return
+			}
 			case "abort":
 				h.abort()
 				return
@@ -828,16 +878,21 @@ function registerIpcHandlers(h: Harness<any>) {
 			case "ptyCreate": {
 				const shellPath = process.env.SHELL || "/bin/zsh"
 				const sessionId = `pty-${Date.now()}-${Math.random().toString(36).slice(2)}`
-				const ptyProcess = pty.spawn(shellPath, [], {
-					name: "xterm-256color",
-					cols: (command.cols as number) || 80,
-					rows: (command.rows as number) || 24,
-					cwd: projectRoot,
-					env: { ...process.env, TERM: "xterm-256color" } as Record<
-						string,
-						string
-					>,
-				})
+				let ptyProcess: pty.IPty
+				try {
+					ptyProcess = pty.spawn(shellPath, [], {
+						name: "xterm-256color",
+						cols: (command.cols as number) || 80,
+						rows: (command.rows as number) || 24,
+						cwd: (command.cwd as string) || projectRoot,
+						env: { ...process.env, TERM: "xterm-256color" } as Record<
+							string,
+							string
+						>,
+					})
+				} catch (err) {
+					throw err
+				}
 				ptySessions.set(sessionId, ptyProcess)
 				ptyProcess.onData((data: string) => {
 					mainWindow?.webContents.send("harness:event", {
@@ -908,6 +963,7 @@ function registerIpcHandlers(h: Harness<any>) {
 						const output = execSync("git worktree list --porcelain", {
 							cwd: repoPath,
 							encoding: "utf-8",
+							stdio: ["pipe", "pipe", "pipe"],
 						}) as string
 						const blocks = output.split("\n\n").filter(Boolean)
 						for (const block of blocks) {
@@ -934,6 +990,225 @@ function registerIpcHandlers(h: Harness<any>) {
 					}
 					return { ...p, gitBranch, isWorktree, mainRepoPath, worktrees }
 				})
+			}
+			case "removeRecentProject": {
+				removeRecentProject(command.path as string)
+				return { success: true }
+			}
+			case "createWorktree": {
+				const { execSync } = require("child_process")
+				const repoPath = command.repoPath as string
+
+				// Get existing worktree branch names to avoid collisions
+				const usedNames = new Set<string>()
+				try {
+					const output = execSync("git worktree list --porcelain", {
+						cwd: repoPath,
+						encoding: "utf-8",
+						stdio: ["pipe", "pipe", "pipe"],
+					}) as string
+					for (const block of output.split("\n\n").filter(Boolean)) {
+						for (const line of block.split("\n")) {
+							if (line.startsWith("branch ")) {
+								usedNames.add(line.slice(7).replace("refs/heads/", ""))
+							}
+						}
+					}
+				} catch {
+					// not a git repo
+					return { success: false, error: "Not a git repository" }
+				}
+
+				// Pick a random flower name not already in use
+				const flowerNames = [
+					"acacia",
+					"aconite",
+					"agapanthus",
+					"alchemilla",
+					"allium",
+					"aloe",
+					"alstroemeria",
+					"amaranth",
+					"amaryllis",
+					"anemone",
+					"angelica",
+					"anise",
+					"anthurium",
+					"aster",
+					"astilbe",
+					"azalea",
+					"banksia",
+					"begonia",
+					"bellflower",
+					"bergamot",
+					"bluebell",
+					"bougainvillea",
+					"buttercup",
+					"calendula",
+					"camellia",
+					"campanula",
+					"candytuft",
+					"carnation",
+					"celosia",
+					"chamomile",
+					"chrysanthemum",
+					"clematis",
+					"clover",
+					"columbine",
+					"coneflower",
+					"coral",
+					"coreopsis",
+					"cornflower",
+					"cosmos",
+					"crocus",
+					"cyclamen",
+					"daffodil",
+					"dahlia",
+					"daisy",
+					"dandelion",
+					"daphne",
+					"delphinium",
+					"dianthus",
+					"echinacea",
+					"edelweiss",
+					"elderflower",
+					"eucalyptus",
+					"evening",
+					"fennel",
+					"fern",
+					"feverfew",
+					"flax",
+					"forget",
+					"forsythia",
+					"foxglove",
+					"freesia",
+					"fuchsia",
+					"gardenia",
+					"gentian",
+					"geranium",
+					"gerbera",
+					"gladiolus",
+					"goldenrod",
+					"hawthorne",
+					"heather",
+					"hellebore",
+					"hemlock",
+					"hibiscus",
+					"holly",
+					"hollyhock",
+					"honeysuckle",
+					"hyacinth",
+					"hydrangea",
+					"hyssop",
+					"impatiens",
+					"iris",
+					"ivy",
+					"jasmine",
+					"juniper",
+					"kalmia",
+					"lantana",
+					"larkspur",
+					"laurel",
+					"lavender",
+					"lilac",
+					"lily",
+					"linden",
+					"lobelia",
+					"lotus",
+					"lupin",
+					"magnolia",
+					"mallow",
+					"marigold",
+					"meadow",
+					"mint",
+					"moonflower",
+					"myrtle",
+					"narcissus",
+					"nasturtium",
+					"nettle",
+					"nightshade",
+					"oleander",
+					"orchid",
+					"oregano",
+					"osmanthus",
+					"pansy",
+					"passionflower",
+					"peony",
+					"periwinkle",
+					"petunia",
+					"phlox",
+					"plumeria",
+					"poppy",
+					"primrose",
+					"protea",
+					"ranunculus",
+					"rhododendron",
+					"rose",
+					"rosemary",
+					"rudbeckia",
+					"rue",
+					"saffron",
+					"sage",
+					"sakura",
+					"salvia",
+					"snapdragon",
+					"snowdrop",
+					"sorrel",
+					"stargazer",
+					"statice",
+					"stephanotis",
+					"stock",
+					"sunflower",
+					"sweetpea",
+					"tansy",
+					"thistle",
+					"thyme",
+					"trillium",
+					"tuberose",
+					"tulip",
+					"valerian",
+					"verbena",
+					"veronica",
+					"viburnum",
+					"viola",
+					"violet",
+					"wisteria",
+					"yarrow",
+					"yucca",
+					"zinnia",
+				]
+				const available = flowerNames.filter((n) => !usedNames.has(n))
+				if (available.length === 0) {
+					return { success: false, error: "No available workspace names" }
+				}
+				const branchName =
+					available[Math.floor(Math.random() * available.length)]
+
+				// Create worktree under ~/mastra-code/workspaces/<repoName>/<flower>
+				const repoName = path.basename(repoPath)
+				const workspacesDir = path.join(
+					os.homedir(),
+					"mastra-code",
+					"workspaces",
+					repoName,
+				)
+				const worktreePath = path.join(workspacesDir, branchName)
+
+				try {
+					if (!fs.existsSync(workspacesDir)) {
+						fs.mkdirSync(workspacesDir, { recursive: true })
+					}
+					execSync(`git worktree add "${worktreePath}" -b "${branchName}"`, {
+						cwd: repoPath,
+						encoding: "utf-8",
+						stdio: ["pipe", "pipe", "pipe"],
+					})
+					return { success: true, path: worktreePath, branch: branchName }
+				} catch (e: any) {
+					const msg =
+						e.stderr?.trim() || e.message || "Failed to create worktree"
+					return { success: false, error: msg }
+				}
 			}
 			case "readFileContents": {
 				const filePath = path.resolve(
@@ -1002,7 +1277,7 @@ function registerIpcHandlers(h: Harness<any>) {
 				mcpManager = result2.mcpManager
 				projectRoot = newPath
 				// Re-register handlers and bridge
-				registerIpcHandlers(harness)
+				registerIpcHandlers(harness, result2.resolveModel)
 				if (mainWindow) bridgeEvents(harness, mainWindow)
 				// Initialize
 				await harness.init()
@@ -1083,6 +1358,13 @@ function createWindow() {
 	if (process.platform === "darwin" && app.dock) {
 		app.dock.setIcon(appIcon)
 	}
+
+	// Dock badge count (macOS)
+	ipcMain.on("set-badge-count", (_event, count: number) => {
+		if (process.platform === "darwin" && app.dock) {
+			app.dock.setBadge(count > 0 ? String(count) : "")
+		}
+	})
 
 	// Dev or production
 	if (process.env.ELECTRON_RENDERER_URL) {
@@ -1244,7 +1526,7 @@ app.whenReady().then(async () => {
 	mcpManager = result.mcpManager
 
 	// Register IPC and bridge events
-	registerIpcHandlers(harness)
+	registerIpcHandlers(harness, result.resolveModel)
 	if (mainWindow) bridgeEvents(harness, mainWindow)
 
 	// Initialize harness

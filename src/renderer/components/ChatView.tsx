@@ -1,10 +1,38 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AssistantMessage } from "./AssistantMessage"
 import { UserMessage } from "./UserMessage"
 import { ToolExecution } from "./ToolExecution"
 import { SubagentExecution } from "./SubagentExecution"
 import { TodoProgress } from "./TodoProgress"
+import { AsciiLogo } from "./AsciiLogo"
 import type { Message } from "../types/ipc"
+
+function ElapsedTime({ startedAt }: { startedAt: number }) {
+	const [elapsed, setElapsed] = useState(0)
+
+	useEffect(() => {
+		const interval = setInterval(() => {
+			setElapsed((Date.now() - startedAt) / 1000)
+		}, 100)
+		return () => clearInterval(interval)
+	}, [startedAt])
+
+	return (
+		<div
+			style={{
+				padding: "4px 0",
+				display: "flex",
+				alignItems: "center",
+				gap: 6,
+				color: "var(--dim)",
+				fontSize: 12,
+			}}
+		>
+			<span style={{ letterSpacing: 2, fontSize: 14 }}>{"\u22EE"}</span>
+			<span>{elapsed.toFixed(1)}s</span>
+		</div>
+	)
+}
 
 interface ChatViewProps {
 	messages: Message[]
@@ -41,6 +69,7 @@ interface ChatViewProps {
 		}
 	>
 	isAgentActive: boolean
+	agentStartedAt: number | null
 	streamingMessageId: string | null
 	todos: Array<{
 		content: string
@@ -54,6 +83,7 @@ export function ChatView({
 	tools,
 	subagents,
 	isAgentActive,
+	agentStartedAt,
 	streamingMessageId,
 	todos,
 }: ChatViewProps) {
@@ -72,6 +102,19 @@ export function ChatView({
 		isAutoScroll.current = scrollHeight - scrollTop - clientHeight < 100
 	}
 
+	// Helper to extract text from message content
+	function getMessageText(msg: Message): string {
+		return (
+			msg.content
+				?.filter((c) => c.type === "text" || c.type === "thinking")
+				.map((c) => {
+					const block = c as unknown as Record<string, unknown>
+					return (block.text ?? block.thinking ?? "") as string
+				})
+				.join("") ?? ""
+		)
+	}
+
 	// Build a flat list of renderable items from messages
 	const items: Array<{
 		type: "user" | "assistant" | "tool" | "subagent"
@@ -79,24 +122,34 @@ export function ChatView({
 		data: unknown
 	}> = []
 
+	let lastAssistantText = ""
+
 	for (const msg of messages) {
 		if (msg.role === "user") {
 			items.push({ type: "user", key: `msg-${msg.id}`, data: msg })
+			lastAssistantText = ""
 		} else if (msg.role === "assistant") {
-			// Extract text content
-			const textContent = msg.content
-				?.filter(
+			// Deduplicate: skip text if identical to previous assistant message
+			const currentText = getMessageText(msg)
+			const isNewText = currentText && currentText !== lastAssistantText
+
+			if (isNewText) {
+				const textContent = msg.content?.filter(
 					(c) => c.type === "text" || c.type === "thinking",
 				)
-			if (textContent && textContent.length > 0) {
-				items.push({
-					type: "assistant",
-					key: `msg-${msg.id}`,
-					data: { ...msg, isStreaming: msg.id === streamingMessageId },
-				})
+				if (textContent && textContent.length > 0) {
+					items.push({
+						type: "assistant",
+						key: `msg-${msg.id}`,
+						data: { ...msg, isStreaming: msg.id === streamingMessageId },
+					})
+				}
+			}
+			if (currentText) {
+				lastAssistantText = currentText
 			}
 
-			// Extract tool calls
+			// Always extract tool calls (even if text was deduplicated)
 			if (msg.content) {
 				for (const c of msg.content) {
 					if (c.type === "tool_call") {
@@ -138,24 +191,7 @@ export function ChatView({
 				padding: "16px 24px",
 			}}
 		>
-			{items.length === 0 && !isAgentActive && (
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "column",
-						alignItems: "center",
-						justifyContent: "center",
-						height: "100%",
-						color: "var(--dim)",
-						gap: 8,
-					}}
-				>
-					<div style={{ fontSize: 24 }}>Mastra Code</div>
-					<div style={{ fontSize: 13 }}>
-						Send a message to get started
-					</div>
-				</div>
-			)}
+			{items.length === 0 && !isAgentActive && <AsciiLogo />}
 
 			{items.map((item) => {
 				switch (item.type) {
@@ -217,35 +253,17 @@ export function ChatView({
 			{/* Todo progress */}
 			{todos.length > 0 && <TodoProgress todos={todos} />}
 
-			{/* Loading indicator */}
-			{isAgentActive && (
-				<div
-					style={{
-						padding: "12px 0",
-						display: "flex",
-						alignItems: "center",
-						gap: 8,
-						color: "var(--muted)",
-						fontSize: 12,
-					}}
-				>
-					<span className="loading-dot" />
-					Thinking...
-					<style>{`
-						@keyframes pulse {
-							0%, 100% { opacity: 0.3; }
-							50% { opacity: 1; }
-						}
-						.loading-dot {
-							width: 6px;
-							height: 6px;
-							border-radius: 50%;
-							background: var(--accent);
-							animation: pulse 1.5s ease-in-out infinite;
-						}
-					`}</style>
-				</div>
+			{/* Elapsed time indicator */}
+			{isAgentActive && agentStartedAt && (
+				<ElapsedTime startedAt={agentStartedAt} />
 			)}
+
+			<style>{`
+				@keyframes pulse {
+					0%, 100% { opacity: 0.3; }
+					50% { opacity: 1; }
+				}
+			`}</style>
 
 			{/* Bottom padding */}
 			<div style={{ height: 16 }} />
