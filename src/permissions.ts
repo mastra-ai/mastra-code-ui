@@ -43,19 +43,21 @@ const TOOL_CATEGORY_MAP: Record<string, ToolCategory> = {
 	view: "read",
 	search_content: "read",
 	find_files: "read",
+	web_search: "read",
 	"web-search": "read",
+	web_extract: "read",
 	"web-extract": "read",
-
 	// Edit tools — modify files
 	string_replace_lsp: "edit",
 	ast_smart_edit: "edit",
 	write_file: "edit",
+	subagent: "edit",
 
 	// Execute tools — run arbitrary commands
 	execute_command: "execute",
 
 	// Interactive / planning tools — always allowed (no category needed)
-	// ask_user, todo_write, todo_check, submit_plan, request_sandbox_access, subagent
+	// ask_user, todo_write, todo_check, submit_plan, request_sandbox_access
 }
 
 // Tools that never need approval regardless of policy
@@ -65,7 +67,6 @@ const ALWAYS_ALLOW_TOOLS = new Set([
 	"todo_check",
 	"submit_plan",
 	"request_sandbox_access",
-	"subagent",
 ])
 
 /**

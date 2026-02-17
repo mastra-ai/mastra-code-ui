@@ -5,7 +5,6 @@
 
 import { Container, Text } from "@mariozechner/pi-tui"
 import chalk from "chalk"
-import { mastra } from "../theme.js"
 
 export interface SimpleProgressOptions {
 	prefix?: string
@@ -109,11 +108,11 @@ export class SimpleProgressComponent extends Container {
 		// Add spinner or status icon
 		if (this.isActive) {
 			const spinner = this.getSpinner()
-			text += chalk.hex(mastra.blue)(spinner) + " "
+			text += chalk.cyan(spinner) + " "
 		} else if (this.progress === 100) {
-			text += chalk.hex(mastra.green)("✓") + " "
+			text += chalk.green("✓") + " "
 		} else {
-			text += chalk.hex(mastra.red)("✗") + " "
+			text += chalk.red("✗") + " "
 		}
 
 		// Add status text

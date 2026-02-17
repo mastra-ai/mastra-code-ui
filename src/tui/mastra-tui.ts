@@ -82,6 +82,7 @@ import {
 	type TodoItem,
 } from "./components/todo-progress.js"
 import { UserMessageComponent } from "./components/user-message.js"
+import { SlashCommandComponent } from "./components/slash-command.js"
 import { SystemReminderComponent } from "./components/system-reminder.js"
 import { ShellOutputComponent } from "./components/shell-output.js"
 import { DiffOutputComponent } from "./components/diff-output.js"
@@ -94,12 +95,14 @@ import {
 	getContrastText,
 	theme,
 	mastra,
+	tintHex,
 } from "./theme.js"
 import {
 	sendNotification,
 	type NotificationMode,
 	type NotificationReason,
 } from "./notify.js"
+import { getToolCategory, TOOL_CATEGORIES } from "../permissions.js"
 
 // =============================================================================
 // Types
@@ -157,10 +160,15 @@ export class MastraTUI {
 	private seenToolCallIds = new Set<string>() // Track all tool IDs seen during current stream (prevents duplicates)
 	private subagentToolCallIds = new Set<string>() // Track subagent tool call IDs to skip in trailing content logic
 	private allToolComponents: IToolExecutionComponent[] = [] // Track all tools for expand/collapse
+	private allSlashCommandComponents: SlashCommandComponent[] = [] // Track slash command boxes for expand/collapse
 	private pendingSubagents = new Map<string, SubagentExecutionComponent>() // Track active subagent tasks
 	private toolOutputExpanded = false
 	private hideThinkingBlock = true
 	private pendingNewThread = false // True when we want a new thread but haven't created it yet
+	private pendingLockConflict: {
+		threadTitle: string
+		ownerPid: number
+	} | null = null
 	private lastAskUserComponent?: IToolExecutionComponent // Track the most recent ask_user tool for inline question placement
 	private lastClearedText = "" // Saved editor text for Ctrl+Z undo
 
@@ -339,12 +347,14 @@ export class MastraTUI {
 			this.hideThinkingBlock = !this.hideThinkingBlock
 			this.ui.requestRender()
 		})
-
 		// Ctrl+E - expand/collapse tool outputs
 		this.editor.onAction("expandTools", () => {
 			this.toolOutputExpanded = !this.toolOutputExpanded
 			for (const tool of this.allToolComponents) {
 				tool.setExpanded(this.toolOutputExpanded)
+			}
+			for (const sc of this.allSlashCommandComponents) {
+				sc.setExpanded(this.toolOutputExpanded)
 			}
 			this.ui.requestRender()
 		})
@@ -367,6 +377,13 @@ export class MastraTUI {
 			await this.harness.switchMode(nextMode.id)
 			// The mode_changed event handler will show the info message
 			this.updateStatusLine()
+		})
+		// Ctrl+Y - toggle YOLO mode
+		this.editor.onAction("toggleYolo", () => {
+			const current = this.harness.getYoloMode()
+			this.harness.setYoloMode(!current)
+			this.updateStatusLine()
+			this.showInfo(current ? "YOLO mode off" : "YOLO mode on")
 		})
 
 		// Ctrl+F - queue follow-up message while streaming
@@ -572,11 +589,19 @@ export class MastraTUI {
 
 		// Set terminal title
 		this.updateTerminalTitle()
-
 		// Render existing messages
 		await this.renderExistingMessages()
 		// Render existing todos if any
 		await this.renderExistingTodos()
+
+		// Show deferred thread lock prompt (must happen after TUI is started)
+		if (this.pendingLockConflict) {
+			this.showThreadLockPrompt(
+				this.pendingLockConflict.threadTitle,
+				this.pendingLockConflict.ownerPid,
+			)
+			this.pendingLockConflict = null
+		}
 	}
 
 	/**
@@ -616,17 +641,17 @@ export class MastraTUI {
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		)
 		const mostRecent = sortedThreads[0]
-
 		// Auto-resume the most recent thread for this directory
 		try {
 			await this.harness.switchThread(mostRecent.id)
 		} catch (error) {
 			if (error instanceof ThreadLockError) {
-				// Thread is locked by another process — start a new thread instead
+				// Defer the lock conflict prompt until after the TUI is started
 				this.pendingNewThread = true
-				this.showInfo(
-					`Thread "${mostRecent.title || mostRecent.id}" is in use by another process. Starting a new thread.`,
-				)
+				this.pendingLockConflict = {
+					threadTitle: mostRecent.title || mostRecent.id,
+					ownerPid: error.ownerPid,
+				}
 				return
 			}
 			throw error
@@ -743,7 +768,6 @@ ${instructions}`,
 			: currentMode
 				? currentMode.name || currentMode.id || "unknown"
 				: undefined
-
 		if (badgeName && modeColor) {
 			const [mcr, mcg, mcb] = [
 				parseInt(modeColor.slice(1, 3), 16),
@@ -820,6 +844,7 @@ ${instructions}`,
 		}
 
 		// --- Helper to style the model ID ---
+		const isYolo = this.harness.getYoloMode()
 		const styleModelId = (id: string): string => {
 			if (!this.modelAuthStatus.hasAuth) {
 				const envVar = this.modelAuthStatus.apiKeyEnvVar
@@ -830,26 +855,15 @@ ${instructions}`,
 				)
 			}
 			// Tinted near-black background from mode color
-			const tintBg = modeColor
-				? `#${Math.floor(parseInt(modeColor.slice(1, 3), 16) * 0.15)
-						.toString(16)
-						.padStart(2, "0")}${Math.floor(
-						parseInt(modeColor.slice(3, 5), 16) * 0.15,
-					)
-						.toString(16)
-						.padStart(2, "0")}${Math.floor(
-						parseInt(modeColor.slice(5, 7), 16) * 0.15,
-					)
-						.toString(16)
-						.padStart(2, "0")}`
-				: undefined
+			const tintBg = modeColor ? tintHex(modeColor, 0.15) : undefined
+			const padded = ` ${id} `
 
 			if (this.gradientAnimator?.isRunning() && modeColor) {
 				const fade = this.gradientAnimator.getFadeProgress()
 				if (fade < 1) {
 					// During active or fade-out: interpolate gradient toward idle color
 					const text = applyGradientSweep(
-						` ${id} `,
+						padded,
 						this.gradientAnimator.getOffset(),
 						modeColor,
 						fade, // pass fade progress to flatten the gradient
@@ -867,7 +881,7 @@ ${instructions}`,
 				const dim = 0.8
 				const fg = chalk
 					.rgb(Math.floor(r * dim), Math.floor(g * dim), Math.floor(b * dim))
-					.bold(` ${id} `)
+					.bold(padded)
 				return tintBg ? chalk.bgHex(tintBg)(fg) : fg
 			}
 			return chalk.hex(mastra.specialGray).bold(id)
@@ -920,10 +934,22 @@ ${instructions}`,
 		}): { plain: string; styled: string } | null => {
 			const parts: Array<{ plain: string; styled: string }> = []
 			// Model ID (always present) — styleModelId adds padding spaces
-			parts.push({
-				plain: ` ${opts.modelId} `,
-				styled: styleModelId(opts.modelId),
-			})
+			// When YOLO, append ⚒ box flush (no SEP gap)
+			if (isYolo && modeColor) {
+				const yBox = chalk
+					.bgHex(tintHex(modeColor, 0.25))
+					.hex(tintHex(modeColor, 0.9))
+					.bold(" ⚒ ")
+				parts.push({
+					plain: ` ${opts.modelId}  ⚒ `,
+					styled: styleModelId(opts.modelId) + yBox,
+				})
+			} else {
+				parts.push({
+					plain: ` ${opts.modelId} `,
+					styled: styleModelId(opts.modelId),
+				})
+			}
 			const useBadge = opts.badge === "short" ? shortModeBadge : modeBadge
 			const useBadgeWidth =
 				opts.badge === "short" ? shortModeBadgeWidth : modeBadgeWidth
@@ -1051,7 +1077,15 @@ ${instructions}`,
 			})
 
 		this.statusLine.setText(
-			result?.styled ?? shortModeBadge + styleModelId(tinyModelId),
+			result?.styled ??
+				shortModeBadge +
+					styleModelId(tinyModelId) +
+					(isYolo && modeColor
+						? chalk
+								.bgHex(tintHex(modeColor, 0.25))
+								.hex(tintHex(modeColor, 0.9))
+								.bold(" ⚒ ")
+						: ""),
 		)
 
 		// Line 2: hidden — dir only shows on line 1 when it fits
@@ -1102,6 +1136,10 @@ ${instructions}`,
 			{
 				name: "settings",
 				description: "General settings (notifications, YOLO, thinking)",
+			},
+			{
+				name: "yolo",
+				description: "Toggle YOLO mode (auto-approve all tools)",
 			},
 			{ name: "review", description: "Review a GitHub pull request" },
 			{ name: "exit", description: "Exit the TUI" },
@@ -1230,9 +1268,16 @@ ${instructions}`,
 			case "message_end":
 				this.handleMessageEnd(event.message)
 				break
-
 			case "tool_start":
 				this.handleToolStart(event.toolCallId, event.toolName, event.args)
+				break
+
+			case "tool_approval_required":
+				this.handleToolApprovalRequired(
+					event.toolCallId,
+					event.toolName,
+					event.args,
+				)
 				break
 
 			case "tool_update":
@@ -1245,6 +1290,9 @@ ${instructions}`,
 
 			case "tool_end":
 				this.handleToolEnd(event.toolCallId, event.result, event.isError)
+				break
+			case "info":
+				this.showInfo(event.message)
 				break
 
 			case "error":
@@ -1280,10 +1328,16 @@ ${instructions}`,
 				}
 				break
 			}
-
-			case "thread_created":
+			case "thread_created": {
 				this.showInfo(`Created thread: ${event.thread.id}`)
+				// Sync inherited resource-level settings
+				const tState = this.harness.getState() as any
+				if (typeof tState?.escapeAsCancel === "boolean") {
+					this.editor.escapeEnabled = tState.escapeAsCancel
+				}
+				this.updateStatusLine()
 				break
+			}
 
 			case "usage_update":
 				this.handleUsageUpdate(event.usage)
@@ -1354,6 +1408,8 @@ ${instructions}`,
 						type: "om_buffering_end",
 						operationType: event.operationType,
 						tokensBuffered: event.tokensBuffered,
+						bufferedTokens: event.bufferedTokens,
+						observations: event.observations,
 					})
 				}
 				this.activeBufferingMarker = undefined
@@ -2054,6 +2110,57 @@ ${instructions}`,
 		}
 		this.chatContainer.addChild(child)
 	}
+	private handleToolApprovalRequired(
+		toolCallId: string,
+		toolName: string,
+		args: unknown,
+	): void {
+		// Compute category label for the dialog
+		const category = getToolCategory(toolName)
+		const categoryLabel = category
+			? TOOL_CATEGORIES[category]?.label
+			: undefined
+
+		// Send notification to alert the user
+		this.notify("tool_approval", `Approve ${toolName}?`)
+
+		const dialog = new ToolApprovalDialogComponent({
+			toolCallId,
+			toolName,
+			args,
+			categoryLabel,
+			onAction: (action: ApprovalAction) => {
+				this.ui.hideOverlay()
+				this.pendingApprovalDismiss = null
+				if (action.type === "approve") {
+					this.harness.resolveToolApprovalDecision("approve")
+				} else if (action.type === "always_allow_category") {
+					this.harness.resolveToolApprovalDecision("always_allow_category")
+				} else if (action.type === "yolo") {
+					this.harness.setYoloMode(true)
+					this.harness.resolveToolApprovalDecision("approve")
+					this.updateStatusLine()
+				} else {
+					this.harness.resolveToolApprovalDecision("decline")
+				}
+			},
+		})
+
+		// Set up Ctrl+C dismiss to decline
+		this.pendingApprovalDismiss = () => {
+			this.ui.hideOverlay()
+			this.pendingApprovalDismiss = null
+			this.harness.resolveToolApprovalDecision("decline")
+		}
+
+		// Show the dialog as an overlay
+		this.ui.showOverlay(dialog, {
+			width: "70%",
+			anchor: "center",
+		})
+		dialog.focused = true
+		this.ui.requestRender()
+	}
 
 	private handleToolStart(
 		toolCallId: string,
@@ -2700,13 +2807,13 @@ ${instructions}`,
 					if (thread.resourceId !== currentResourceId) {
 						this.harness.setResourceId(thread.resourceId)
 					}
-
 					try {
 						await this.harness.switchThread(thread.id)
 					} catch (error) {
 						if (error instanceof ThreadLockError) {
-							this.showError(
-								`Thread "${thread.title || thread.id}" is in use by another process (PID ${error.ownerPid}).`,
+							this.showThreadLockPrompt(
+								thread.title || thread.id,
+								error.ownerPid,
 							)
 							resolve()
 							return
@@ -2799,6 +2906,43 @@ ${instructions}`,
 			this.ui.requestRender()
 			this.chatContainer.invalidate()
 		})
+	}
+	/**
+	 * Show an inline prompt when a thread is locked by another process.
+	 * User can create a new thread (y) or exit (n).
+	 */
+	private showThreadLockPrompt(threadTitle: string, ownerPid: number): void {
+		const questionComponent = new AskQuestionInlineComponent(
+			{
+				question: `Thread "${threadTitle}" is locked by pid ${ownerPid}. Create a new thread?`,
+				options: [
+					{ label: "Yes", description: "Start a new thread" },
+					{ label: "No", description: "Exit" },
+				],
+				formatResult: (answer) =>
+					answer === "Yes" ? "Thread created" : "Exiting.",
+				onSubmit: async (answer) => {
+					this.activeInlineQuestion = undefined
+					if (answer.toLowerCase().startsWith("y")) {
+						// pendingNewThread is already true — thread will be
+						// created lazily on first message
+					} else {
+						process.exit(0)
+					}
+				},
+				onCancel: () => {
+					this.activeInlineQuestion = undefined
+					process.exit(0)
+				},
+			},
+			this.ui,
+		)
+
+		this.activeInlineQuestion = questionComponent
+		this.chatContainer.addChild(questionComponent)
+		this.chatContainer.addChild(new Spacer(1))
+		this.ui.requestRender()
+		this.chatContainer.invalidate()
 	}
 
 	// ===========================================================================
@@ -3493,6 +3637,7 @@ ${instructions}`,
 				onEscapeAsCancelChange: async (enabled) => {
 					this.editor.escapeEnabled = enabled
 					await this.harness.setState({ escapeAsCancel: enabled })
+					await this.harness.persistThreadSetting("escapeAsCancel", enabled)
 				},
 				onClose: () => {
 					this.ui.hideOverlay()
@@ -4220,15 +4365,21 @@ Keyboard shortcuts:
 				args,
 				process.cwd(),
 			)
-
 			// Add the processed content as a system message / context
 			if (processedContent.trim()) {
-				// Show what was processed
-				this.showInfo(`Executed //${command.name}`)
+				// Show bordered indicator immediately with content
+				const slashComp = new SlashCommandComponent(
+					command.name,
+					processedContent.trim(),
+				)
+				this.allSlashCommandComponents.push(slashComp)
+				this.chatContainer.addChild(slashComp)
+				this.ui.requestRender()
 
-				// Add the content to the conversation as a user message
-				// This allows the agent to see and act on the command output
-				await this.harness.sendMessage(processedContent)
+				// Wrap in <slash-command> tags so the assistant sees the full
+				// content but addUserMessage won't double-render it.
+				const wrapped = `<slash-command name="${command.name}">\n${processedContent.trim()}\n</slash-command>`
+				await this.harness.sendMessage(wrapped)
 			} else {
 				this.showInfo(`Executed //${command.name} (no output)`)
 			}
@@ -4256,7 +4407,6 @@ Keyboard shortcuts:
 			imageCount > 0
 				? textContent.replace(/\[image\]\s*/g, "").trim()
 				: textContent.trim()
-
 		// Check for system reminder tags
 		const systemReminderMatch = displayText.match(
 			/<system-reminder>([\s\S]*?)<\/system-reminder>/,
@@ -4270,6 +4420,20 @@ Keyboard shortcuts:
 			// System reminders always go at the end (after plan approval)
 			this.chatContainer.addChild(new Spacer(1))
 			this.chatContainer.addChild(reminderComponent)
+			this.ui.requestRender()
+			return
+		}
+
+		// Check for slash command tags
+		const slashCommandMatch = displayText.match(
+			/<slash-command\s+name="([^"]*)">([\s\S]*?)<\/slash-command>/,
+		)
+		if (slashCommandMatch) {
+			const commandName = slashCommandMatch[1]
+			const commandContent = slashCommandMatch[2].trim()
+			const slashComp = new SlashCommandComponent(commandName, commandContent)
+			this.allSlashCommandComponents.push(slashComp)
+			this.chatContainer.addChild(slashComp)
 			this.ui.requestRender()
 			return
 		}

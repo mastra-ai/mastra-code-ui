@@ -243,18 +243,18 @@ function getDynamicMemory({
 				enabled: true,
 				scope: omScope,
 				observation: {
-					bufferTokens: 1 / 5,
-					bufferActivation: 3 / 4,
+					bufferTokens: 1 / 10,
+					bufferActivation: 4 / 5,
 					model: getObserverModel,
 					messageTokens: obsThreshold,
-					blockAfter: 1.25,
+					blockAfter: 1,
 					modelSettings: {
 						maxOutputTokens: 60000,
 					},
 				},
 				reflection: {
-					bufferActivation: 1 / 3,
-					blockAfter: 1,
+					bufferActivation: 1 / 2,
+					blockAfter: 1.1,
 					model: getReflectorModel,
 					observationTokens: refThreshold,
 					modelSettings: {
@@ -564,6 +564,17 @@ const codeAgent = new Agent({
 		return tools
 	},
 })
+
+// Register the agent with a Mastra instance so that workflow snapshot storage
+// is available. This is required for requireToolApproval (approveToolCall /
+// declineToolCall use resumeStream which loads snapshots from storage).
+import { Mastra } from "@mastra/core"
+const mastraInstance = new Mastra({
+	agents: { codeAgent },
+	storage,
+})
+// Suppress internal logging after Mastra init (Mastra sets its own logger)
+mastraInstance.getLogger = () => noopLogger as any
 
 // Suppress @mastra/core's internal ConsoleLogger which dumps raw error objects
 // to the terminal. Our harness already catches and formats these errors properly.

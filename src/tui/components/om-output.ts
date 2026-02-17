@@ -9,8 +9,8 @@ import { Container, Text, Spacer } from "@mariozechner/pi-tui"
 import chalk from "chalk"
 import { mastra } from "../theme.js"
 
-const OBSERVER_COLOR = mastra.orange
-const REFLECTOR_COLOR = mastra.pink
+const OBSERVER_COLOR = "#f59e0b"
+const REFLECTOR_COLOR = "#ef4444"
 const COLLAPSED_LINES = 10
 
 function formatTokens(tokens: number): string {
@@ -145,7 +145,7 @@ export class OMOutputComponent extends Container {
 		const footerText = this.buildFooterText(color)
 
 		// Top border
-		this.addChild(new Text(border("╭──"), 0, 0))
+		this.addChild(new Text(border("┌──"), 0, 0))
 
 		// Content lines with left border
 		let truncated = false
@@ -241,7 +241,7 @@ export class OMOutputComponent extends Container {
 		}
 
 		// Bottom border with footer
-		this.addChild(new Text(`${border("╰──")} ${footerText}`, 0, 0))
+		this.addChild(new Text(`${border("└──")} ${footerText}`, 0, 0))
 	}
 
 	private buildFooterText(color: string): string {

@@ -73,15 +73,9 @@ export class CollapsibleComponent extends Container {
 				? theme.fg("muted", ` (${this.content.length} lines)`)
 				: ""
 
-		// Toggle indicator: ▾ expanded, ▸ collapsed
-		const toggle =
-			this.content.length > 0
-				? theme.fg("dim", this.expanded ? "▾ " : "▸ ")
-				: ""
-
 		const headerText =
 			typeof this.header === "string"
-				? `${toggle}${this.header}${lineCount}`
+				? `${this.header}${lineCount}`
 				: this.header
 
 		if (typeof headerText === "string") {
