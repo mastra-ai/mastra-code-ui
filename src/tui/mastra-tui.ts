@@ -18,14 +18,14 @@ import {
 import chalk from "chalk"
 import path from "path"
 import fs from "fs"
-import type { Harness } from "../harness/harness.js"
+import type { Harness } from "@mastra/core/harness"
 import type {
 	HarnessEvent,
 	HarnessMessage,
 	HarnessMessageContent,
 	HarnessEventListener,
 	TokenUsage,
-} from "../harness/types.js"
+} from "@mastra/core/harness"
 import type { Workspace } from "@mastra/core/workspace"
 import { detectProject, type ProjectInfo } from "../utils/project.js"
 import { ThreadLockError } from "../utils/thread-lock.js"
@@ -119,6 +119,12 @@ export interface MastraTUIOptions {
 	 */
 	workspace?: Workspace
 
+	/**
+	 * Auth storage for OAuth credentials.
+	 * Used for login/logout flows — managed externally, not by the Harness.
+	 */
+	authStorage?: any
+
 	/** Initial message to send on startup */
 	initialMessage?: string
 
@@ -141,6 +147,7 @@ export interface MastraTUIOptions {
 
 export class MastraTUI {
 	private harness: Harness<any>
+	private authStorage: any
 	private options: MastraTUIOptions
 
 	// TUI components
@@ -245,6 +252,7 @@ export class MastraTUI {
 
 	constructor(options: MastraTUIOptions) {
 		this.harness = options.harness
+		this.authStorage = options.authStorage
 		this.options = options
 		this.workspace = options.workspace
 
@@ -380,8 +388,8 @@ export class MastraTUI {
 		})
 		// Ctrl+Y - toggle YOLO mode
 		this.editor.onAction("toggleYolo", () => {
-			const current = this.harness.getYoloMode()
-			this.harness.setYoloMode(!current)
+			const current = (this.harness.getState() as any).yolo
+			this.harness.setState({ yolo: !current })
 			this.updateStatusLine()
 			this.showInfo(current ? "YOLO mode off" : "YOLO mode on")
 		})
@@ -422,7 +430,7 @@ export class MastraTUI {
 		await this.init()
 
 		// Run SessionStart hooks (fire and forget)
-		const hookMgr = this.harness.getHookManager?.()
+		const hookMgr = (this.harness as any).getHookManager?.()
 		if (hookMgr) {
 			hookMgr.runSessionStart().catch(() => {})
 		}
@@ -526,7 +534,7 @@ export class MastraTUI {
 	 */
 	stop(): void {
 		// Run SessionEnd hooks (best-effort, don't await)
-		const hookMgr = this.harness.getHookManager?.()
+		const hookMgr = (this.harness as any).getHookManager?.()
 		if (hookMgr) {
 			hookMgr.runSessionEnd().catch(() => {})
 		}
@@ -820,11 +828,12 @@ ${instructions}`,
 
 		// --- Collect raw data ---
 		// Show OM model when observing/reflecting, otherwise main model
-		const fullModelId = showOMMode
-			? isObserving
-				? this.harness.getObserverModelId()
-				: this.harness.getReflectorModelId()
-			: this.harness.getFullModelId()
+		const fullModelId =
+			(showOMMode
+				? isObserving
+					? this.harness.getObserverModelId()
+					: this.harness.getReflectorModelId()
+				: this.harness.getFullModelId()) ?? ""
 		// e.g. "anthropic/claude-sonnet-4-20250514" → "claude-sonnet-4-20250514"
 		const shortModelId = fullModelId.includes("/")
 			? fullModelId.slice(fullModelId.indexOf("/") + 1)
@@ -844,7 +853,7 @@ ${instructions}`,
 		}
 
 		// --- Helper to style the model ID ---
-		const isYolo = this.harness.getYoloMode()
+		const isYolo = (this.harness.getState() as any).yolo
 		const styleModelId = (id: string): string => {
 			if (!this.modelAuthStatus.hasAuth) {
 				const envVar = this.modelAuthStatus.apiKeyEnvVar
@@ -1512,8 +1521,8 @@ ${instructions}`,
 				)
 				break
 
-			case "todo_updated": {
-				const todos = event.todos as TodoItem[]
+			case "todo_updated" as any: {
+				const todos = (event as any).todos as TodoItem[]
 				if (this.todoProgress) {
 					this.todoProgress.updateTodos(todos ?? [])
 
@@ -1561,11 +1570,11 @@ ${instructions}`,
 				)
 				break
 
-			case "sandbox_access_request":
+			case "sandbox_access_request" as any:
 				await this.handleSandboxAccessRequest(
-					event.questionId,
-					event.path,
-					event.reason,
+					(event as any).questionId,
+					(event as any).path,
+					(event as any).reason,
 				)
 				break
 
@@ -1596,8 +1605,8 @@ ${instructions}`,
 	 * Called after thread load to pick up per-thread threshold overrides.
 	 */
 	private syncOMThresholdsFromHarness(): void {
-		const obsThreshold = this.harness.getObservationThreshold()
-		const refThreshold = this.harness.getReflectionThreshold()
+		const obsThreshold = this.harness.getObservationThreshold() ?? 30000
+		const refThreshold = this.harness.getReflectionThreshold() ?? 40000
 		this.omProgress.threshold = obsThreshold
 		this.omProgress.thresholdPercent =
 			obsThreshold > 0
@@ -2137,7 +2146,7 @@ ${instructions}`,
 				} else if (action.type === "always_allow_category") {
 					this.harness.resolveToolApprovalDecision("always_allow_category")
 				} else if (action.type === "yolo") {
-					this.harness.setYoloMode(true)
+					this.harness.setState({ yolo: true })
 					this.harness.resolveToolApprovalDecision("approve")
 					this.updateStatusLine()
 				} else {
@@ -3467,7 +3476,7 @@ ${instructions}`,
 				title: `Select subagent model (${scopeLabel})`,
 				onSelect: async (model: ModelItem) => {
 					this.ui.hideOverlay()
-					await this.harness.setSubagentModelId(model.id, scope, agentType)
+					await this.harness.setSubagentModelId(model.id, agentType)
 					this.showInfo(`Subagent model set for ${scopeLabel}: ${model.id}`)
 					resolve()
 				},
@@ -3499,10 +3508,10 @@ ${instructions}`,
 		}))
 
 		const config = {
-			observerModelId: this.harness.getObserverModelId(),
-			reflectorModelId: this.harness.getReflectorModelId(),
-			observationThreshold: this.harness.getObservationThreshold(),
-			reflectionThreshold: this.harness.getReflectionThreshold(),
+			observerModelId: this.harness.getObserverModelId() ?? "",
+			reflectorModelId: this.harness.getReflectorModelId() ?? "",
+			observationThreshold: this.harness.getObservationThreshold() ?? 30000,
+			reflectionThreshold: this.harness.getReflectionThreshold() ?? 40000,
 		}
 
 		return new Promise<void>((resolve) => {
@@ -3510,22 +3519,22 @@ ${instructions}`,
 				config,
 				{
 					onObserverModelChange: async (modelId) => {
-						await this.harness.switchObserverModel(modelId)
+						await this.harness.setState({ observerModelId: modelId })
 						this.showInfo(`Observer model → ${modelId}`)
 					},
 					onReflectorModelChange: async (modelId) => {
-						await this.harness.switchReflectorModel(modelId)
+						await this.harness.setState({ reflectorModelId: modelId })
 						this.showInfo(`Reflector model → ${modelId}`)
 					},
-					onObservationThresholdChange: (value) => {
-						this.harness.setObservationThreshold(value)
+					onObservationThresholdChange: async (value) => {
+						await this.harness.setState({ observationThreshold: value })
 						this.omProgress.threshold = value
 						this.omProgress.thresholdPercent =
 							value > 0 ? (this.omProgress.pendingTokens / value) * 100 : 0
 						this.updateStatusLine()
 					},
-					onReflectionThresholdChange: (value) => {
-						this.harness.setReflectionThreshold(value)
+					onReflectionThresholdChange: async (value) => {
+						await this.harness.setState({ reflectionThreshold: value })
 						this.omProgress.reflectionThreshold = value
 						this.omProgress.reflectionThresholdPercent =
 							value > 0 ? (this.omProgress.observationTokens / value) * 100 : 0
@@ -3555,9 +3564,9 @@ ${instructions}`,
 	private async showPermissions(): Promise<void> {
 		const { TOOL_CATEGORIES, getToolsForCategory } =
 			await import("../permissions.js")
-		const rules = this.harness.getPermissionRules_public()
+		const rules = this.harness.getPermissionRules()
 		const grants = this.harness.getSessionGrants()
-		const isYolo = this.harness.getYoloMode()
+		const isYolo = (this.harness.getState() as any).yolo
 
 		const lines: string[] = []
 		lines.push("Tool Approval Permissions")
@@ -3615,8 +3624,8 @@ ${instructions}`,
 		const state = this.harness.getState() as any
 		const config = {
 			notifications: (state?.notifications ?? "off") as NotificationMode,
-			yolo: this.harness.getYoloMode(),
-			thinkingLevel: this.harness.getThinkingLevel(),
+			yolo: (this.harness.getState() as any).yolo,
+			thinkingLevel: (this.harness.getState() as any).thinkingLevel ?? "off",
 			escapeAsCancel: this.editor.escapeEnabled,
 		}
 
@@ -3626,12 +3635,12 @@ ${instructions}`,
 					await this.harness.setState({ notifications: mode })
 					this.showInfo(`Notifications: ${mode}`)
 				},
-				onYoloChange: (enabled) => {
-					this.harness.setYoloMode(enabled)
+				onYoloChange: async (enabled) => {
+					await this.harness.setState({ yolo: enabled })
 					this.updateStatusLine()
 				},
 				onThinkingLevelChange: async (level) => {
-					await this.harness.setThinkingLevel(level)
+					await this.harness.setState({ thinkingLevel: level })
 					this.updateStatusLine()
 				},
 				onEscapeAsCancelChange: async (enabled) => {
@@ -3658,8 +3667,8 @@ ${instructions}`,
 	// ===========================================================================
 
 	private async showLoginSelector(mode: "login" | "logout"): Promise<void> {
-		const allProviders = this.harness.getOAuthProviders()
-		const loggedInIds = this.harness.getLoggedInProviders()
+		const allProviders = this.authStorage?.getOAuthProviders?.() ?? []
+		const loggedInIds = this.authStorage?.getLoggedInProviders?.() ?? []
 
 		if (mode === "logout") {
 			if (loggedInIds.length === 0) {
@@ -3670,7 +3679,7 @@ ${instructions}`,
 
 		const providers =
 			mode === "logout"
-				? allProviders.filter((p) => loggedInIds.includes(p.id))
+				? allProviders.filter((p: any) => loggedInIds.includes(p.id))
 				: allProviders
 
 		if (providers.length === 0) {
@@ -3684,7 +3693,7 @@ ${instructions}`,
 			const questionComponent = new AskQuestionInlineComponent(
 				{
 					question: `${action} which provider?`,
-					options: providers.map((p) => ({
+					options: providers.map((p: any) => ({
 						label: p.name,
 						description: loggedInIds.includes(p.id) ? "(logged in)" : "",
 					})),
@@ -3694,12 +3703,12 @@ ${instructions}`,
 							: `Logged out from ${answer}`,
 					onSubmit: async (answer) => {
 						this.activeInlineQuestion = undefined
-						const provider = providers.find((p) => p.name === answer)
+						const provider = providers.find((p: any) => p.name === answer)
 						if (provider) {
 							if (mode === "login") {
 								await this.performLogin(provider.id)
 							} else {
-								this.harness.logout(provider.id)
+								this.authStorage?.logout?.(provider.id)
 								this.showInfo(`Logged out from ${provider.name}`)
 							}
 						}
@@ -3723,9 +3732,9 @@ ${instructions}`,
 	}
 
 	private async performLogin(providerId: string): Promise<void> {
-		const provider = this.harness
-			.getOAuthProviders()
-			.find((p) => p.id === providerId)
+		const provider = (this.authStorage?.getOAuthProviders?.() ?? []).find(
+			(p: any) => p.id === providerId,
+		)
 		const providerName = provider?.name || providerId
 
 		return new Promise((resolve) => {
@@ -3751,9 +3760,9 @@ ${instructions}`,
 			})
 			dialog.focused = true
 
-			// Start the login flow via harness
-			this.harness
-				.login(providerId, {
+			// Start the login flow via authStorage (managed externally, not on Harness)
+			this.authStorage
+				?.login(providerId, {
 					onAuth: (info: { url: string; instructions?: string }) => {
 						dialog.showAuth(info.url, info.instructions)
 					},
@@ -3772,9 +3781,8 @@ ${instructions}`,
 					this.ui.hideOverlay()
 
 					// Auto-switch to the provider's default model
-					const defaultModel = this.harness
-						.getAuthStorage()
-						.getDefaultModelForProvider(providerId as any)
+					const defaultModel =
+						this.authStorage?.getDefaultModelForProvider?.(providerId)
 					if (defaultModel) {
 						await this.harness.switchModel(defaultModel)
 						this.updateStatusLine()
@@ -3917,7 +3925,8 @@ ${modeList}`)
 				return true
 			}
 			case "think": {
-				const currentLevel = this.harness.getThinkingLevel()
+				const currentLevel =
+					(this.harness.getState() as any).thinkingLevel ?? "off"
 				const levels = [
 					{ label: "Off", id: "off" },
 					{ label: "Minimal", id: "minimal" },
@@ -3928,7 +3937,7 @@ ${modeList}`)
 				const currentIdx = levels.findIndex((l) => l.id === currentLevel)
 				const nextIdx = (currentIdx + 1) % levels.length
 				const next = levels[nextIdx]
-				await this.harness.setThinkingLevel(next.id)
+				await this.harness.setState({ thinkingLevel: next.id })
 				this.showInfo(`Thinking: ${next.label}`)
 				this.updateStatusLine()
 				return true
@@ -3959,8 +3968,8 @@ ${modeList}`)
 				return true
 			}
 			case "yolo": {
-				const current = this.harness.getYoloMode()
-				this.harness.setYoloMode(!current)
+				const current = (this.harness.getState() as any).yolo
+				await this.harness.setState({ yolo: !current })
 				this.showInfo(
 					!current
 						? "YOLO mode ON — tools auto-approved"
@@ -4010,17 +4019,22 @@ ${modeList}`)
 			case "resource": {
 				const sub = args[0]?.trim()
 				const current = this.harness.getResourceId()
-				const defaultId = this.harness.getDefaultResourceId()
+				const defaultId =
+					(this.harness as any).getDefaultResourceId?.() ?? current
 
 				if (!sub) {
 					// Show current resource ID and list known ones
-					const knownIds = await this.harness.getKnownResourceIds()
+					const knownIds = await ((
+						this.harness as any
+					).getKnownResourceIds?.() ?? [])
 					const isOverridden = current !== defaultId
 					const lines = [
 						`Current: ${current}${isOverridden ? ` (auto-detected: ${defaultId})` : ""}`,
 						"",
 						"Known resource IDs:",
-						...knownIds.map((id) => `  ${id === current ? "* " : "  "}${id}`),
+						...knownIds.map(
+							(id: any) => `  ${id === current ? "* " : "  "}${id}`,
+						),
 						"",
 						"Usage:",
 						"  /resource <id>    - Switch to a resource ID",
@@ -4111,7 +4125,7 @@ Keyboard shortcuts:
 			}
 
 			case "hooks": {
-				const hm = this.harness.getHookManager?.()
+				const hm = (this.harness as any).getHookManager?.()
 				if (!hm) {
 					this.showInfo("Hooks system not initialized.")
 					return true
@@ -4183,7 +4197,7 @@ Keyboard shortcuts:
 			}
 
 			case "mcp": {
-				const mm = this.harness.getMcpManager?.()
+				const mm = (this.harness as any).getMcpManager?.()
 				if (!mm) {
 					this.showInfo("MCP system not initialized.")
 					return true
@@ -4195,9 +4209,9 @@ Keyboard shortcuts:
 					try {
 						await mm.reload()
 						const statuses = mm.getServerStatuses()
-						const connected = statuses.filter((s) => s.connected)
+						const connected = statuses.filter((s: any) => s.connected)
 						const totalTools = connected.reduce(
-							(sum, s) => sum + s.toolCount,
+							(sum: any, s: any) => sum + s.toolCount,
 							0,
 						)
 						this.showInfo(
@@ -4637,12 +4651,13 @@ Keyboard shortcuts:
 							this.allToolComponents.push(toolComponent)
 						}
 					} else if (
-						content.type === "om_observation_start" ||
-						content.type === "om_observation_end" ||
-						content.type === "om_observation_failed"
+						(content as any).type === "om_observation_start" ||
+						(content as any).type === "om_observation_end" ||
+						(content as any).type === "om_observation_failed"
 					) {
+						const omContent = content as any
 						// Skip start markers in history — only show completed/failed results
-						if (content.type === "om_observation_start") continue
+						if (omContent.type === "om_observation_start") continue
 
 						// Render accumulated text first if any
 						if (accumulatedContent.length > 0) {
@@ -4659,25 +4674,25 @@ Keyboard shortcuts:
 							accumulatedContent = []
 						}
 
-						if (content.type === "om_observation_end") {
+						if (omContent.type === "om_observation_end") {
 							// Render bordered output box with marker info in footer
-							const isReflection = content.operationType === "reflection"
+							const isReflection = omContent.operationType === "reflection"
 							const outputComponent = new OMOutputComponent({
 								type: isReflection ? "reflection" : "observation",
-								observations: content.observations ?? "",
-								currentTask: content.currentTask,
-								suggestedResponse: content.suggestedResponse,
-								durationMs: content.durationMs,
-								tokensObserved: content.tokensObserved,
-								observationTokens: content.observationTokens,
+								observations: omContent.observations ?? "",
+								currentTask: omContent.currentTask,
+								suggestedResponse: omContent.suggestedResponse,
+								durationMs: omContent.durationMs,
+								tokensObserved: omContent.tokensObserved,
+								observationTokens: omContent.observationTokens,
 								compressedTokens: isReflection
-									? content.observationTokens
+									? omContent.observationTokens
 									: undefined,
 							})
 							this.chatContainer.addChild(outputComponent)
 						} else {
 							// Failed marker
-							this.chatContainer.addChild(new OMMarkerComponent(content))
+							this.chatContainer.addChild(new OMMarkerComponent(omContent))
 						}
 					}
 					// Skip tool_result - it's handled with tool_call above
@@ -4948,7 +4963,7 @@ Keyboard shortcuts:
 		sendNotification(reason, {
 			mode,
 			message,
-			hookManager: this.harness.getHookManager?.(),
+			hookManager: (this.harness as any).getHookManager?.(),
 		})
 	}
 

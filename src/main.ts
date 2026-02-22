@@ -17,8 +17,8 @@ import { z } from "zod"
 import * as path from "path"
 import * as os from "os"
 import * as fs from "fs"
-import { Harness } from "./harness/harness.js"
-import type { HarnessRuntimeContext } from "./harness/types.js"
+import { Harness } from "@mastra/core/harness"
+import type { HarnessRequestContext } from "@mastra/core/harness"
 import { MastraTUI } from "./tui/index.js"
 import { mastra } from "./tui/theme.js"
 import {
@@ -224,7 +224,7 @@ function getDynamicMemory({
 	requestContext: RequestContext
 }) {
 	const ctx = requestContext.get("harness") as
-		| HarnessRuntimeContext<typeof stateSchema>
+		| HarnessRequestContext<typeof stateSchema>
 		| undefined
 	const state = ctx?.getState?.()
 
@@ -322,7 +322,7 @@ function getDynamicModel({
 	requestContext: RequestContext
 }) {
 	const harnessContext = requestContext.get("harness") as
-		| HarnessRuntimeContext<typeof stateSchema>
+		| HarnessRequestContext<typeof stateSchema>
 		| undefined
 
 	const modelId = harnessContext?.state?.currentModelId
@@ -474,7 +474,7 @@ const codeAgent = new Agent({
 	name: "Code Agent",
 	instructions: ({ requestContext }) => {
 		const harnessContext = requestContext.get("harness") as
-			| HarnessRuntimeContext<typeof stateSchema>
+			| HarnessRequestContext<typeof stateSchema>
 			| undefined
 		const state = harnessContext?.state
 		const modeId = harnessContext?.modeId ?? "build"
@@ -500,7 +500,7 @@ const codeAgent = new Agent({
 	memory: getDynamicMemory,
 	workspace: ({ requestContext }) => {
 		const ctx = requestContext.get("harness") as
-			| HarnessRuntimeContext<typeof stateSchema>
+			| HarnessRequestContext<typeof stateSchema>
 			| undefined
 		// Sync filesystem's allowedPaths with sandbox-granted paths from harness state
 		const sandboxPaths = ctx?.getState?.()?.sandboxAllowedPaths ?? []
@@ -512,7 +512,7 @@ const codeAgent = new Agent({
 	},
 	tools: ({ requestContext }) => {
 		const harnessContext = requestContext.get("harness") as
-			| HarnessRuntimeContext<typeof stateSchema>
+			| HarnessRequestContext<typeof stateSchema>
 			| undefined
 		const modeId = harnessContext?.modeId ?? "build"
 
@@ -627,9 +627,9 @@ const mcpManager = new MCPManager(project.rootPath)
 const harness = new Harness({
 	id: "mastra-code",
 	resourceId: project.resourceId,
-	defaultResourceId: autoDetectedResourceId,
-	userId,
-	isRemoteStorage: storageConfig.isRemote,
+	// NOTE: defaultResourceId, userId, isRemoteStorage, getToolsets, hookManager,
+	// mcpManager, and authStorage are not supported in the published Harness config.
+	// These features are managed externally. See upstream tracking notes at bottom of file.
 	storage,
 	stateSchema,
 	initialState: {
@@ -637,10 +637,8 @@ const harness = new Harness({
 		projectName: project.name,
 		gitBranch: project.gitBranch,
 	},
-	getToolsets,
+	resolveModel: resolveModel as any,
 	workspace,
-	hookManager,
-	mcpManager,
 	modes: [
 		{
 			id: "build",
@@ -665,7 +663,9 @@ const harness = new Harness({
 			agent: codeAgent,
 		},
 	],
-	authStorage, // Share auth storage with Claude Max provider
+	modelAuthChecker: (provider: string) => {
+		return authStorage.isLoggedIn(provider) || undefined
+	},
 })
 
 // Keep omModelState in sync with harness state changes.
@@ -682,8 +682,10 @@ harness.subscribe((event) => {
 		if (role === "reflector") omState.reflectorModelId = modelId
 	} else if (event.type === "thread_changed") {
 		// Thread switch restores OM model IDs and thresholds from metadata — re-read from harness state
-		omState.observerModelId = harness.getObserverModelId()
-		omState.reflectorModelId = harness.getReflectorModelId()
+		omState.observerModelId =
+			harness.getObserverModelId() ?? DEFAULT_OM_MODEL_ID
+		omState.reflectorModelId =
+			harness.getReflectorModelId() ?? DEFAULT_OM_MODEL_ID
 		omState.obsThreshold =
 			harness.getState().observationThreshold ?? DEFAULT_OBS_THRESHOLD
 		omState.refThreshold =
@@ -700,6 +702,7 @@ harness.subscribe((event) => {
 // =============================================================================
 const tui = new MastraTUI({
 	harness,
+	authStorage,
 	appName: "Mastra Code",
 	version: "0.1.0",
 	inlineQuestions: true,
@@ -759,7 +762,7 @@ process.on("beforeExit", async () => {
 
 // Release thread locks on exit (handles SIGINT, SIGTERM, and normal exit)
 const cleanupThreadLocks = () => {
-	harness.releaseCurrentThreadLock()
+	;(harness as any).releaseCurrentThreadLock?.()
 	releaseAllThreadLocks()
 }
 process.on("exit", cleanupThreadLocks)

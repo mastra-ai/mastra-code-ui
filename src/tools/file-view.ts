@@ -137,19 +137,19 @@ Usage notes:
 				.optional()
 				.describe("Optional range of lines to view [start, end]"),
 		}),
-        execute: async (context, toolContext) => {
-            try {
-                const { path: filePath, view_range } = context
-                const root = projectRoot || process.cwd()
+		execute: async (context, toolContext) => {
+			try {
+				const { path: filePath, view_range } = context
+				const root = projectRoot || process.cwd()
 
-                // Resolve relative to projectRoot if provided, otherwise relative to process.cwd()
-                const absolutePath = path.resolve(root, filePath)
+				// Resolve relative to projectRoot if provided, otherwise relative to process.cwd()
+				const absolutePath = path.resolve(root, filePath)
 
-                // Security: ensure the path is within the project root or allowed paths
-                const allowedPaths = getAllowedPathsFromContext(toolContext)
-                assertPathAllowed(absolutePath, root, allowedPaths)
+				// Security: ensure the path is within the project root or allowed paths
+				const allowedPaths = getAllowedPathsFromContext(toolContext)
+				assertPathAllowed(absolutePath, root, allowedPaths)
 
-                await validatePath("view", absolutePath)
+				await validatePath("view", absolutePath)
 
 				// Handle directory listing
 				if (await isDirectory(absolutePath)) {
@@ -236,17 +236,28 @@ Usage notes:
 				}
 
 				const fileLines = fileContent.split("\n")
-				const output = makeOutput(fileContent, String(filePath))
+				const totalLines = fileLines.length
+
+				// For large files, only format the first chunk of lines since
+				// we'll truncate to MAX_VIEW_TOKENS anyway. This avoids
+				// expensive string manipulation + tokenization on the full file.
+				const MAX_LINES_TO_FORMAT = 500
+				const contentToFormat =
+					totalLines > MAX_LINES_TO_FORMAT
+						? fileLines.slice(0, MAX_LINES_TO_FORMAT).join("\n")
+						: fileContent
+				const output = makeOutput(contentToFormat, String(filePath))
 				const truncated = truncateStringForTokenEstimate(
 					output,
 					MAX_VIEW_TOKENS,
 					false,
 				)
-				const wasTruncated = truncated !== output
+				const wasTruncated =
+					totalLines > MAX_LINES_TO_FORMAT || truncated !== output
 				return {
 					content: wasTruncated
 						? truncated +
-							`\n\n... ${fileLines.length} total lines in file. Use view_range to see specific sections.`
+							`\n\n... ${totalLines} total lines in file. Use view_range to see specific sections.`
 						: truncated,
 					isError: false,
 				}

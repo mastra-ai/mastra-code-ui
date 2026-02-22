@@ -15,7 +15,7 @@ import {
 	type TUI,
 } from "@mariozechner/pi-tui"
 import { bg, fg, bold } from "../theme.js"
-import type { HarnessThread } from "../../harness/types.js"
+import type { HarnessThread } from "@mastra/core/harness"
 
 // =============================================================================
 // Types

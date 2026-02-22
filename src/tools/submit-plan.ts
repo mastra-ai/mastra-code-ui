@@ -7,7 +7,7 @@
 
 import { createTool } from "@mastra/core/tools"
 import { z } from "zod/v3"
-import type { HarnessRuntimeContext } from "../harness/types.js"
+import type { HarnessRequestContext } from "@mastra/core/harness"
 
 let planCounter = 0
 
@@ -34,7 +34,7 @@ export const submitPlanTool = createTool({
 	execute: async ({ title, plan }, context) => {
 		try {
 			const harnessCtx = context?.requestContext?.get("harness") as
-				| HarnessRuntimeContext
+				| HarnessRequestContext
 				| undefined
 
 			if (!harnessCtx?.emitEvent || !harnessCtx?.registerPlanApproval) {

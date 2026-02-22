@@ -4,7 +4,7 @@
  */
 import { createTool } from "@mastra/core/tools"
 import { z } from "zod/v3"
-import type { HarnessRuntimeContext } from "../harness/types.js"
+import type { HarnessRequestContext } from "@mastra/core/harness"
 
 const todoItemSchema = z.object({
 	content: z
@@ -47,20 +47,20 @@ States:
 	execute: async ({ todos }, context) => {
 		try {
 			const harnessCtx = context?.requestContext?.get("harness") as
-				| HarnessRuntimeContext
+				| HarnessRequestContext
 				| undefined
 
-            if (harnessCtx) {
-                // Always update state
-                await harnessCtx.setState({ todos })
-                
-                // Always emit event immediately for real-time updates
-                // The TUI will handle deduplication if needed
-                harnessCtx.emitEvent?.({
-                    type: "todo_updated",
-                    todos,
-                } as any)
-            }
+			if (harnessCtx) {
+				// Always update state
+				await harnessCtx.setState({ todos })
+
+				// Always emit event immediately for real-time updates
+				// The TUI will handle deduplication if needed
+				harnessCtx.emitEvent?.({
+					type: "todo_updated",
+					todos,
+				} as any)
+			}
 
 			// Build summary for the model's context
 			const completed = todos.filter((t) => t.status === "completed").length

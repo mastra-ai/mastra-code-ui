@@ -6,7 +6,7 @@
 
 import { createTool } from "@mastra/core/tools"
 import { z } from "zod/v3"
-import type { HarnessRuntimeContext } from "../harness/types.js"
+import type { HarnessRequestContext } from "@mastra/core/harness"
 
 let questionCounter = 0
 
@@ -38,7 +38,7 @@ export const askUserTool = createTool({
 	execute: async ({ question, options }, context) => {
 		try {
 			const harnessCtx = context?.requestContext?.get("harness") as
-				| HarnessRuntimeContext
+				| HarnessRequestContext
 				| undefined
 
 			if (!harnessCtx?.emitEvent || !harnessCtx?.registerQuestion) {
