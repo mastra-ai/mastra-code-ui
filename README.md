@@ -14,8 +14,8 @@ A desktop coding agent built with [Mastra](https://mastra.ai) and Electron.
 ## Installation
 
 ```bash
-git clone https://github.com/mastra-ai/mastra-code.git
-cd mastra-code
+git clone https://github.com/mastra-ai/mastra-code-ui.git
+cd mastra-code-ui
 pnpm install
 ```
 
