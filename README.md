@@ -1,65 +1,33 @@
 # Mastra Code
 
-A terminal-based coding agent TUI built with [Mastra](https://mastra.ai) and [pi-tui](https://github.com/badlogic/pi-mono).
+A desktop coding agent built with [Mastra](https://mastra.ai) and Electron.
 
 ## Features
 
-- 🤖 **Multi-model support** - Use Claude, GPT, Gemini, and 70+ other models via Mastra's unified model router
-- 🔐 **OAuth login** - Authenticate with Anthropic (Claude Max) and OpenAI (ChatGPT Plus/Codex)
-- 💾 **Persistent conversations** - Threads are saved per-project and resume automatically
-- 🛠️ **Coding tools** - View files, edit code, run shell commands
-- 📊 **Token tracking** - Monitor usage with persistent token counts per thread
-- 🎨 **Beautiful TUI** - Polished terminal interface with streaming responses
+- **Multi-model support** - Use Claude, GPT, Gemini, and 70+ other models via Mastra's unified model router
+- **OAuth login** - Authenticate with Anthropic (Claude Max) and OpenAI (ChatGPT Plus/Codex)
+- **Persistent conversations** - Threads are saved per-project and resume automatically
+- **Coding tools** - View files, edit code, run shell commands
+- **Token tracking** - Monitor usage with persistent token counts per thread
+- **Multi-panel IDE** - Chat, file explorer, git panel, embedded terminal, and multi-thread tabs
 
 ## Installation
 
-Clone the repository and install its dependencies.
-
 ```bash
-# Clone the repository
 git clone https://github.com/mastra-ai/mastra-code.git
 cd mastra-code
-
-# Install dependencies
 pnpm install
 ```
 
-To use Mastra Code, we recommend creating an alias in your shell configuration to launch it from any directory. You have to specify the absolute path to `main.ts` and then run it with `tsx`.
-
-```bash
-# Add this to your .bashrc, .zshrc, etc.
-alias mastra-code="pnpm dlx tsx /absolute/path/mastra-code/src/main.ts"
-```
-
-Lastly, start the TUI and execute the `/login` command to authenticate with your AI providers.
-
 ## Usage
 
-### Starting a conversation
+```bash
+pnpm dev       # launch with hot-reload
+pnpm build     # production build
+pnpm preview   # preview production build
+```
 
-Simply type your message and press Enter. The agent will respond with streaming text.
-
-### Slash commands
-
-| Command    | Description                               |
-| ---------- | ----------------------------------------- |
-| `/new`     | Start a new conversation thread           |
-| `/threads` | List all threads for this project         |
-| `/models`  | Select a different AI model               |
-| `/cost`    | Show token usage for current conversation |
-| `/login`   | Authenticate with OAuth providers         |
-| `/logout`  | Log out from a provider                   |
-| `/help`    | Show available commands                   |
-| `/exit`    | Exit the TUI                              |
-
-### Keyboard shortcuts
-
-| Shortcut | Action                            |
-| -------- | --------------------------------- |
-| `Ctrl+C` | Interrupt current operation       |
-| `Ctrl+D` | Exit (when editor is empty)       |
-| `Ctrl+T` | Toggle thinking blocks visibility |
-| `Ctrl+E` | Expand/collapse all tool outputs  |
+On first launch, use the login flow to authenticate with your AI providers.
 
 ## Configuration
 
@@ -87,73 +55,55 @@ OAuth credentials are stored alongside the database in `auth.json`.
 ## Architecture
 
 ```
-┌──────────────────────┐     ┌──────────────────────────────┐
-│         TUI          │     │     Electron Desktop App     │
-│  (pi-tui terminal)   │     │  (React + IPC + node-pty)    │
-└──────────┬───────────┘     └──────────────┬───────────────┘
-           │                                │
-           └──────────┐  ┌─────────────────┘
-                      ▼  ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        Harness                              │
-│  - Mode management (plan, build, fast)                      │
-│  - Thread/message persistence                               │
-│  - Event system for UI updates                              │
-│  - State management with Zod schemas                        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Mastra Agent                           │
-│  - Dynamic model selection                                  │
-│  - Tool execution (view, edit, bash)                        │
-│  - Memory integration                                       │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      LibSQL Storage                         │
-│  - Thread persistence                                       │
-│  - Message history                                          │
-│  - Token usage tracking                                     │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                   Electron Desktop App                       │
+│               (React + IPC + node-pty)                       │
+└──────────────────────────┬───────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                        Harness                               │
+│  (@mastra/core/harness)                                      │
+│  - Mode management (plan, build, fast)                       │
+│  - Thread/message persistence                                │
+│  - Event system for UI updates                               │
+│  - State management with Zod schemas                         │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                      Mastra Agent                            │
+│  - Dynamic model selection                                   │
+│  - Tool execution (view, edit, bash)                         │
+│  - Memory integration                                        │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│                      LibSQL Storage                          │
+│  - Thread persistence                                        │
+│  - Message history                                           │
+│  - Token usage tracking                                      │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Both frontends share the same Harness — neither forks or duplicates agent logic. The Electron app communicates with the Harness over IPC and inherits any changes (new tools, modes, providers) automatically.
+The Electron main process instantiates the Harness and communicates with the React renderer over IPC. Changes to tools, modes, or providers are picked up automatically.
 
-## Electron Desktop App
-
-A native macOS desktop app with a multi-panel IDE interface: chat, file explorer, git panel, embedded terminal, and multi-thread tabs. It wraps the shared Harness over IPC without forking it.
-
-```bash
-pnpm dev:electron                    # dev with hot-reload
-pnpm build:electron && pnpm preview:electron   # production build
-```
-
-See [src/electron/README.md](src/electron/README.md) for architecture details.
+See [src/electron/README.md](src/electron/README.md) for detailed architecture notes.
 
 ## Development
 
 ```bash
-# TUI
-pnpm start            # run
-pnpm dev              # run with watch
-
-# Electron
-pnpm dev:electron     # dev with hot-reload
-
-# Type check
-pnpm typecheck
-
-# Build
-pnpm build            # TUI
-pnpm build:electron   # Electron
+pnpm dev          # run with hot-reload
+pnpm build        # production build
+pnpm typecheck    # type check
+pnpm test         # run tests
+pnpm format       # format with prettier
 ```
 
 ## Credits
 
 - [Mastra](https://mastra.ai) - AI agent framework
-- [pi-mono](https://github.com/badlogic/pi-mono) - TUI primitives and inspiration
 - [OpenCode](https://github.com/sst/opencode) - OAuth provider patterns
 
 ## License
