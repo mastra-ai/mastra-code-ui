@@ -872,17 +872,44 @@ export function App() {
 	const handleSend = useCallback(async (content: string) => {
 		// Ensure AudioContext is created during this user gesture
 		ensureAudioContext()
+
+		let finalContent = content
+
+		// Process slash commands
+		if (content.startsWith("/")) {
+			const spaceIndex = content.indexOf(" ")
+			const commandName =
+				spaceIndex === -1 ? content.slice(1) : content.slice(1, spaceIndex)
+			const args =
+				spaceIndex === -1
+					? []
+					: content
+							.slice(spaceIndex + 1)
+							.trim()
+							.split(/\s+/)
+
+			try {
+				finalContent = (await window.api.invoke({
+					type: "processSlashCommand",
+					commandName,
+					args,
+				})) as string
+			} catch {
+				// Command not found — send as-is
+			}
+		}
+
 		// Optimistically add the user message (harness doesn't emit message_start for user messages)
 		dispatch({
 			type: "MESSAGE_START",
 			message: {
 				id: `user-${Date.now()}`,
 				role: "user",
-				content: [{ type: "text", text: content }],
+				content: [{ type: "text", text: finalContent }],
 				createdAt: new Date().toISOString(),
 			},
 		})
-		await window.api.invoke({ type: "sendMessage", content })
+		await window.api.invoke({ type: "sendMessage", content: finalContent })
 	}, [])
 
 	const handleAbort = useCallback(async () => {

@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react"
+import { useSlashAutocomplete } from "./SlashCommandAutocomplete"
 
 interface EditorInputProps {
 	onSend: (content: string) => void
@@ -21,13 +22,37 @@ export function EditorInput({
 }: EditorInputProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null)
 	const [value, setValue] = useState("")
+	const [showSlashMenu, setShowSlashMenu] = useState(false)
+	const [slashFilter, setSlashFilter] = useState("")
 
 	useEffect(() => {
 		textareaRef.current?.focus()
 	}, [isAgentActive])
 
+	const handleCommandSelect = useCallback((commandName: string) => {
+		setValue(`/${commandName} `)
+		setShowSlashMenu(false)
+		textareaRef.current?.focus()
+	}, [])
+
+	const handleSlashClose = useCallback(() => {
+		setShowSlashMenu(false)
+	}, [])
+
+	const slash = useSlashAutocomplete(
+		slashFilter,
+		showSlashMenu,
+		handleCommandSelect,
+		handleSlashClose,
+	)
+
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
+			// Delegate to slash autocomplete first when open
+			if (showSlashMenu && slash.handleKeyDown(e)) {
+				return
+			}
+
 			if (e.key === "Enter" && !e.shiftKey) {
 				e.preventDefault()
 				if (isAgentActive) return
@@ -35,17 +60,28 @@ export function EditorInput({
 				if (!trimmed) return
 				onSend(trimmed)
 				setValue("")
+				setShowSlashMenu(false)
 			}
 			if (e.key === "Escape" && isAgentActive) {
 				onAbort()
 			}
 		},
-		[value, isAgentActive, onSend, onAbort],
+		[value, isAgentActive, onSend, onAbort, showSlashMenu, slash],
 	)
 
 	const handleChange = useCallback(
 		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-			setValue(e.target.value)
+			const newVal = e.target.value
+			setValue(newVal)
+
+			// Detect slash commands (only single-line, starting with /)
+			if (newVal.startsWith("/") && !newVal.includes("\n")) {
+				setShowSlashMenu(true)
+				setSlashFilter(newVal.slice(1).split(" ")[0])
+			} else {
+				setShowSlashMenu(false)
+			}
+
 			// Auto-resize
 			const ta = e.target
 			ta.style.height = "auto"
@@ -56,7 +92,6 @@ export function EditorInput({
 
 	const borderColor = modeColors[modeId] ?? "var(--border)"
 
-
 	return (
 		<div
 			style={{
@@ -65,85 +100,89 @@ export function EditorInput({
 				flexShrink: 0,
 			}}
 		>
-			<div
-				style={{
-					display: "flex",
-					alignItems: "flex-end",
-					gap: 8,
-					background: "var(--bg-surface)",
-					border: `1px solid ${borderColor}44`,
-					borderRadius: 8,
-					padding: "8px 12px",
-					transition: "border-color 0.15s",
-				}}
-			>
-				<textarea
-					ref={textareaRef}
-					value={value}
-					onChange={handleChange}
-					onKeyDown={handleKeyDown}
-					placeholder={
-						isAgentActive
-							? "Agent is running... (Esc to abort)"
-							: "Send a message... (Enter to send, Shift+Enter for newline)"
-					}
-					disabled={isAgentActive}
-					rows={1}
+			<div style={{ position: "relative" }}>
+				{slash.element}
+				<div
 					style={{
-						flex: 1,
-						background: "transparent",
-						border: "none",
-						outline: "none",
-						color: "var(--text)",
-						fontSize: 13,
-						fontFamily: "inherit",
-						lineHeight: 1.5,
-						resize: "none",
-						minHeight: 20,
-						maxHeight: 200,
-						opacity: isAgentActive ? 0.5 : 1,
+						display: "flex",
+						alignItems: "flex-end",
+						gap: 8,
+						background: "var(--bg-surface)",
+						border: `1px solid ${borderColor}44`,
+						borderRadius: 8,
+						padding: "8px 12px",
+						transition: "border-color 0.15s",
 					}}
-				/>
-				{isAgentActive ? (
-					<button
-						onClick={onAbort}
+				>
+					<textarea
+						ref={textareaRef}
+						value={value}
+						onChange={handleChange}
+						onKeyDown={handleKeyDown}
+						placeholder={
+							isAgentActive
+								? "Agent is running... (Esc to abort)"
+								: "Send a message... (Enter to send, Shift+Enter for newline)"
+						}
+						disabled={isAgentActive}
+						rows={1}
 						style={{
-							padding: "4px 12px",
-							background: "var(--error)",
-							color: "#fff",
-							borderRadius: 4,
-							fontSize: 11,
-							fontWeight: 500,
-							cursor: "pointer",
-							flexShrink: 0,
+							flex: 1,
+							background: "transparent",
+							border: "none",
+							outline: "none",
+							color: "var(--text)",
+							fontSize: 13,
+							fontFamily: "inherit",
+							lineHeight: 1.5,
+							resize: "none",
+							minHeight: 20,
+							maxHeight: 200,
+							opacity: isAgentActive ? 0.5 : 1,
 						}}
-					>
-						Stop
-					</button>
-				) : (
-					<button
-						onClick={() => {
-							const trimmed = value.trim()
-							if (!trimmed) return
-							onSend(trimmed)
-							setValue("")
-						}}
-						style={{
-							padding: "4px 12px",
-							background: value.trim()
-								? "var(--accent)"
-								: "var(--bg-elevated)",
-							color: value.trim() ? "#fff" : "var(--dim)",
-							borderRadius: 4,
-							fontSize: 11,
-							fontWeight: 500,
-							cursor: value.trim() ? "pointer" : "default",
-							flexShrink: 0,
-						}}
-					>
-						Send
-					</button>
-				)}
+					/>
+					{isAgentActive ? (
+						<button
+							onClick={onAbort}
+							style={{
+								padding: "4px 12px",
+								background: "var(--error)",
+								color: "#fff",
+								borderRadius: 4,
+								fontSize: 11,
+								fontWeight: 500,
+								cursor: "pointer",
+								flexShrink: 0,
+							}}
+						>
+							Stop
+						</button>
+					) : (
+						<button
+							onClick={() => {
+								const trimmed = value.trim()
+								if (!trimmed) return
+								onSend(trimmed)
+								setValue("")
+								setShowSlashMenu(false)
+							}}
+							style={{
+								padding: "4px 12px",
+								background: value.trim()
+									? "var(--accent)"
+									: "var(--bg-elevated)",
+								color: value.trim() ? "#fff" : "var(--dim)",
+								borderRadius: 4,
+								fontSize: 11,
+								fontWeight: 500,
+								cursor: value.trim() ? "pointer" : "default",
+								flexShrink: 0,
+							}}
+						>
+							Send
+						</button>
+					)}
+				</div>
 			</div>
 		</div>
 	)

@@ -64,6 +64,12 @@ export function ModelSelector({
 		{} as Record<string, ModelInfo[]>,
 	)
 
+	// Derive per-provider auth status
+	const providerAuth: Record<string, boolean> = {}
+	for (const [provider, providerModels] of Object.entries(grouped)) {
+		providerAuth[provider] = providerModels.some((m) => m.hasAuth)
+	}
+
 	return (
 		<div
 			style={{
@@ -129,9 +135,43 @@ export function ModelSelector({
 									color: "var(--muted)",
 									textTransform: "uppercase",
 									fontWeight: 600,
+									display: "flex",
+									alignItems: "center",
+									gap: 6,
 								}}
 							>
 								{provider}
+								{providerAuth[provider] ? (
+									<span
+										style={{
+											background: "#05966922",
+											color: "#059669",
+											padding: "0px 6px",
+											borderRadius: 3,
+											fontWeight: 500,
+											fontSize: 9,
+											textTransform: "none",
+											border: "1px solid #05966944",
+										}}
+									>
+										Connected
+									</span>
+								) : (
+									<span
+										style={{
+											background: "#ef444422",
+											color: "#ef4444",
+											padding: "0px 6px",
+											borderRadius: 3,
+											fontWeight: 500,
+											fontSize: 9,
+											textTransform: "none",
+											border: "1px solid #ef444444",
+										}}
+									>
+										Not connected
+									</span>
+								)}
 							</div>
 							{providerModels.map((m) => (
 								<button
@@ -142,7 +182,7 @@ export function ModelSelector({
 										width: "100%",
 										padding: "6px 8px",
 										textAlign: "left",
-										cursor: "pointer",
+										cursor: m.hasAuth ? "pointer" : "default",
 										borderRadius: 4,
 										background:
 											m.id === currentModelId
@@ -152,10 +192,24 @@ export function ModelSelector({
 										color:
 											m.id === currentModelId
 												? "var(--accent)"
-												: "var(--text)",
+												: m.hasAuth
+													? "var(--text)"
+													: "var(--muted)",
+										opacity: m.hasAuth ? 1 : 0.5,
 									}}
 								>
 									{m.name || m.id.split("/").pop()}
+									{!m.hasAuth && (
+										<span
+											style={{
+												marginLeft: 6,
+												fontSize: 10,
+												color: "var(--muted)",
+											}}
+										>
+											(no auth)
+										</span>
+									)}
 								</button>
 							))}
 						</div>

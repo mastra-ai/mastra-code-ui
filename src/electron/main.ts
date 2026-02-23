@@ -708,6 +708,23 @@ function registerIpcHandlers(
 				return
 			case "getAvailableModels":
 				return await h.getAvailableModels()
+			case "getSlashCommands": {
+				const { loadCustomCommands } =
+					await import("../utils/slash-command-loader.js")
+				return await loadCustomCommands(projectRoot)
+			}
+			case "processSlashCommand": {
+				const { loadCustomCommands } =
+					await import("../utils/slash-command-loader.js")
+				const { processSlashCommand } =
+					await import("../utils/slash-command-processor.js")
+				const commands = await loadCustomCommands(projectRoot)
+				const cmd = commands.find(
+					(c: { name: string }) => c.name === command.commandName,
+				)
+				if (!cmd) throw new Error(`Unknown command: /${command.commandName}`)
+				return await processSlashCommand(cmd, command.args ?? [], projectRoot)
+			}
 			case "getMessages":
 				return await h.getMessages({ limit: command.limit })
 			case "getModes":
