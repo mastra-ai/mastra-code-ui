@@ -392,6 +392,7 @@ export function App() {
 	const [unreadWorktrees, setUnreadWorktrees] = useState<Set<string>>(new Set())
 	const [activeWorktrees, setActiveWorktrees] = useState<Set<string>>(new Set())
 	const projectInfoRef = useRef<ProjectInfo | null>(null)
+	const notificationPrefRef = useRef<string>("off")
 
 	// Keep ref in sync for use in event handler closure
 	useEffect(() => {
@@ -443,17 +444,24 @@ export function App() {
 	useEffect(() => {
 		const unsubscribe = window.api.onEvent((raw: unknown) => {
 			const event = raw as HarnessEventPayload
+			const worktreePath = (event as any).worktreePath as string | undefined
+			const isActiveWorktree = !worktreePath || worktreePath === projectInfoRef.current?.rootPath
+
 			switch (event.type) {
 				case "agent_start":
-					dispatch({ type: "AGENT_START" })
-					if (projectInfoRef.current?.rootPath) {
+					if (isActiveWorktree) dispatch({ type: "AGENT_START" })
+					if (worktreePath) {
+						setActiveWorktrees((prev) => new Set(prev).add(worktreePath))
+					} else if (projectInfoRef.current?.rootPath) {
 						setActiveWorktrees((prev) => new Set(prev).add(projectInfoRef.current!.rootPath))
 					}
 					break
 				case "agent_end": {
-					dispatch({ type: "AGENT_END" })
-					loadThreads()
-					const endPath = projectInfoRef.current?.rootPath
+					const endPath = worktreePath || projectInfoRef.current?.rootPath
+					if (isActiveWorktree) {
+						dispatch({ type: "AGENT_END" })
+						loadThreads()
+					}
 					if (endPath) {
 						setActiveWorktrees((prev) => {
 							const next = new Set(prev)
@@ -462,32 +470,35 @@ export function App() {
 						})
 						setUnreadWorktrees((prev) => new Set(prev).add(endPath))
 					}
-					playCompletionSound()
+					const pref = notificationPrefRef.current
+					if (pref === "bell" || pref === "both") {
+						playCompletionSound()
+					}
 					break
 				}
 				case "thread_title_updated":
 					loadThreads()
 					break
 				case "message_start":
-					dispatch({
+					if (isActiveWorktree) dispatch({
 						type: "MESSAGE_START",
 						message: event.message as Message,
 					})
 					break
 				case "message_update":
-					dispatch({
+					if (isActiveWorktree) dispatch({
 						type: "MESSAGE_UPDATE",
 						message: event.message as Message,
 					})
 					break
 				case "message_end":
-					dispatch({
+					if (isActiveWorktree) dispatch({
 						type: "MESSAGE_END",
 						message: event.message as Message,
 					})
 					break
 				case "tool_start":
-					dispatch({
+					if (isActiveWorktree) dispatch({
 						type: "TOOL_START",
 						id: event.toolCallId as string,
 						name: event.toolName as string,
@@ -495,14 +506,14 @@ export function App() {
 					})
 					break
 				case "tool_update":
-					dispatch({
+					if (isActiveWorktree) dispatch({
 						type: "TOOL_UPDATE",
 						id: event.toolCallId as string,
 						partialResult: event.partialResult,
 					})
 					break
 				case "tool_end":
-					dispatch({
+					if (isActiveWorktree) dispatch({
 						type: "TOOL_END",
 						id: event.toolCallId as string,
 						result: event.result,
@@ -510,7 +521,7 @@ export function App() {
 					})
 					break
 				case "shell_output":
-					dispatch({
+					if (isActiveWorktree) dispatch({
 						type: "SHELL_OUTPUT",
 						id: event.toolCallId as string,
 						output: event.output as string,
@@ -789,6 +800,7 @@ export function App() {
 
 			const state = (await window.api.invoke({ type: "getState" })) as {
 				currentModelId?: string
+				notifications?: string
 				todos?: Array<{
 					content: string
 					status: "pending" | "in_progress" | "completed"
@@ -797,6 +809,7 @@ export function App() {
 			}
 			if (state?.currentModelId) setModelId(state.currentModelId)
 			if (state?.todos) setTodos(state.todos)
+			if (state?.notifications) notificationPrefRef.current = state.notifications
 
 			const usage = (await window.api.invoke({
 				type: "getTokenUsage",

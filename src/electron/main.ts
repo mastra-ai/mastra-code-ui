@@ -77,11 +77,70 @@ const __dirname = path.dirname(__filename)
 // App state
 // =============================================================================
 let mainWindow: BrowserWindow | null = null
-let harness: Harness<any> | null = null
-let mcpManager: MCPManager | null = null
-let projectRoot: string = process.cwd()
-const ptySessions = new Map<string, pty.IPty>()
-let harnessUnsubscribe: (() => void) | null = null
+
+// Session map for worktree isolation — each worktree gets its own harness
+interface WorktreeSession {
+	harness: Harness<any>
+	mcpManager: MCPManager
+	resolveModel: (modelId: string) => any
+	authStorage: AuthStorage
+	projectRoot: string
+	unsubscribe: (() => void) | null
+	ptySessions: Map<string, pty.IPty>
+}
+
+const sessions = new Map<string, WorktreeSession>()
+let activeSessionPath: string = process.cwd()
+
+function getActiveSession(): WorktreeSession {
+	return sessions.get(activeSessionPath)!
+}
+
+// Cached editor for "open in editor" feature
+let detectedEditor: { cmd: string; gotoFlag: string } | null | undefined =
+	undefined
+
+// =============================================================================
+// Desktop Notification Helper
+// =============================================================================
+function sendDesktopNotification(title: string, body: string) {
+	const session = sessions.get(activeSessionPath)
+	if (!session) return
+	try {
+		const state = session.harness.getState()
+		const pref = (state as any)?.notifications ?? "off"
+		if (pref === "system" || pref === "both") {
+			new Notification({ title, body }).show()
+		}
+	} catch {
+		// Non-critical
+	}
+}
+
+// =============================================================================
+// Editor Detection Helper
+// =============================================================================
+function detectEditor(): { cmd: string; gotoFlag: string } | null {
+	if (detectedEditor !== undefined) return detectedEditor
+	const { execSync } =
+		require("child_process") as typeof import("child_process")
+	const editors = [
+		{ cmd: "cursor", gotoFlag: "--goto" },
+		{ cmd: "code", gotoFlag: "--goto" },
+		{ cmd: "subl", gotoFlag: "" },
+	]
+	for (const editor of editors) {
+		try {
+			execSync(`which ${editor.cmd}`, { stdio: "pipe" })
+			detectedEditor = editor
+			return editor
+		} catch {
+			// Not found
+		}
+	}
+	detectedEditor = null
+	return null
+}
 
 // =============================================================================
 // Gateway Sync
@@ -639,12 +698,14 @@ async function deleteThread(h: Harness<any>, threadId: string): Promise<void> {
 // =============================================================================
 // IPC Handlers
 // =============================================================================
-function registerIpcHandlers(
-	h: Harness<any>,
-	resolveModel: (modelId: string) => any,
-	authStorage: AuthStorage,
-) {
+function registerIpcHandlers() {
 	ipcMain.handle("harness:command", async (_event, command) => {
+		const s = getActiveSession()
+		const h = s.harness
+		const resolveModel = s.resolveModel
+		const authStorage = s.authStorage
+		const projectRoot = s.projectRoot
+
 		switch (command.type) {
 			case "sendMessage": {
 				const threadBefore = h.getCurrentThreadId()
@@ -836,6 +897,31 @@ function registerIpcHandlers(
 			case "openExternal":
 				shell.openExternal(command.url as string)
 				return
+			case "openInEditor": {
+				const filePath = path.resolve(projectRoot, command.filePath as string)
+				const line = (command.line as number) ?? 1
+				const editor = detectEditor()
+				if (editor) {
+					const { execSync: exec } =
+						require("child_process") as typeof import("child_process")
+					try {
+						if (editor.gotoFlag) {
+							// cursor/code style: --goto file:line
+							exec(`"${editor.cmd}" ${editor.gotoFlag} "${filePath}:${line}"`, {
+								stdio: "pipe",
+							})
+						} else {
+							// subl style: file:line
+							exec(`"${editor.cmd}" "${filePath}:${line}"`, { stdio: "pipe" })
+						}
+					} catch {
+						shell.openPath(filePath)
+					}
+				} else {
+					shell.openPath(filePath)
+				}
+				return
+			}
 			case "logout":
 				authStorage.logout(command.providerId)
 				return
@@ -943,7 +1029,7 @@ function registerIpcHandlers(
 				} catch (err) {
 					throw err
 				}
-				ptySessions.set(sessionId, ptyProcess)
+				s.ptySessions.set(sessionId, ptyProcess)
 				ptyProcess.onData((data: string) => {
 					mainWindow?.webContents.send("harness:event", {
 						type: "pty_output",
@@ -959,27 +1045,27 @@ function registerIpcHandlers(
 							exitCode,
 							signal,
 						})
-						ptySessions.delete(sessionId)
+						s.ptySessions.delete(sessionId)
 					},
 				)
 				return { sessionId }
 			}
 			case "ptyWrite": {
-				const session = ptySessions.get(command.sessionId as string)
-				if (session) session.write(command.data as string)
+				const ptySession = s.ptySessions.get(command.sessionId as string)
+				if (ptySession) ptySession.write(command.data as string)
 				return
 			}
 			case "ptyResize": {
-				const session = ptySessions.get(command.sessionId as string)
-				if (session)
-					session.resize(command.cols as number, command.rows as number)
+				const ptySession = s.ptySessions.get(command.sessionId as string)
+				if (ptySession)
+					ptySession.resize(command.cols as number, command.rows as number)
 				return
 			}
 			case "ptyDestroy": {
-				const session = ptySessions.get(command.sessionId as string)
-				if (session) {
-					session.kill()
-					ptySessions.delete(command.sessionId as string)
+				const ptySession = s.ptySessions.get(command.sessionId as string)
+				if (ptySession) {
+					ptySession.kill()
+					s.ptySessions.delete(command.sessionId as string)
 				}
 				return
 			}
@@ -1307,31 +1393,32 @@ function registerIpcHandlers(
 			}
 			case "switchProject": {
 				const newPath = command.path as string
-				// Kill all PTY sessions
-				for (const [id, session] of ptySessions) {
-					session.kill()
-					ptySessions.delete(id)
+
+				// If we already have a session for this path, just switch to it
+				if (sessions.has(newPath)) {
+					activeSessionPath = newPath
+					if (mainWindow) bridgeAllEvents(mainWindow)
+				} else {
+					// Create a new session (old session stays alive in background)
+					const result2 = await createHarness(newPath)
+					const newSession: WorktreeSession = {
+						harness: result2.harness,
+						mcpManager: result2.mcpManager,
+						resolveModel: result2.resolveModel,
+						authStorage: result2.authStorage,
+						projectRoot: newPath,
+						unsubscribe: null,
+						ptySessions: new Map(),
+					}
+					sessions.set(newPath, newSession)
+					activeSessionPath = newPath
+					if (mainWindow) bridgeAllEvents(mainWindow)
+					// Initialize
+					await newSession.harness.init()
+					if (newSession.mcpManager.hasServers())
+						await newSession.mcpManager.init()
 				}
-				// Disconnect MCP
-				if (mcpManager) await mcpManager.disconnect()
-				// Clean up old harness subscription
-				if (harnessUnsubscribe) {
-					harnessUnsubscribe()
-					harnessUnsubscribe = null
-				}
-				// Remove old IPC handler
-				ipcMain.removeHandler("harness:command")
-				// Recreate harness
-				const result2 = await createHarness(newPath)
-				harness = result2.harness
-				mcpManager = result2.mcpManager
-				projectRoot = newPath
-				// Re-register handlers and bridge
-				registerIpcHandlers(harness, result2.resolveModel, result2.authStorage)
-				if (mainWindow) bridgeEvents(harness, mainWindow)
-				// Initialize
-				await harness.init()
-				if (mcpManager.hasServers()) await mcpManager.init()
+
 				// Save to recent projects
 				const project = detectProject(newPath)
 				saveRecentProject(newPath, project.name)
@@ -1356,29 +1443,82 @@ function registerIpcHandlers(
 }
 
 // =============================================================================
-// Bridge Harness events to renderer
+// Bridge Harness events to renderer (all sessions, tagged with worktreePath)
 // =============================================================================
-function bridgeEvents(h: Harness<any>, window: BrowserWindow) {
-	if (harnessUnsubscribe) {
-		harnessUnsubscribe()
-		harnessUnsubscribe = null
-	}
-	harnessUnsubscribe = h.subscribe((event) => {
-		if (window.isDestroyed()) return
-
-		// Serialize Error objects for IPC (structured clone doesn't handle them)
-		const serialized = { ...event } as Record<string, unknown>
-		if (event.type === "error" && (event as any).error instanceof Error) {
-			const err = (event as any).error
-			serialized.error = {
-				message: err.message,
-				name: err.name,
-				stack: err.stack,
-			}
+function bridgeAllEvents(window: BrowserWindow) {
+	for (const [sessionPath, session] of sessions) {
+		if (session.unsubscribe) {
+			session.unsubscribe()
+			session.unsubscribe = null
 		}
+		session.unsubscribe = session.harness.subscribe((event) => {
+			if (window.isDestroyed()) return
 
-		window.webContents.send("harness:event", serialized)
-	})
+			// Serialize Error objects for IPC (structured clone doesn't handle them)
+			const serialized = { ...event } as Record<string, unknown>
+			if (event.type === "error" && (event as any).error instanceof Error) {
+				const err = (event as any).error
+				serialized.error = {
+					message: err.message,
+					name: err.name,
+					stack: err.stack,
+				}
+			}
+
+			// Tag with worktree path so the renderer can route events
+			serialized.worktreePath = sessionPath
+
+			// Desktop notifications for key events (only when window not focused)
+			if (!window.isFocused()) {
+				switch (event.type) {
+					case "agent_end":
+						sendDesktopNotification("Agent finished", "Your task is complete")
+						break
+					case "tool_approval_required":
+						sendDesktopNotification(
+							"Approval needed",
+							`Tool: ${(event as any).toolName}`,
+						)
+						break
+					case "ask_question":
+						sendDesktopNotification(
+							"Question from agent",
+							String((event as any).question ?? ""),
+						)
+						break
+					case "plan_approval_required":
+						sendDesktopNotification(
+							"Plan review",
+							String((event as any).title ?? ""),
+						)
+						break
+					case "error":
+						sendDesktopNotification(
+							"Agent error",
+							String((serialized.error as any)?.message ?? "An error occurred"),
+						)
+						break
+				}
+			}
+
+			window.webContents.send("harness:event", serialized)
+		})
+	}
+}
+
+// =============================================================================
+// Session cleanup
+// =============================================================================
+function cleanupSession(sessionPath: string) {
+	const session = sessions.get(sessionPath)
+	if (!session) return
+	if (session.unsubscribe) session.unsubscribe()
+	for (const [, ptySession] of session.ptySessions) {
+		ptySession.kill()
+	}
+	session.ptySessions.clear()
+	session.mcpManager.disconnect().catch(() => {})
+	sessions.delete(sessionPath)
 }
 
 // =============================================================================
@@ -1564,27 +1704,35 @@ app.whenReady().then(async () => {
 			(a) =>
 				!a.startsWith("-") && a !== process.argv[0] && a !== process.argv[1],
 		) || process.cwd()
-	projectRoot = projectPath
+	activeSessionPath = projectPath
 
 	// Create window and menu
 	createWindow()
 	setupMenu()
 
-	// Create harness
+	// Create initial session
 	const result = await createHarness(projectPath)
-	harness = result.harness
-	mcpManager = result.mcpManager
+	const initialSession: WorktreeSession = {
+		harness: result.harness,
+		mcpManager: result.mcpManager,
+		resolveModel: result.resolveModel,
+		authStorage: result.authStorage,
+		projectRoot: projectPath,
+		unsubscribe: null,
+		ptySessions: new Map(),
+	}
+	sessions.set(projectPath, initialSession)
 
 	// Register IPC and bridge events
-	registerIpcHandlers(harness, result.resolveModel, result.authStorage)
-	if (mainWindow) bridgeEvents(harness, mainWindow)
+	registerIpcHandlers()
+	if (mainWindow) bridgeAllEvents(mainWindow)
 
 	// Initialize harness
-	await harness.init()
+	await initialSession.harness.init()
 
 	// Init MCP
-	if (mcpManager.hasServers()) {
-		await mcpManager.init()
+	if (initialSession.mcpManager.hasServers()) {
+		await initialSession.mcpManager.init()
 	}
 
 	// Redirect console noise to log file
@@ -1616,17 +1764,10 @@ app.whenReady().then(async () => {
 })
 
 app.on("window-all-closed", async () => {
-	// Kill all PTY sessions
-	for (const [id, session] of ptySessions) {
-		session.kill()
-		ptySessions.delete(id)
+	// Clean up all worktree sessions
+	for (const sessionPath of [...sessions.keys()]) {
+		cleanupSession(sessionPath)
 	}
-	// Clean up harness subscription
-	if (harnessUnsubscribe) {
-		harnessUnsubscribe()
-		harnessUnsubscribe = null
-	}
-	if (mcpManager) await mcpManager.disconnect()
 	app.quit()
 })
 

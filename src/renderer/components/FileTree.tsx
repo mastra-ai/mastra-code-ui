@@ -182,37 +182,106 @@ function FileNode({
 	onFileClick?: (filePath: string) => void
 	isActive?: boolean
 }) {
+	const [contextMenu, setContextMenu] = useState<{
+		x: number
+		y: number
+	} | null>(null)
+
+	useEffect(() => {
+		if (!contextMenu) return
+		const dismiss = () => setContextMenu(null)
+		window.addEventListener("click", dismiss)
+		window.addEventListener("keydown", (e) => {
+			if (e.key === "Escape") dismiss()
+		})
+		return () => {
+			window.removeEventListener("click", dismiss)
+		}
+	}, [contextMenu])
+
 	return (
-		<button
-			onClick={() => onFileClick?.(entry.path)}
-			style={{
-				display: "flex",
-				alignItems: "center",
-				width: "100%",
-				padding: "3px 8px",
-				paddingLeft: isActive ? 18 + depth * 16 : 20 + depth * 16,
-				fontSize: 12,
-				color: "var(--text)",
-				textAlign: "left",
-				cursor: "pointer",
-				borderRadius: 0,
-				background: isActive ? "var(--selected-bg)" : "transparent",
-				borderLeft: isActive
-					? "2px solid var(--accent)"
-					: "2px solid transparent",
-			}}
-		>
-			<FileIcon isDirectory={false} name={entry.name} />
-			<span
+		<>
+			<button
+				onClick={() => onFileClick?.(entry.path)}
+				onContextMenu={(e) => {
+					e.preventDefault()
+					setContextMenu({ x: e.clientX, y: e.clientY })
+				}}
 				style={{
-					overflow: "hidden",
-					textOverflow: "ellipsis",
-					whiteSpace: "nowrap",
+					display: "flex",
+					alignItems: "center",
+					width: "100%",
+					padding: "3px 8px",
+					paddingLeft: isActive ? 18 + depth * 16 : 20 + depth * 16,
+					fontSize: 12,
+					color: "var(--text)",
+					textAlign: "left",
+					cursor: "pointer",
+					borderRadius: 0,
+					background: isActive ? "var(--selected-bg)" : "transparent",
+					borderLeft: isActive
+						? "2px solid var(--accent)"
+						: "2px solid transparent",
 				}}
 			>
-				{entry.name}
-			</span>
-		</button>
+				<FileIcon isDirectory={false} name={entry.name} />
+				<span
+					style={{
+						overflow: "hidden",
+						textOverflow: "ellipsis",
+						whiteSpace: "nowrap",
+					}}
+				>
+					{entry.name}
+				</span>
+			</button>
+			{contextMenu && (
+				<div
+					style={{
+						position: "fixed",
+						left: contextMenu.x,
+						top: contextMenu.y,
+						background: "var(--bg-elevated)",
+						border: "1px solid var(--border)",
+						borderRadius: 6,
+						padding: 4,
+						zIndex: 200,
+						boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+					}}
+				>
+					<button
+						onClick={() => {
+							window.api.invoke({
+								type: "openInEditor",
+								filePath: entry.path,
+								line: 1,
+							})
+							setContextMenu(null)
+						}}
+						style={{
+							display: "block",
+							width: "100%",
+							padding: "6px 12px",
+							fontSize: 12,
+							color: "var(--text)",
+							textAlign: "left",
+							cursor: "pointer",
+							borderRadius: 4,
+							background: "transparent",
+							whiteSpace: "nowrap",
+						}}
+						onMouseEnter={(e) => {
+							e.currentTarget.style.background = "var(--accent)" + "22"
+						}}
+						onMouseLeave={(e) => {
+							e.currentTarget.style.background = "transparent"
+						}}
+					>
+						Open in Editor
+					</button>
+				</div>
+			)}
+		</>
 	)
 }
 

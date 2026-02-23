@@ -206,6 +206,28 @@ export function FileEditor({ filePath, onClose }: FileEditorProps) {
 				{saving && (
 					<span style={{ color: "var(--muted)" }}>Saving...</span>
 				)}
+				<button
+					onClick={() => {
+						window.api.invoke({
+							type: "openInEditor",
+							filePath,
+							line: 1,
+						})
+					}}
+					title="Open in external editor"
+					style={{
+						fontSize: 11,
+						color: "var(--muted)",
+						cursor: "pointer",
+						padding: "2px 8px",
+						borderRadius: 3,
+						border: "1px solid var(--border)",
+						background: "transparent",
+						fontWeight: 500,
+					}}
+				>
+					Open in Editor
+				</button>
 				{isDirty && !saving && (
 					<button
 						onClick={handleSave}
