@@ -47,6 +47,18 @@ import {
 	getDatabasePath,
 	getAppDataDir,
 } from "../utils/project.js"
+import {
+	SessionGrants,
+	createDefaultRules,
+	resolveApproval,
+	getToolCategory,
+	TOOL_CATEGORIES,
+	DEFAULT_POLICIES,
+	YOLO_POLICIES,
+	type PermissionRules,
+	type ToolCategory,
+	type PermissionPolicy,
+} from "../permissions.js"
 import { startGatewaySync } from "../utils/gateway-sync.js"
 import {
 	createViewTool,
@@ -83,6 +95,8 @@ interface WorktreeSession {
 	projectRoot: string
 	unsubscribe: (() => void) | null
 	ptySessions: Map<string, pty.IPty>
+	permissionRules: PermissionRules
+	sessionGrants: SessionGrants
 }
 
 const sessions = new Map<string, WorktreeSession>()
@@ -639,6 +653,8 @@ async function createHarness(projectPath: string) {
 		mcpManager: _mcpManager,
 		resolveModel,
 		authStorage,
+		permissionRules: createDefaultRules(),
+		sessionGrants: new SessionGrants(),
 	}
 }
 
@@ -769,6 +785,30 @@ function registerIpcHandlers() {
 			case "declineToolCall":
 				h.respondToToolApproval({ decision: "decline" })
 				return
+			case "approveToolCallAlwaysCategory": {
+				// Approve this call AND grant the category for the rest of the session
+				const category = command.category as ToolCategory
+				if (category) s.sessionGrants.allowCategory(category)
+				h.respondToToolApproval({ decision: "approve" })
+				return
+			}
+			case "getPermissionRules":
+				return {
+					rules: s.permissionRules,
+					sessionGrants: s.sessionGrants.getGrantedCategories(),
+					categories: TOOL_CATEGORIES,
+				}
+			case "setPermissionPolicy": {
+				const cat = command.category as ToolCategory
+				const policy = command.policy as PermissionPolicy
+				s.permissionRules.categories[cat] = policy
+				// If setting to "allow", also grant for current session
+				if (policy === "allow") s.sessionGrants.allowCategory(cat)
+				return
+			}
+			case "resetSessionGrants":
+				s.sessionGrants.reset()
+				return
 			case "respondToQuestion":
 				h.respondToQuestion({
 					questionId: command.questionId,
@@ -783,6 +823,12 @@ function registerIpcHandlers() {
 				return
 			case "setYoloMode":
 				await h.setState({ yolo: command.enabled })
+				// Sync permission rules with YOLO mode
+				if (command.enabled) {
+					s.permissionRules.categories = { ...YOLO_POLICIES }
+				} else {
+					s.permissionRules.categories = { ...DEFAULT_POLICIES }
+				}
 				return
 			case "setThinkingLevel":
 				await h.setState({ thinkingLevel: command.level })
@@ -926,8 +972,67 @@ function registerIpcHandlers() {
 				shell.openExternal(command.url as string)
 				return
 			}
-			case "getAvailableModels":
-				return await h.listAvailableModels()
+			case "getAvailableModels": {
+				const rawModels = await h.listAvailableModels()
+				return (rawModels ?? []).map((m: any) => ({
+					id: m.id,
+					name: m.modelName ?? m.name ?? m.id.split("/").pop(),
+					provider: m.provider,
+					hasAuth: m.hasApiKey ?? m.hasAuth ?? false,
+				}))
+			}
+			case "getMcpStatuses":
+				return s.mcpManager.getServerStatuses()
+			case "getMcpConfig":
+				return s.mcpManager.getConfig()
+			case "getMcpConfigPaths":
+				return s.mcpManager.getConfigPaths()
+			case "reloadMcp":
+				await s.mcpManager.reload()
+				return s.mcpManager.getServerStatuses()
+			case "addMcpServer": {
+				const configPath =
+					command.scope === "global"
+						? s.mcpManager.getConfigPaths().global
+						: s.mcpManager.getConfigPaths().project
+				const existing = (() => {
+					try {
+						if (fs.existsSync(configPath)) {
+							return JSON.parse(fs.readFileSync(configPath, "utf-8"))
+						}
+					} catch {}
+					return {}
+				})()
+				if (!existing.mcpServers) existing.mcpServers = {}
+				existing.mcpServers[command.serverName] = {
+					command: command.serverCommand,
+					args: command.serverArgs ?? [],
+					env: command.serverEnv ?? undefined,
+				}
+				const dir = path.dirname(configPath)
+				if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+				fs.writeFileSync(configPath, JSON.stringify(existing, null, 2))
+				await s.mcpManager.reload()
+				return s.mcpManager.getServerStatuses()
+			}
+			case "removeMcpServer": {
+				// Remove from both project and global configs
+				for (const configPath of [
+					s.mcpManager.getConfigPaths().project,
+					s.mcpManager.getConfigPaths().global,
+				]) {
+					try {
+						if (!fs.existsSync(configPath)) continue
+						const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"))
+						if (cfg.mcpServers?.[command.serverName]) {
+							delete cfg.mcpServers[command.serverName]
+							fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2))
+						}
+					} catch {}
+				}
+				await s.mcpManager.reload()
+				return s.mcpManager.getServerStatuses()
+			}
 			case "getSlashCommands": {
 				const { loadCustomCommands } =
 					await import("../utils/slash-command-loader.js")
@@ -1648,6 +1753,8 @@ function registerIpcHandlers() {
 					projectRoot: newPath,
 					unsubscribe: null,
 					ptySessions: new Map(),
+					permissionRules: result2.permissionRules,
+					sessionGrants: result2.sessionGrants,
 				}
 				sessions.set(newPath, newSession)
 				activeSessionPath = newPath
@@ -1680,6 +1787,25 @@ function bridgeAllEvents(window: BrowserWindow) {
 		session.unsubscribe = session.harness.subscribe((event) => {
 			if (window.isDestroyed()) return
 
+			// Auto-resolve tool approvals based on permission rules
+			if (event.type === "tool_approval_required") {
+				const toolName = (event as any).toolName as string
+				const decision = resolveApproval(
+					toolName,
+					session.permissionRules,
+					session.sessionGrants,
+				)
+				if (decision === "allow") {
+					session.harness.respondToToolApproval({ decision: "approve" })
+					return // Don't forward to UI
+				}
+				if (decision === "deny") {
+					session.harness.respondToToolApproval({ decision: "decline" })
+					return
+				}
+				// "ask" — fall through and forward to UI with category info
+			}
+
 			// Serialize Error objects for IPC (structured clone doesn't handle them)
 			const serialized = { ...event } as Record<string, unknown>
 			if (event.type === "error" && (event as any).error instanceof Error) {
@@ -1693,6 +1819,16 @@ function bridgeAllEvents(window: BrowserWindow) {
 
 			// Tag with worktree path so the renderer can route events
 			serialized.worktreePath = sessionPath
+
+			// Attach category info to tool approval events for the UI
+			if (event.type === "tool_approval_required") {
+				const toolName = (event as any).toolName as string
+				const category = getToolCategory(toolName)
+				serialized.category = category
+				serialized.categoryLabel = category
+					? TOOL_CATEGORIES[category]?.label
+					: null
+			}
 
 			// Desktop notifications for key events (only when window not focused)
 			if (!window.isFocused()) {
@@ -1946,6 +2082,8 @@ app.whenReady().then(async () => {
 		projectRoot: projectPath,
 		unsubscribe: null,
 		ptySessions: new Map(),
+		permissionRules: result.permissionRules,
+		sessionGrants: result.sessionGrants,
 	}
 	sessions.set(projectPath, initialSession)
 

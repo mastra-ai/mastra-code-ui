@@ -31,9 +31,9 @@ Built-in code review for agent changes without leaving the app.
 Use more of the published `@mastra/core/harness` capabilities.
 
 - [ ] **Heartbeat handlers** — Wire `heartbeatHandlers` into Harness config for gateway sync, cache refresh, and periodic cleanup instead of external management
-- [-] **Permission system** — Connect `toolCategoryResolver` and use harness permission methods (`grantSessionCategory`, `setPermissionCategory`, `getPermissionRules`) instead of the external permission layer _(full permission engine in `src/permissions.ts` with category resolver and session grants, but it's orphaned — not wired into the harness or UI)_
+- [x] **Permission system** — Connect `toolCategoryResolver` and use harness permission methods (`grantSessionCategory`, `setPermissionCategory`, `getPermissionRules`) instead of the external permission layer _(permission engine wired into event subscription for auto-approve/deny; "Always allow category" button in ToolApprovalDialog; Permissions settings tab with per-category policies and session grants)_
 - [ ] **Observational Memory events** — Call `harness.loadOMProgress()` on thread switch and surface OM events (observation start/end, reflection, buffering, activation) in the UI
-- [-] **Available models API** — Use `harness.getAvailableModels()` for the model selector with auth status and usage counts built in _(`hasAuth` is fetched per provider but not rendered in the model selector UI)_
+- [x] **Available models API** — Use `harness.getAvailableModels()` for the model selector with auth status and usage counts built in _(IPC handler now maps `hasApiKey`→`hasAuth` and `modelName`→`name`; Connected/Not connected badges and per-model auth state rendered in ModelSelector)_
 - [ ] **Workspace events** — Listen to `workspace_status_changed`, `workspace_ready`, `workspace_error`, `follow_up_queued` events
 
 ## Upstream Harness Gaps
@@ -52,7 +52,7 @@ Structured task tracking and context sharing across agents.
 
 - [-] **Task board** — Visual kanban or list view of todos with status, assignee (agent), and dependencies _(read-only todo progress widget exists; no interactive kanban, no assignment or dependency tracking)_
 - [-] **Context files** — Persistent markdown specs and plans that live alongside code (like Conductor's context-driven development) _(AGENT.md/CLAUDE.md auto-injected into system prompt via `agent-instructions.ts`; no UI for browsing or editing context files)_
-- [-] **Slash commands** — Custom user-defined slash commands for common workflows _(backend loader and processor fully implemented in `slash-command-loader.ts` / `slash-command-processor.ts`; never called from the UI)_
+- [x] **Slash commands** — Custom user-defined slash commands for common workflows _(fully wired end-to-end: EditorInput detects `/` and triggers SlashCommandAutocomplete, App.tsx handleSend processes commands via IPC, main.ts loads and expands command templates)_
 - [ ] **Workspace presets** — Scripted environment setup (install deps, start servers, seed data) that runs automatically when creating a new agent workspace
 
 ## IDE & Editor Integration
@@ -63,21 +63,22 @@ Structured task tracking and context sharing across agents.
 
 ## MCP & Tool Extensibility
 
-- [-] **MCP server management UI** — Configure, toggle, and monitor MCP servers from the app (user, project, and local scopes) _(backend config management in `src/mcp/` supports all three scopes; no UI to configure or monitor)_
+- [x] **MCP server management UI** — Configure, toggle, and monitor MCP servers from the app (user, project, and local scopes) _(MCP tab in Settings shows server statuses with connection indicator, tool count, and tool names; add/remove servers with project or global scope; reload all servers)_
 - [ ] **Wire MCP through Harness** — Pass `mcpManager` through `HarnessConfig` instead of external management
 - [ ] **Native toolsets** — Wire `getToolsets` through Harness to enable Anthropic native web search and other provider-specific tools
-- [-] **Tool confirmation with `always_allow_category`** — Surface the harness's category-level auto-approve in the UI (not just per-call approve/decline) _(permission categories defined and resolvers written; UI only shows per-call approve/decline)_
+- [x] **Tool confirmation with `always_allow_category`** — Surface the harness's category-level auto-approve in the UI (not just per-call approve/decline) _(ToolApprovalDialog now includes "Always allow [category]" button that grants session-wide auto-approve for the category)_
 
 ## Multi-Provider Auth
 
 - [ ] **Google Vertex / Gemini auth** — OAuth flow for Google AI providers
 - [ ] **OpenRouter integration** — API key management for OpenRouter models
 - [ ] **Bedrock auth** — AWS credential management for Bedrock models
-- [-] **Auth status in model selector** — Show login state per provider inline in the model picker (using `harness.getAvailableModels()`) _(`hasAuth` fetched but not displayed in `ModelSelector.tsx`)_
+- [x] **Auth status in model selector** — Show login state per provider inline in the model picker (using `harness.getAvailableModels()`) _(field mapping fixed in IPC handler; Connected/Not connected badges per provider displayed in ModelSelector)_
 
 ## Platform
 
 - [ ] **Linux support**
 - [ ] **Windows support**
-- [ ] **Auto-updates** — In-app update mechanism
+- [ ] **Electron Builder packaging** — Use `electron-builder` to produce platform-specific installers (`.dmg` for macOS, `.exe`/NSIS for Windows, `.AppImage`/`.deb` for Linux) with code signing and notarization
+- [ ] **Auto-updates** — Integrate `electron-updater` for in-app update mechanism (check for updates on launch, download in background, prompt user to restart); host releases on GitHub Releases or a custom update server
 - [ ] **Workspace sharing** — Export/import workspace configs (scripts, MCP servers, slash commands) via a shared config file

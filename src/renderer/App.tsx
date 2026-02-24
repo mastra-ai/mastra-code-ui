@@ -370,7 +370,6 @@ export function App() {
 	const [threads, setThreads] = useState<ThreadInfo[]>([])
 	const [currentThreadId, setCurrentThreadId] = useState<string | null>(null)
 	const [showModelSelector, setShowModelSelector] = useState(false)
-	const [showSettings, setShowSettings] = useState(false)
 	const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
 	const [loggedInProviders, setLoggedInProviders] = useState<Set<string>>(
 		new Set(),
@@ -447,6 +446,8 @@ export function App() {
 		toolCallId: string
 		toolName: string
 		args: unknown
+		category: string | null
+		categoryLabel: string | null
 	} | null>(null)
 	const [pendingQuestion, setPendingQuestion] = useState<{
 		questionId: string
@@ -560,6 +561,8 @@ export function App() {
 						toolCallId: event.toolCallId as string,
 						toolName: event.toolName as string,
 						args: event.args,
+						category: (event.category as string) ?? null,
+						categoryLabel: (event.categoryLabel as string) ?? null,
 					})
 					break
 				case "ask_question":
@@ -793,7 +796,7 @@ export function App() {
 			// Cmd+, open settings
 			if (isMod && e.key === ",") {
 				e.preventDefault()
-				setShowSettings((v) => !v)
+				setActiveTab(activeTab === "settings" ? "chat" : "settings")
 			}
 			// Cmd+W close active file tab
 			if (isMod && e.key === "w" && activeTab !== "chat") {
@@ -1071,6 +1074,18 @@ export function App() {
 		[],
 	)
 
+	const handleAlwaysAllow = useCallback(
+		async (toolCallId: string, category: string) => {
+			await window.api.invoke({
+				type: "approveToolCallAlwaysCategory",
+				toolCallId,
+				category,
+			})
+			setPendingApproval(null)
+		},
+		[],
+	)
+
 	const handleQuestionResponse = useCallback(
 		async (questionId: string, answer: string) => {
 			await window.api.invoke({
@@ -1260,6 +1275,8 @@ export function App() {
 				onOpenFolder={handleOpenFolder}
 				onRemoveProject={handleRemoveProject}
 				onCreateWorktree={handleCreateWorktree}
+				onOpenSettings={() => setActiveTab("settings")}
+				isSettingsActive={activeTab === "settings"}
 			/>
 
 			{/* Center panel */}
@@ -1596,8 +1613,11 @@ export function App() {
 							/>
 						</div>
 
+						{/* Settings page */}
+						{activeTab === "settings" && <Settings onClose={() => setActiveTab("chat")} />}
+
 						{/* File or diff editor (when a file/diff tab is active) */}
-						{activeTab !== "chat" && !activeTab.startsWith("thread:") &&
+						{activeTab !== "chat" && activeTab !== "settings" && !activeTab.startsWith("thread:") &&
 							(activeTab.startsWith("diff:") ? (
 								<DiffEditor
 									filePath={activeTab.slice(5)}
@@ -1627,7 +1647,6 @@ export function App() {
 					projectName={projectInfo?.name}
 					gitBranch={projectInfo?.gitBranch}
 					onOpenModelSelector={handleOpenModelSelector}
-					onOpenSettings={() => setShowSettings(true)}
 				/>
 			</div>
 
@@ -1650,8 +1669,11 @@ export function App() {
 					toolCallId={pendingApproval.toolCallId}
 					toolName={pendingApproval.toolName}
 					args={pendingApproval.args}
+					category={pendingApproval.category}
+					categoryLabel={pendingApproval.categoryLabel}
 					onApprove={handleApprove}
 					onDecline={handleDecline}
+					onAlwaysAllow={handleAlwaysAllow}
 				/>
 			)}
 
@@ -1681,9 +1703,6 @@ export function App() {
 				/>
 			)}
 
-			{showSettings && (
-				<Settings onClose={() => setShowSettings(false)} />
-			)}
 
 			{loginState && (
 				<LoginDialog

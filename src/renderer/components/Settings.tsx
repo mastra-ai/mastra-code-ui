@@ -15,8 +15,30 @@ interface SettingsState {
 	prInstructions: string
 }
 
+interface PermissionCategory {
+	label: string
+	description: string
+}
+
+interface PermissionData {
+	rules: {
+		categories: Record<string, string>
+		tools: Record<string, string>
+	}
+	sessionGrants: string[]
+	categories: Record<string, PermissionCategory>
+}
+
+interface McpServerStatus {
+	name: string
+	connected: boolean
+	toolCount: number
+	toolNames: string[]
+	error?: string
+}
+
 interface SettingsProps {
-	onClose: () => void
+	onClose?: () => void
 }
 
 // Reusable setting row
@@ -168,10 +190,21 @@ const thinkingOptions: Array<{ value: string; label: string }> = [
 	{ value: "high", label: "High" },
 ]
 
+const policyOptions: Array<{ value: string; label: string }> = [
+	{ value: "allow", label: "Allow" },
+	{ value: "ask", label: "Ask" },
+	{ value: "deny", label: "Deny" },
+]
+
 export function Settings({ onClose }: SettingsProps) {
 	const [state, setState] = useState<SettingsState | null>(null)
 	const [models, setModels] = useState<Array<{ id: string; name?: string }>>([])
 	const [activeSection, setActiveSection] = useState("general")
+	const [permissions, setPermissions] = useState<PermissionData | null>(null)
+	const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([])
+	const [mcpLoading, setMcpLoading] = useState(false)
+	const [addingServer, setAddingServer] = useState(false)
+	const [newServer, setNewServer] = useState({ name: "", command: "", args: "", scope: "project" })
 
 	// Load current state
 	useEffect(() => {
@@ -198,6 +231,33 @@ export function Settings({ onClose }: SettingsProps) {
 		}
 		load()
 	}, [])
+
+	// Load permissions when that section is active
+	useEffect(() => {
+		if (activeSection !== "permissions") return
+		async function load() {
+			const p = await window.api.invoke({ type: "getPermissionRules" })
+			setPermissions(p as PermissionData)
+		}
+		load()
+	}, [activeSection])
+
+	// Load MCP statuses when that section is active
+	useEffect(() => {
+		if (activeSection !== "mcp") return
+		async function load() {
+			setMcpLoading(true)
+			try {
+				const statuses = await window.api.invoke({ type: "getMcpStatuses" })
+				setMcpStatuses((statuses as McpServerStatus[]) ?? [])
+			} catch {
+				// ignore
+			} finally {
+				setMcpLoading(false)
+			}
+		}
+		load()
+	}, [activeSection])
 
 	// Persist a setting change
 	const update = useCallback(
@@ -235,8 +295,79 @@ export function Settings({ onClose }: SettingsProps) {
 		[],
 	)
 
-	// Close on Escape
+	const updatePermissionPolicy = useCallback(
+		async (category: string, policy: string) => {
+			await window.api.invoke({
+				type: "setPermissionPolicy",
+				category,
+				policy,
+			})
+			// Refresh
+			const p = await window.api.invoke({ type: "getPermissionRules" })
+			setPermissions(p as PermissionData)
+		},
+		[],
+	)
+
+	const resetSessionGrants = useCallback(async () => {
+		await window.api.invoke({ type: "resetSessionGrants" })
+		const p = await window.api.invoke({ type: "getPermissionRules" })
+		setPermissions(p as PermissionData)
+	}, [])
+
+	const handleReloadMcp = useCallback(async () => {
+		setMcpLoading(true)
+		try {
+			const statuses = await window.api.invoke({ type: "reloadMcp" })
+			setMcpStatuses((statuses as McpServerStatus[]) ?? [])
+		} catch {
+			// ignore
+		} finally {
+			setMcpLoading(false)
+		}
+	}, [])
+
+	const handleAddServer = useCallback(async () => {
+		if (!newServer.name || !newServer.command) return
+		setMcpLoading(true)
+		try {
+			const statuses = await window.api.invoke({
+				type: "addMcpServer",
+				serverName: newServer.name,
+				serverCommand: newServer.command,
+				serverArgs: newServer.args
+					? newServer.args.split(/\s+/).filter(Boolean)
+					: [],
+				scope: newServer.scope,
+			})
+			setMcpStatuses((statuses as McpServerStatus[]) ?? [])
+			setNewServer({ name: "", command: "", args: "", scope: "project" })
+			setAddingServer(false)
+		} catch {
+			// ignore
+		} finally {
+			setMcpLoading(false)
+		}
+	}, [newServer])
+
+	const handleRemoveServer = useCallback(async (serverName: string) => {
+		setMcpLoading(true)
+		try {
+			const statuses = await window.api.invoke({
+				type: "removeMcpServer",
+				serverName,
+			})
+			setMcpStatuses((statuses as McpServerStatus[]) ?? [])
+		} catch {
+			// ignore
+		} finally {
+			setMcpLoading(false)
+		}
+	}, [])
+
+	// Close on Escape (if used as closeable)
 	useEffect(() => {
+		if (!onClose) return
 		const handleKey = (e: KeyboardEvent) => {
 			if (e.key === "Escape") onClose()
 		}
@@ -246,6 +377,8 @@ export function Settings({ onClose }: SettingsProps) {
 
 	const sections = [
 		{ id: "general", label: "General" },
+		{ id: "permissions", label: "Permissions" },
+		{ id: "mcp", label: "MCP" },
 		{ id: "models", label: "Models" },
 		{ id: "agent", label: "Agent" },
 		{ id: "git", label: "Git" },
@@ -260,57 +393,47 @@ export function Settings({ onClose }: SettingsProps) {
 	return (
 		<div
 			style={{
-				position: "fixed",
-				inset: 0,
-				background: "rgba(0,0,0,0.6)",
+				flex: 1,
 				display: "flex",
-				alignItems: "center",
-				justifyContent: "center",
-				zIndex: 9999,
+				flexDirection: "column",
+				overflow: "hidden",
+				background: "var(--bg)",
 			}}
-			onClick={onClose}
 		>
+			{/* Header */}
 			<div
-				onClick={(e) => e.stopPropagation()}
 				style={{
-					background: "var(--bg)",
-					border: "1px solid var(--border-muted)",
-					borderRadius: 12,
-					width: 600,
-					maxWidth: "90vw",
-					maxHeight: "80vh",
 					display: "flex",
-					flexDirection: "column",
-					overflow: "hidden",
+					alignItems: "center",
+					padding: "16px 20px",
+					borderBottom: "1px solid var(--border-muted)",
+					flexShrink: 0,
+					gap: 12,
 				}}
 			>
-				{/* Header */}
-				<div
-					style={{
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "space-between",
-						padding: "16px 20px",
-						borderBottom: "1px solid var(--border-muted)",
-						flexShrink: 0,
-					}}
-				>
-					<span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-						Settings
-					</span>
+				{onClose && (
 					<button
 						onClick={onClose}
 						style={{
+							display: "flex",
+							alignItems: "center",
+							background: "transparent",
+							border: "none",
 							color: "var(--muted)",
-							fontSize: 16,
 							cursor: "pointer",
-							padding: "0 4px",
-							lineHeight: 1,
+							padding: "2px",
 						}}
+						title="Back (Esc)"
 					>
-						&times;
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+							<polyline points="15 18 9 12 15 6" />
+						</svg>
 					</button>
-				</div>
+				)}
+				<span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
+					Settings
+				</span>
+			</div>
 
 				{/* Body */}
 				<div style={{ display: "flex", flex: 1, minHeight: 0 }}>
@@ -404,6 +527,453 @@ export function Settings({ onClose }: SettingsProps) {
 												onChange={(v) => update("yolo", v)}
 											/>
 										</SettingRow>
+									</>
+								)}
+
+								{activeSection === "permissions" && (
+									<>
+										<SectionHeader title="Tool Categories" />
+										<div
+											style={{
+												fontSize: 11,
+												color: "var(--muted)",
+												padding: "4px 0 8px",
+												lineHeight: 1.4,
+											}}
+										>
+											Control which tool categories require
+											approval before execution.
+										</div>
+										{permissions &&
+											Object.entries(
+												permissions.categories,
+											).map(([catId, cat]) => (
+												<SettingRow
+													key={catId}
+													label={cat.label}
+													description={cat.description}
+												>
+													<div
+														style={{
+															display: "flex",
+															alignItems: "center",
+															gap: 8,
+														}}
+													>
+														<Select
+															value={
+																permissions.rules
+																	.categories[
+																	catId
+																] ?? "ask"
+															}
+															options={policyOptions}
+															onChange={(v) =>
+																updatePermissionPolicy(
+																	catId,
+																	v,
+																)
+															}
+														/>
+														{permissions.sessionGrants.includes(
+															catId,
+														) && (
+															<span
+																style={{
+																	fontSize: 9,
+																	color: "#059669",
+																	background:
+																		"#05966922",
+																	padding: "1px 5px",
+																	borderRadius: 3,
+																	border: "1px solid #05966944",
+																	whiteSpace:
+																		"nowrap",
+																}}
+															>
+																Session grant
+															</span>
+														)}
+													</div>
+												</SettingRow>
+											))}
+										{permissions &&
+											permissions.sessionGrants.length >
+												0 && (
+												<div
+													style={{
+														paddingTop: 12,
+													}}
+												>
+													<button
+														onClick={
+															resetSessionGrants
+														}
+														style={{
+															padding: "6px 12px",
+															background:
+																"var(--bg-surface)",
+															color: "var(--muted)",
+															borderRadius: 6,
+															border: "1px solid var(--border)",
+															cursor: "pointer",
+															fontSize: 11,
+														}}
+													>
+														Reset session grants
+													</button>
+												</div>
+											)}
+									</>
+								)}
+
+								{activeSection === "mcp" && (
+									<>
+										<SectionHeader title="MCP Servers" />
+										<div
+											style={{
+												fontSize: 11,
+												color: "var(--muted)",
+												padding: "4px 0 8px",
+												lineHeight: 1.4,
+											}}
+										>
+											External tool servers connected via Model
+											Context Protocol.
+										</div>
+
+										{mcpLoading && (
+											<div
+												style={{
+													padding: 16,
+													textAlign: "center",
+													color: "var(--muted)",
+													fontSize: 12,
+												}}
+											>
+												Loading...
+											</div>
+										)}
+
+										{!mcpLoading &&
+											mcpStatuses.length === 0 && (
+												<div
+													style={{
+														padding: "16px 0",
+														color: "var(--muted)",
+														fontSize: 12,
+													}}
+												>
+													No MCP servers configured.
+												</div>
+											)}
+
+										{!mcpLoading &&
+											mcpStatuses.map((server) => (
+												<div
+													key={server.name}
+													style={{
+														padding: "10px 0",
+														borderBottom:
+															"1px solid var(--border-muted)",
+													}}
+												>
+													<div
+														style={{
+															display: "flex",
+															alignItems: "center",
+															justifyContent:
+																"space-between",
+														}}
+													>
+														<div
+															style={{
+																display: "flex",
+																alignItems:
+																	"center",
+																gap: 8,
+															}}
+														>
+															<span
+																style={{
+																	width: 6,
+																	height: 6,
+																	borderRadius:
+																		"50%",
+																	background:
+																		server.connected
+																			? "#059669"
+																			: "#ef4444",
+																	flexShrink: 0,
+																}}
+															/>
+															<span
+																style={{
+																	fontSize: 13,
+																	fontWeight: 500,
+																	color: "var(--text)",
+																}}
+															>
+																{server.name}
+															</span>
+															<span
+																style={{
+																	fontSize: 10,
+																	color: "var(--muted)",
+																}}
+															>
+																{server.connected
+																	? `${server.toolCount} tools`
+																	: "disconnected"}
+															</span>
+														</div>
+														<button
+															onClick={() =>
+																handleRemoveServer(
+																	server.name,
+																)
+															}
+															style={{
+																padding: "2px 8px",
+																background:
+																	"transparent",
+																color: "var(--muted)",
+																borderRadius: 4,
+																border: "1px solid var(--border-muted)",
+																cursor: "pointer",
+																fontSize: 10,
+															}}
+														>
+															Remove
+														</button>
+													</div>
+													{server.error && (
+														<div
+															style={{
+																fontSize: 11,
+																color: "#ef4444",
+																marginTop: 4,
+																paddingLeft: 14,
+															}}
+														>
+															{server.error}
+														</div>
+													)}
+													{server.connected &&
+														server.toolNames
+															.length > 0 && (
+															<div
+																style={{
+																	fontSize: 10,
+																	color: "var(--muted)",
+																	marginTop: 4,
+																	paddingLeft: 14,
+																	lineHeight: 1.6,
+																}}
+															>
+																{server.toolNames.join(
+																	", ",
+																)}
+															</div>
+														)}
+												</div>
+											))}
+
+										<div
+											style={{
+												paddingTop: 12,
+												display: "flex",
+												gap: 8,
+											}}
+										>
+											<button
+												onClick={() =>
+													setAddingServer(!addingServer)
+												}
+												style={{
+													padding: "6px 12px",
+													background:
+														"var(--bg-surface)",
+													color: "var(--accent)",
+													borderRadius: 6,
+													border: "1px solid var(--accent)",
+													cursor: "pointer",
+													fontSize: 11,
+												}}
+											>
+												{addingServer
+													? "Cancel"
+													: "Add server"}
+											</button>
+											<button
+												onClick={handleReloadMcp}
+												style={{
+													padding: "6px 12px",
+													background:
+														"var(--bg-surface)",
+													color: "var(--muted)",
+													borderRadius: 6,
+													border: "1px solid var(--border)",
+													cursor: "pointer",
+													fontSize: 11,
+												}}
+											>
+												Reload all
+											</button>
+										</div>
+
+										{addingServer && (
+											<div
+												style={{
+													marginTop: 12,
+													padding: 12,
+													background:
+														"var(--bg-surface)",
+													borderRadius: 8,
+													border: "1px solid var(--border-muted)",
+												}}
+											>
+												<div
+													style={{
+														display: "flex",
+														flexDirection: "column",
+														gap: 8,
+													}}
+												>
+													<input
+														value={newServer.name}
+														onChange={(e) =>
+															setNewServer((p) => ({
+																...p,
+																name: e.target
+																	.value,
+															}))
+														}
+														placeholder="Server name"
+														style={{
+															padding: "6px 8px",
+															background:
+																"var(--bg-elevated)",
+															color: "var(--text)",
+															border: "1px solid var(--border)",
+															borderRadius: 4,
+															fontSize: 12,
+															fontFamily: "inherit",
+														}}
+													/>
+													<input
+														value={
+															newServer.command
+														}
+														onChange={(e) =>
+															setNewServer((p) => ({
+																...p,
+																command:
+																	e.target
+																		.value,
+															}))
+														}
+														placeholder="Command (e.g., npx)"
+														style={{
+															padding: "6px 8px",
+															background:
+																"var(--bg-elevated)",
+															color: "var(--text)",
+															border: "1px solid var(--border)",
+															borderRadius: 4,
+															fontSize: 12,
+															fontFamily: "inherit",
+														}}
+													/>
+													<input
+														value={newServer.args}
+														onChange={(e) =>
+															setNewServer((p) => ({
+																...p,
+																args: e.target
+																	.value,
+															}))
+														}
+														placeholder="Arguments (space-separated)"
+														style={{
+															padding: "6px 8px",
+															background:
+																"var(--bg-elevated)",
+															color: "var(--text)",
+															border: "1px solid var(--border)",
+															borderRadius: 4,
+															fontSize: 12,
+															fontFamily: "inherit",
+														}}
+													/>
+													<div
+														style={{
+															display: "flex",
+															alignItems:
+																"center",
+															gap: 8,
+														}}
+													>
+														<Select
+															value={
+																newServer.scope
+															}
+															options={[
+																{
+																	value: "project",
+																	label: "Project",
+																},
+																{
+																	value: "global",
+																	label: "Global",
+																},
+															]}
+															onChange={(v) =>
+																setNewServer(
+																	(p) => ({
+																		...p,
+																		scope: v,
+																	}),
+																)
+															}
+														/>
+														<button
+															onClick={
+																handleAddServer
+															}
+															disabled={
+																!newServer.name ||
+																!newServer.command
+															}
+															style={{
+																padding:
+																	"6px 16px",
+																background:
+																	newServer.name &&
+																	newServer.command
+																		? "var(--accent)"
+																		: "var(--bg-elevated)",
+																color:
+																	newServer.name &&
+																	newServer.command
+																		? "#fff"
+																		: "var(--muted)",
+																borderRadius: 6,
+																cursor:
+																	newServer.name &&
+																	newServer.command
+																		? "pointer"
+																		: "default",
+																fontSize: 12,
+																fontWeight: 500,
+															}}
+														>
+															Add
+														</button>
+													</div>
+												</div>
+											</div>
+										)}
 									</>
 								)}
 
@@ -630,7 +1200,6 @@ export function Settings({ onClose }: SettingsProps) {
 						)}
 					</div>
 				</div>
-			</div>
 		</div>
 	)
 }

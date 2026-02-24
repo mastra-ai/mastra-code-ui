@@ -4,16 +4,22 @@ interface ToolApprovalDialogProps {
 	toolCallId: string
 	toolName: string
 	args: unknown
+	category?: string | null
+	categoryLabel?: string | null
 	onApprove: (toolCallId: string) => void
 	onDecline: (toolCallId: string) => void
+	onAlwaysAllow?: (toolCallId: string, category: string) => void
 }
 
 export function ToolApprovalDialog({
 	toolCallId,
 	toolName,
 	args,
+	category,
+	categoryLabel,
 	onApprove,
 	onDecline,
+	onAlwaysAllow,
 }: ToolApprovalDialogProps) {
 	const approveRef = useRef<HTMLButtonElement>(null)
 
@@ -25,11 +31,13 @@ export function ToolApprovalDialog({
 				onApprove(toolCallId)
 			} else if (e.key === "n" || e.key === "Escape") {
 				onDecline(toolCallId)
+			} else if (e.key === "a" && category && onAlwaysAllow) {
+				onAlwaysAllow(toolCallId, category)
 			}
 		}
 		window.addEventListener("keydown", handleKey)
 		return () => window.removeEventListener("keydown", handleKey)
-	}, [toolCallId, onApprove, onDecline])
+	}, [toolCallId, onApprove, onDecline, onAlwaysAllow, category])
 
 	const formattedArgs = (() => {
 		try {
@@ -79,6 +87,21 @@ export function ToolApprovalDialog({
 					<span style={{ color: "var(--tool-title)", fontSize: 13 }}>
 						{toolName.replace(/_/g, " ")}
 					</span>
+					{categoryLabel && (
+						<span
+							style={{
+								marginLeft: 8,
+								fontSize: 10,
+								color: "var(--muted)",
+								background: "var(--bg-surface)",
+								padding: "1px 6px",
+								borderRadius: 3,
+								border: "1px solid var(--border-muted)",
+							}}
+						>
+							{categoryLabel}
+						</span>
+					)}
 				</div>
 
 				<pre
@@ -102,6 +125,7 @@ export function ToolApprovalDialog({
 						display: "flex",
 						gap: 8,
 						justifyContent: "flex-end",
+						flexWrap: "wrap",
 					}}
 				>
 					<button
@@ -117,6 +141,22 @@ export function ToolApprovalDialog({
 					>
 						Decline (n)
 					</button>
+					{category && categoryLabel && onAlwaysAllow && (
+						<button
+							onClick={() => onAlwaysAllow(toolCallId, category)}
+							style={{
+								padding: "6px 16px",
+								background: "var(--bg-surface)",
+								color: "var(--accent)",
+								borderRadius: 6,
+								border: "1px solid var(--accent)",
+								cursor: "pointer",
+								fontSize: 12,
+							}}
+						>
+							Always allow {categoryLabel.toLowerCase()} (a)
+						</button>
+					)}
 					<button
 						ref={approveRef}
 						onClick={() => onApprove(toolCallId)}
