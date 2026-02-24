@@ -25,6 +25,10 @@ Built-in code review for agent changes without leaving the app.
 - [ ] **Turn-by-turn checkpoints** — View changes per agent turn and revert to any previous checkpoint (like Conductor's checkpoint system)
 - [ ] **Direct file editing in diff view** — Edit agent changes inline before merging
 - [ ] **One-click merge** — Merge agent branch back to main from the UI
+- [ ] **File staging & commit from UI** — Stage/unstage individual files, write commit messages, and commit directly from the diff viewer (like Superset's integrated git workflow)
+- [ ] **Push/pull from UI** — Sync with remote without dropping to terminal
+- [ ] **Create PR from UI** — Open a GitHub pull request directly from the diff viewer
+- [ ] **Focus mode** — Isolated single-file review with previous/next navigation, section jumping (against base, commits, staged, unstaged), and per-section file counts
 
 ## Harness Integration
 
@@ -54,11 +58,13 @@ Structured task tracking and context sharing across agents.
 - [x] **Context files** — Persistent markdown specs and plans that live alongside code (like Conductor's context-driven development) _(AGENT.md/CLAUDE.md auto-injected into system prompt; Context tab in right sidebar for browsing, editing, and creating context files with scope badges)_
 - [x] **Slash commands** — Custom user-defined slash commands for common workflows _(fully wired end-to-end: EditorInput detects `/` and triggers SlashCommandAutocomplete, App.tsx handleSend processes commands via IPC, main.ts loads and expands command templates)_
 - [ ] **Workspace presets** — Scripted environment setup (install deps, start servers, seed data) that runs automatically when creating a new agent workspace
+- [ ] **Setup & teardown scripts** — JSON-configured commands that run automatically on workspace creation and deletion, with workspace env vars (`ROOT_PATH`, `WORKSPACE_NAME`), hierarchical config resolution (user overrides > worktree > project defaults), and force-delete on teardown failure (like Superset's `.superset/config.json`)
+- [ ] **Worktree import** — Import existing git worktrees from disk into the app, with bulk "Import all" discovery
 
 ## IDE & Editor Integration
 
 - [x] **One-click open in editor** — Deep link any file or worktree to VS Code, Cursor, JetBrains, Sublime, or other editors _(editor auto-detection for Cursor/VS Code/Sublime; `openInEditor` IPC handler with `--goto` support; context menu in FileTree)_
-- [ ] **Port forwarding** — Manage dev server ports across parallel agent sessions
+- [ ] **Port management** — View active ports per workspace, kill processes by port, workspace-isolated port ranges to prevent conflicts, static port config file (`.mastracode/ports.json`) with labels and auto-detection override, clickable ports open in browser
 - [x] **Terminal multiplexing** — Multiple terminal tabs per agent workspace _(multi-tab xterm with node-pty, create/close/switch tabs)_
 
 ## MCP & Tool Extensibility
@@ -82,3 +88,69 @@ Structured task tracking and context sharing across agents.
 - [ ] **Electron Builder packaging** — Use `electron-builder` to produce platform-specific installers (`.dmg` for macOS, `.exe`/NSIS for Windows, `.AppImage`/`.deb` for Linux) with code signing and notarization
 - [ ] **Auto-updates** — Integrate `electron-updater` for in-app update mechanism (check for updates on launch, download in background, prompt user to restart); host releases on GitHub Releases or a custom update server
 - [ ] **Workspace sharing** — Export/import workspace configs (scripts, MCP servers, slash commands) via a shared config file
+
+## In-App Browser
+
+Built-in browser pane for previewing running services without leaving the app.
+
+- [ ] **Browser pane** — Embedded browser tab with address bar, back/forward/reload, URL autocomplete from history, and favicon display
+- [ ] **Port detection integration** — When a port is detected in use (e.g. `localhost:3000`), clicking it opens in the in-app browser instead of the system browser
+- [ ] **DevTools pane** — Inspect and debug pages running in the embedded browser
+- [ ] **Browsing history** — Save visited URLs locally for autocomplete suggestions, with option to clear history
+
+## Terminal Enhancements
+
+Improvements to the built-in terminal beyond basic tab management.
+
+- [ ] **Right-click context menu** — Copy, paste, split pane, clear, move tab, close tab via context menu
+- [ ] **Clickable output** — URLs in terminal output open in browser; file paths open in editor
+- [ ] **Workspace environment variables** — Expose `ROOT_PATH` and `WORKSPACE_NAME` env vars so scripts and tools can reference workspace context
+- [ ] **Terminal presets** — Save named command configurations with working directory, one or more commands, and launch mode (split pane vs new tab); mark presets as default for auto-apply to new workspaces; quick-add templates for popular AI agents (Claude, Codex, Gemini, OpenCode)
+- [ ] **Session persistence** — Terminal sessions survive app restarts with running processes, output history, and scrollback preserved
+
+## Multi-Agent Support
+
+Support for AI agents beyond Claude Code.
+
+- [ ] **Codex integration** — Run OpenAI's Codex agent in isolated workspaces
+- [ ] **OpenCode integration** — Run the open-source OpenCode agent
+- [ ] **Gemini integration** — Run Google's Gemini CLI agent
+- [ ] **Copilot integration** — Run GitHub Copilot agent
+- [ ] **Cursor Agent integration** — Launch Cursor Agent sessions within workspaces
+
+## App-Level MCP Server
+
+Expose the app as an MCP server so external AI agents can control it programmatically.
+
+- [ ] **MCP server endpoint** — Expose tasks, workspaces, and app state via Model Context Protocol so any MCP-capable AI agent can interact with the app
+- [ ] **Task management via MCP** — Create (batch), update, list, retrieve, and soft-delete tasks; filter by status, assignee, priority, labels
+- [ ] **Workspace management via MCP** — Create, rename, switch, delete, and list workspaces; retrieve workspace details including tabs and panes
+- [ ] **AI session launching via MCP** — Start autonomous agent sessions with task context in specified workspaces; support subagent panes
+- [ ] **OAuth & API key auth** — OAuth 2.1 for interactive use (Claude Desktop, Cursor) and API key auth (`sk_live_*`) for headless/CI environments
+
+## Monorepo Support
+
+First-class support for working with monorepos.
+
+- [ ] **Monorepo detection** — Detect monorepo structure and provide workspace-level access to all packages from repo root
+- [ ] **Git submodule support** — Recursive submodule init/install in setup scripts
+- [ ] **Multi-service execution** — Run multiple services simultaneously with package filter syntax (e.g. `--filter @myapp/web`)
+
+## Theming & Customization
+
+Visual personalization and workflow customization.
+
+- [ ] **Custom themes** — JSON theme files with UI colors (background, foreground, primary, accent, border) and terminal colors (16 ANSI + bright variants); import/export themes; download base theme template for editing
+- [ ] **Keyboard shortcut customization** — Remap any hotkey from settings; import/export shortcut configurations
+- [ ] **Project colors** — Color-code projects in the sidebar for quick visual identification
+- [ ] **Notification sounds** — Audio alerts when agents finish or terminals exit, with configurable sound selection
+- [ ] **Cross-device settings sync** — Settings automatically synchronize across devices when signed in
+
+## Quick Navigation
+
+Fast navigation and layout management.
+
+- [ ] **Quick file opener** — `⌘P` to fuzzy-search and open any file in the workspace
+- [ ] **Split pane layouts** — Split panes right (`⌘D`) and down (`⌘⇧D`), auto-arrange (`⌘E`), close active pane (`⌘W`)
+- [ ] **Workspace switcher** — `⌘1-9` to jump to workspaces, `⌘⌥↑/↓` for previous/next workspace
+- [ ] **Sync status display** — Show `↑N` / `↓N` indicators in sidebar for unpushed/behind commits per workspace
