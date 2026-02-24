@@ -1158,9 +1158,6 @@ function registerIpcHandlers() {
 				return authStorage
 					.list()
 					.filter((p: string) => authStorage.isLoggedIn(p))
-			case "openExternal":
-				shell.openExternal(command.url as string)
-				return
 			case "openInEditor": {
 				const filePath = path.resolve(projectRoot, command.filePath as string)
 				const line = (command.line as number) ?? 1
