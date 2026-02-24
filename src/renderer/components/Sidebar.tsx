@@ -16,6 +16,7 @@ interface SidebarProps {
 	activeWorktrees: Set<string>
 	unreadWorktrees: Set<string>
 	worktreeStatuses: Map<string, WorktreeStatus>
+	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string }>
 	onSwitchThread: (threadId: string) => void
 	onNewThread: () => void
 	onDeleteThread: (threadId: string) => void
@@ -25,7 +26,9 @@ interface SidebarProps {
 	onRemoveProject: (path: string) => void
 	onCreateWorktree: (repoPath: string) => void
 	onOpenSettings: () => void
+	onOpenTasks: () => void
 	isSettingsActive: boolean
+	isTasksActive: boolean
 }
 
 const providers = [
@@ -45,6 +48,7 @@ export function Sidebar({
 	activeWorktrees,
 	unreadWorktrees,
 	worktreeStatuses,
+	linkedIssues,
 	onSwitchThread,
 	onNewThread,
 	onDeleteThread,
@@ -54,7 +58,9 @@ export function Sidebar({
 	onRemoveProject,
 	onCreateWorktree,
 	onOpenSettings,
+	onOpenTasks,
 	isSettingsActive,
+	isTasksActive,
 }: SidebarProps) {
 	const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null)
 	const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -105,6 +111,7 @@ export function Sidebar({
 					activeWorktrees={activeWorktrees}
 					unreadWorktrees={unreadWorktrees}
 					worktreeStatuses={worktreeStatuses}
+					linkedIssues={linkedIssues}
 					onSwitchProject={onSwitchProject}
 					onOpenFolder={onOpenFolder}
 					onRemoveProject={onRemoveProject}
@@ -334,37 +341,63 @@ export function Sidebar({
 					})}
 				</div>
 
-				{/* Settings */}
-				<div
+			{/* Tasks + Settings */}
+			<div
+				style={{
+					padding: "4px 12px 8px",
+					borderTop: "1px solid var(--border-muted)",
+					display: "flex",
+					flexDirection: "column",
+					gap: 2,
+				}}
+			>
+				<button
+					onClick={onOpenTasks}
 					style={{
-						padding: "4px 12px 8px",
-						borderTop: "1px solid var(--border-muted)",
+						display: "flex",
+						alignItems: "center",
+						gap: 6,
+						padding: "5px 8px",
+						background: isTasksActive ? "var(--selected-bg)" : "transparent",
+						borderRadius: 4,
+						fontSize: 11,
+						color: isTasksActive ? "var(--text)" : "var(--muted)",
+						cursor: "pointer",
+						border: "none",
+						textAlign: "left",
+						width: "100%",
 					}}
 				>
-					<button
-						onClick={onOpenSettings}
-						style={{
-							display: "flex",
-							alignItems: "center",
-							gap: 6,
-							padding: "5px 8px",
-							background: isSettingsActive ? "var(--selected-bg)" : "transparent",
-							borderRadius: 4,
-							fontSize: 11,
-							color: isSettingsActive ? "var(--text)" : "var(--muted)",
-							cursor: "pointer",
-							border: "none",
-							textAlign: "left",
-							width: "100%",
-						}}
-					>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-							<circle cx="12" cy="12" r="3" />
-							<path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
-						</svg>
-						Settings
-					</button>
-				</div>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+						<path d="M9 11l3 3L22 4" />
+						<path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+					</svg>
+					Tasks
+				</button>
+				<button
+					onClick={onOpenSettings}
+					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: 6,
+						padding: "5px 8px",
+						background: isSettingsActive ? "var(--selected-bg)" : "transparent",
+						borderRadius: 4,
+						fontSize: 11,
+						color: isSettingsActive ? "var(--text)" : "var(--muted)",
+						cursor: "pointer",
+						border: "none",
+						textAlign: "left",
+						width: "100%",
+					}}
+				>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+						<circle cx="12" cy="12" r="3" />
+						<path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+					</svg>
+					Settings
+				</button>
+			</div>
 			</div>
 
 			{/* Delete confirmation modal */}

@@ -8,6 +8,7 @@ import { AskQuestionDialog } from "./components/AskQuestionDialog"
 import { PlanApproval } from "./components/PlanApproval"
 import { ModelSelector } from "./components/ModelSelector"
 import { Settings } from "./components/Settings"
+import { TaskBoard, type LinearIssue, type WorkflowStates } from "./components/TaskBoard"
 import { LoginDialog } from "./components/LoginDialog"
 import { WelcomeScreen } from "./components/WelcomeScreen"
 import { RightSidebar, type RightSidebarTab } from "./components/RightSidebar"
@@ -466,6 +467,21 @@ export function App() {
 			activeForm: string
 		}>
 	>([])
+	const [linkedIssues, setLinkedIssues] = useState<Record<string, { issueId: string; issueIdentifier: string }>>({})
+
+	// Load linked issues map
+	const loadLinkedIssues = useCallback(async () => {
+		try {
+			const result = (await window.api.invoke({ type: "getLinkedIssues" })) as Record<string, { issueId: string; issueIdentifier: string }>
+			setLinkedIssues(result ?? {})
+		} catch {
+			// ignore
+		}
+	}, [])
+
+	useEffect(() => {
+		loadLinkedIssues()
+	}, [loadLinkedIssues])
 
 	// Subscribe to harness events
 	useEffect(() => {
@@ -1232,6 +1248,63 @@ export function App() {
 		loadEnrichedProjects()
 	}, [])
 
+	const handleStartWorkOnIssue = useCallback(async (issue: LinearIssue, workflowStates: WorkflowStates) => {
+		const rootPath = projectInfoRef.current?.rootPath
+		if (!rootPath) return
+
+		// Save Linear credentials BEFORE switching projects (new session won't have them yet)
+		const parentState = (await window.api.invoke({ type: "getState" })) as Record<string, unknown>
+		const apiKey = (parentState?.linearApiKey as string) ?? ""
+		const teamId = (parentState?.linearTeamId as string) ?? ""
+
+		// Slugify: "ENG-123" + "Fix login bug" -> "eng-123-fix-login-bug"
+		const slug = `${issue.identifier}-${issue.title}`
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-|-$/g, "")
+			.slice(0, 60)
+
+		// Get the main repo path from enrichedProjects (worktrees can't create worktrees)
+		const currentProject = enrichedProjects.find((p) => p.rootPath === rootPath)
+		const mainRepoPath = currentProject?.isWorktree
+			? currentProject.mainRepoPath ?? rootPath
+			: rootPath
+
+		// Create worktree with the issue-based branch name
+		const result = (await window.api.invoke({
+			type: "createWorktree",
+			repoPath: mainRepoPath,
+			branchName: slug,
+		})) as { success: boolean; path?: string; error?: string }
+
+		if (!result.success || !result.path) {
+			console.error("Failed to create worktree:", result.error)
+			return
+		}
+
+		// Switch to the new worktree
+		dispatch({ type: "CLEAR" })
+		setOpenThreadTabs([])
+		setOpenFiles([])
+		setActiveTab("chat")
+		setThreads([])
+		await window.api.invoke({ type: "switchProject", path: result.path })
+
+		// Link the Linear issue to this worktree (passes parent credentials)
+		await window.api.invoke({
+			type: "linkLinearIssue",
+			issueId: issue.id,
+			issueIdentifier: issue.identifier,
+			doneStateId: workflowStates.doneStateId,
+			startedStateId: workflowStates.startedStateId,
+			linearApiKey: apiKey,
+			linearTeamId: teamId,
+		})
+
+		// Refresh linked issues
+		await loadLinkedIssues()
+	}, [loadLinkedIssues, enrichedProjects])
+
 	const handleCreateWorktree = useCallback(async (repoPath: string) => {
 		const result = (await window.api.invoke({
 			type: "createWorktree",
@@ -1267,6 +1340,7 @@ export function App() {
 				activeWorktrees={activeWorktrees}
 				unreadWorktrees={unreadWorktrees}
 				worktreeStatuses={worktreeStatuses}
+				linkedIssues={linkedIssues}
 				onSwitchThread={handleSwitchThread}
 				onNewThread={handleNewThread}
 				onDeleteThread={handleDeleteThread}
@@ -1276,7 +1350,9 @@ export function App() {
 				onRemoveProject={handleRemoveProject}
 				onCreateWorktree={handleCreateWorktree}
 				onOpenSettings={() => setActiveTab("settings")}
+				onOpenTasks={() => setActiveTab("tasks")}
 				isSettingsActive={activeTab === "settings"}
+				isTasksActive={activeTab === "tasks"}
 			/>
 
 			{/* Center panel */}
@@ -1616,8 +1692,11 @@ export function App() {
 						{/* Settings page */}
 						{activeTab === "settings" && <Settings onClose={() => setActiveTab("chat")} />}
 
+						{/* Task board */}
+						{activeTab === "tasks" && <TaskBoard agentTasks={tasks} onClose={() => setActiveTab("chat")} onStartWork={handleStartWorkOnIssue} linkedIssues={linkedIssues} onSwitchToWorktree={handleSwitchProject} />}
+
 						{/* File or diff editor (when a file/diff tab is active) */}
-						{activeTab !== "chat" && activeTab !== "settings" && !activeTab.startsWith("thread:") &&
+						{activeTab !== "chat" && activeTab !== "settings" && activeTab !== "tasks" && !activeTab.startsWith("thread:") &&
 							(activeTab.startsWith("diff:") ? (
 								<DiffEditor
 									filePath={activeTab.slice(5)}

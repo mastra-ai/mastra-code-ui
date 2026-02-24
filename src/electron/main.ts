@@ -293,6 +293,11 @@ async function createHarness(projectPath: string) {
 				}),
 			)
 			.default([]),
+		linearApiKey: z.string().default(""),
+		linearTeamId: z.string().default(""),
+		linkedLinearIssueId: z.string().default(""),
+		linkedLinearIssueIdentifier: z.string().default(""),
+		linkedLinearDoneStateId: z.string().default(""),
 		prInstructions: z.string().default(""),
 		sandboxAllowedPaths: z.array(z.string()).default([]),
 		activePlan: z
@@ -1444,6 +1449,7 @@ function registerIpcHandlers() {
 			case "createWorktree": {
 				const { execSync } = require("child_process")
 				const repoPath = command.repoPath as string
+				const requestedBranch = command.branchName as string | undefined
 
 				// Get existing worktree branch names to avoid collisions
 				const usedNames = new Set<string>()
@@ -1623,14 +1629,25 @@ function registerIpcHandlers() {
 					"yucca",
 					"zinnia",
 				]
-				const available = flowerNames.filter((n) => !usedNames.has(n))
-				if (available.length === 0) {
-					return { success: false, error: "No available workspace names" }
+				let branchName: string
+				if (requestedBranch) {
+					// Use the requested branch name (e.g. from a Linear issue)
+					if (usedNames.has(requestedBranch)) {
+						return {
+							success: false,
+							error: `Branch "${requestedBranch}" already exists`,
+						}
+					}
+					branchName = requestedBranch
+				} else {
+					const available = flowerNames.filter((n) => !usedNames.has(n))
+					if (available.length === 0) {
+						return { success: false, error: "No available workspace names" }
+					}
+					branchName = available[Math.floor(Math.random() * available.length)]
 				}
-				const branchName =
-					available[Math.floor(Math.random() * available.length)]
 
-				// Create worktree under ~/mastra-code/workspaces/<repoName>/<flower>
+				// Create worktree under ~/mastra-code/workspaces/<repoName>/<branchName>
 				const repoName = path.basename(repoPath)
 				const workspacesDir = path.join(
 					os.homedir(),
@@ -1765,6 +1782,349 @@ function registerIpcHandlers() {
 				return { project }
 			}
 
+			// =================================================================
+			// Linear Integration
+			// =================================================================
+			case "linearConnect": {
+				const clientId = process.env.LINEAR_CLIENT_ID
+				const clientSecret = process.env.LINEAR_CLIENT_SECRET
+				const hasOAuth = !!(clientId && clientSecret)
+
+				if (hasOAuth) {
+					// Full OAuth flow
+					const state =
+						Math.random().toString(36).slice(2) +
+						Math.random().toString(36).slice(2)
+					const redirectUri = "http://127.0.0.1/linear/callback"
+
+					const authUrl = new URL("https://linear.app/oauth/authorize")
+					authUrl.searchParams.set("response_type", "code")
+					authUrl.searchParams.set("client_id", clientId)
+					authUrl.searchParams.set("redirect_uri", redirectUri)
+					authUrl.searchParams.set("scope", "read write issues:create")
+					authUrl.searchParams.set("state", state)
+					authUrl.searchParams.set("prompt", "consent")
+
+					return new Promise((resolve) => {
+						const authWindow = new BrowserWindow({
+							width: 520,
+							height: 700,
+							parent: mainWindow ?? undefined,
+							modal: false,
+							show: true,
+							title: "Sign in to Linear",
+							webPreferences: {
+								nodeIntegration: false,
+								contextIsolation: true,
+							},
+						})
+
+						let resolved = false
+
+						const handleUrl = async (url: string) => {
+							if (!url.startsWith(redirectUri) || resolved) return false
+							resolved = true
+
+							const urlObj = new URL(url)
+							const code = urlObj.searchParams.get("code")
+							const returnedState = urlObj.searchParams.get("state")
+
+							if (returnedState !== state || !code) {
+								authWindow.close()
+								resolve({
+									success: false,
+									error: "Authorization failed",
+								})
+								return true
+							}
+
+							try {
+								const tokenResponse = await fetch(
+									"https://api.linear.app/oauth/token",
+									{
+										method: "POST",
+										headers: {
+											"Content-Type": "application/x-www-form-urlencoded",
+										},
+										body: new URLSearchParams({
+											grant_type: "authorization_code",
+											code,
+											redirect_uri: redirectUri,
+											client_id: clientId,
+											client_secret: clientSecret,
+										}),
+									},
+								)
+
+								if (!tokenResponse.ok) {
+									throw new Error(
+										`Token exchange failed: ${tokenResponse.status}`,
+									)
+								}
+
+								const tokenData = (await tokenResponse.json()) as {
+									access_token?: string
+								}
+								if (!tokenData.access_token) {
+									throw new Error("No access token in response")
+								}
+
+								await h.setState({
+									linearApiKey: tokenData.access_token,
+								})
+								authWindow.close()
+								resolve({
+									success: true,
+									accessToken: tokenData.access_token,
+								})
+							} catch (err: any) {
+								authWindow.close()
+								resolve({
+									success: false,
+									error: err.message || "Token exchange failed",
+								})
+							}
+							return true
+						}
+
+						authWindow.webContents.on("will-redirect", (event, url) => {
+							if (url.startsWith(redirectUri)) {
+								event.preventDefault()
+								handleUrl(url)
+							}
+						})
+
+						authWindow.webContents.on("will-navigate", (event, url) => {
+							if (url.startsWith(redirectUri)) {
+								event.preventDefault()
+								handleUrl(url)
+							}
+						})
+
+						authWindow.on("closed", () => {
+							if (!resolved) {
+								resolved = true
+								resolve({
+									success: false,
+									error: "cancelled",
+								})
+							}
+						})
+
+						authWindow.loadURL(authUrl.toString())
+					})
+				}
+
+				// No OAuth — open Linear's API key page in a popup
+				return new Promise((resolve) => {
+					const keyWindow = new BrowserWindow({
+						width: 900,
+						height: 700,
+						parent: mainWindow ?? undefined,
+						modal: false,
+						show: true,
+						title: "Create a Linear API Key",
+						webPreferences: {
+							nodeIntegration: false,
+							contextIsolation: true,
+						},
+					})
+
+					keyWindow.on("closed", () => {
+						resolve({ success: false, error: "needs_api_key" })
+					})
+
+					keyWindow.loadURL("https://linear.app/settings/account/security")
+				})
+			}
+			case "linearQuery": {
+				const apiKey = command.apiKey as string
+				if (!apiKey) throw new Error("No Linear API key provided")
+				const response = await fetch("https://api.linear.app/graphql", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: apiKey,
+					},
+					body: JSON.stringify({
+						query: command.query as string,
+						variables: command.variables ?? {},
+					}),
+				})
+				if (!response.ok) {
+					throw new Error(
+						`Linear API error: ${response.status} ${response.statusText}`,
+					)
+				}
+				return await response.json()
+			}
+
+			case "linkLinearIssue": {
+				// Store the Linear issue link in the current worktree session state
+				// and transition the issue to "started" state
+				const issueId = command.issueId as string
+				const issueIdentifier = command.issueIdentifier as string
+				const doneStateId = command.doneStateId as string
+				const startedStateId = command.startedStateId as string
+				const parentLinearApiKey = command.linearApiKey as string
+				const parentLinearTeamId = command.linearTeamId as string
+
+				// Store in current session state
+				await h.setState({
+					linkedLinearIssueId: issueId,
+					linkedLinearIssueIdentifier: issueIdentifier,
+					linkedLinearDoneStateId: doneStateId,
+					linearApiKey: parentLinearApiKey,
+					linearTeamId: parentLinearTeamId,
+				})
+
+				// Transition issue to "started" state in Linear
+				if (startedStateId && parentLinearApiKey) {
+					try {
+						await fetch("https://api.linear.app/graphql", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: parentLinearApiKey,
+							},
+							body: JSON.stringify({
+								query: `mutation($id: String!, $stateId: String!) {
+									issueUpdate(id: $id, input: { stateId: $stateId }) {
+										success
+									}
+								}`,
+								variables: { id: issueId, stateId: startedStateId },
+							}),
+						})
+					} catch (e: any) {
+						console.warn("Failed to update Linear issue status:", e.message)
+					}
+				}
+
+				return { success: true }
+			}
+
+			case "getLinkedIssues": {
+				// Return a map of worktreePath → { issueId, issueIdentifier } for all sessions
+				const linked: Record<
+					string,
+					{ issueId: string; issueIdentifier: string }
+				> = {}
+				for (const [wtPath, session] of sessions.entries()) {
+					try {
+						const wtState = session.harness.getState?.() as
+							| Record<string, unknown>
+							| undefined
+						const wtIssueId = (wtState?.linkedLinearIssueId as string) ?? ""
+						const wtIssueIdentifier =
+							(wtState?.linkedLinearIssueIdentifier as string) ?? ""
+						if (wtIssueId && wtIssueIdentifier) {
+							linked[wtPath] = {
+								issueId: wtIssueId,
+								issueIdentifier: wtIssueIdentifier,
+							}
+						}
+					} catch {
+						// Session may not have these fields
+					}
+				}
+				return linked
+			}
+
+			// =================================================================
+			// Context Files
+			// =================================================================
+			case "getContextFiles": {
+				const home = os.homedir()
+				const INSTRUCTION_FILES = ["AGENT.md", "CLAUDE.md"]
+				const PROJECT_LOCATIONS = ["", ".claude", ".mastracode"]
+				const GLOBAL_LOCATIONS = [
+					".claude",
+					".mastracode",
+					".config/claude",
+					".config/mastracode",
+				]
+				const results: Array<{
+					path: string
+					content: string
+					scope: "global" | "project"
+					fileName: string
+				}> = []
+
+				// Project files
+				for (const location of PROJECT_LOCATIONS) {
+					const basePath = location
+						? path.join(projectRoot, location)
+						: projectRoot
+					for (const filename of INSTRUCTION_FILES) {
+						const fullPath = path.join(basePath, filename)
+						if (fs.existsSync(fullPath)) {
+							try {
+								const content = fs.readFileSync(fullPath, "utf-8")
+								results.push({
+									path: fullPath,
+									content,
+									scope: "project",
+									fileName: filename,
+								})
+							} catch {}
+						}
+					}
+				}
+
+				// Global files
+				for (const location of GLOBAL_LOCATIONS) {
+					const basePath = path.join(home, location)
+					for (const filename of INSTRUCTION_FILES) {
+						const fullPath = path.join(basePath, filename)
+						if (fs.existsSync(fullPath)) {
+							try {
+								const content = fs.readFileSync(fullPath, "utf-8")
+								results.push({
+									path: fullPath,
+									content,
+									scope: "global",
+									fileName: filename,
+								})
+							} catch {}
+						}
+					}
+				}
+
+				return results
+			}
+			case "createContextFile": {
+				const scope = command.scope as "project" | "global"
+				let targetDir: string
+				if (scope === "project") {
+					targetDir = projectRoot
+				} else {
+					targetDir = path.join(os.homedir(), ".mastracode")
+					if (!fs.existsSync(targetDir))
+						fs.mkdirSync(targetDir, { recursive: true })
+				}
+				const targetPath = path.join(targetDir, "AGENT.md")
+				if (!fs.existsSync(targetPath)) {
+					fs.writeFileSync(targetPath, "# Agent Instructions\n\n", "utf-8")
+				}
+				return { path: targetPath }
+			}
+			case "writeContextFile": {
+				const filePath = command.filePath as string
+				// Security: only allow writing to known context file locations
+				const home = os.homedir()
+				const isProjectFile = filePath.startsWith(projectRoot)
+				const isGlobalFile = filePath.startsWith(home)
+				const isContextFile =
+					path.basename(filePath) === "AGENT.md" ||
+					path.basename(filePath) === "CLAUDE.md"
+				if (!isContextFile || (!isProjectFile && !isGlobalFile)) {
+					throw new Error("Access denied: can only write to context files")
+				}
+				fs.writeFileSync(filePath, command.content as string, "utf-8")
+				return { success: true }
+			}
+
 			default:
 				console.warn("Unknown IPC command:", command.type)
 				return null
@@ -1830,9 +2190,42 @@ function bridgeAllEvents(window: BrowserWindow) {
 			// Desktop notifications for key events (only when window not focused)
 			if (!window.isFocused()) {
 				switch (event.type) {
-					case "agent_end":
+					case "agent_end": {
 						sendDesktopNotification("Agent finished", "Your task is complete")
+						// Auto-transition linked Linear issue to "done" state
+						;(async () => {
+							try {
+								const sessionState = session.harness.getState?.() as
+									| Record<string, unknown>
+									| undefined
+								const linkedIssueId =
+									(sessionState?.linkedLinearIssueId as string) ?? ""
+								const doneStateId =
+									(sessionState?.linkedLinearDoneStateId as string) ?? ""
+								const apiKey = (sessionState?.linearApiKey as string) ?? ""
+								if (linkedIssueId && doneStateId && apiKey) {
+									await fetch("https://api.linear.app/graphql", {
+										method: "POST",
+										headers: {
+											"Content-Type": "application/json",
+											Authorization: apiKey,
+										},
+										body: JSON.stringify({
+											query: `mutation($id: String!, $stateId: String!) {
+												issueUpdate(id: $id, input: { stateId: $stateId }) {
+													success
+												}
+											}`,
+											variables: { id: linkedIssueId, stateId: doneStateId },
+										}),
+									})
+								}
+							} catch (e: any) {
+								console.warn("Failed to auto-update Linear issue:", e.message)
+							}
+						})()
 						break
+					}
 					case "tool_approval_required":
 						sendDesktopNotification(
 							"Approval needed",

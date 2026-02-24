@@ -1,14 +1,16 @@
 import { useState, useCallback, useRef } from "react"
 import { FileTree } from "./FileTree"
 import { GitPanel } from "./GitPanel"
+import { ContextPanel } from "./ContextPanel"
 import { TerminalPanel } from "./TerminalPanel"
 import { ResizeHandle } from "./ResizeHandle"
 
-export type RightSidebarTab = "files" | "git"
+export type RightSidebarTab = "files" | "git" | "context"
 
 const tabs: Array<{ id: RightSidebarTab; label: string }> = [
 	{ id: "files", label: "Files" },
 	{ id: "git", label: "Git" },
+	{ id: "context", label: "Context" },
 ]
 
 interface RightSidebarProps {
@@ -145,6 +147,7 @@ export function RightSidebar({
 						<FileTree projectName={projectName} onFileClick={onFileClick} activeFilePath={activeFilePath} />
 					)}
 					{activeTab === "git" && <GitPanel onFileClick={onDiffClick} activeFilePath={activeDiffPath} />}
+					{activeTab === "context" && <ContextPanel onFileClick={onFileClick} />}
 				</div>
 
 				{/* Terminal pinned to bottom */}

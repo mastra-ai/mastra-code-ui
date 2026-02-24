@@ -11,10 +11,10 @@ Legend: `[x]` done, `[-]` partial, `[ ]` not started
 
 Run multiple coding agents simultaneously, each in an isolated Git worktree.
 
-- [ ] **Git worktree isolation** — Create a new worktree + branch per agent task so parallel agents never conflict with each other or the main working tree
+- [-] **Git worktree isolation** — Create a new worktree + branch per agent task so parallel agents never conflict with each other or the main working tree _(worktrees created with issue-based branch names from Linear; linked issues auto-transition to "In Progress" on start and "Done" on agent completion; linked worktree badges in TaskBoard and ProjectList)_
 - [ ] **Agent dashboard** — Bird's-eye view of all running agents: status, current task, branch, token usage
 - [ ] **Wire subagents through Harness config** — Use `HarnessConfig.subagents` and the built-in subagent tool instead of manual tool creation
-- [-] **Agent notifications** — Desktop notifications when an agent finishes, errors, or needs approval _(dock badge and in-app audio implemented; `Notification` API imported but not wired up for desktop alerts)_
+- [x] **Agent notifications** — Desktop notifications when an agent finishes, errors, or needs approval _(desktop `Notification` API, dock badge, in-app bell, and sound all implemented; configurable via Settings)_
 - [ ] **Agent cost tracking** — Per-agent token usage and cost breakdown across parallel sessions
 
 ## Diff Viewer & Code Review
@@ -50,14 +50,14 @@ Tracked in [UPSTREAM_HARNESS_GAPS.md](./UPSTREAM_HARNESS_GAPS.md). Key items:
 
 Structured task tracking and context sharing across agents.
 
-- [-] **Task board** — Visual kanban or list view of todos with status, assignee (agent), and dependencies _(read-only todo progress widget exists; no interactive kanban, no assignment or dependency tracking)_
-- [-] **Context files** — Persistent markdown specs and plans that live alongside code (like Conductor's context-driven development) _(AGENT.md/CLAUDE.md auto-injected into system prompt via `agent-instructions.ts`; no UI for browsing or editing context files)_
+- [x] **Task board** — Visual kanban or list view of todos with status, assignee (agent), and dependencies _(interactive kanban board with Linear integration: connect via API key, browse teams, view/create/update issues with state transitions; agent tasks sidebar column)_
+- [x] **Context files** — Persistent markdown specs and plans that live alongside code (like Conductor's context-driven development) _(AGENT.md/CLAUDE.md auto-injected into system prompt; Context tab in right sidebar for browsing, editing, and creating context files with scope badges)_
 - [x] **Slash commands** — Custom user-defined slash commands for common workflows _(fully wired end-to-end: EditorInput detects `/` and triggers SlashCommandAutocomplete, App.tsx handleSend processes commands via IPC, main.ts loads and expands command templates)_
 - [ ] **Workspace presets** — Scripted environment setup (install deps, start servers, seed data) that runs automatically when creating a new agent workspace
 
 ## IDE & Editor Integration
 
-- [ ] **One-click open in editor** — Deep link any file or worktree to VS Code, Cursor, JetBrains, Sublime, or other editors
+- [x] **One-click open in editor** — Deep link any file or worktree to VS Code, Cursor, JetBrains, Sublime, or other editors _(editor auto-detection for Cursor/VS Code/Sublime; `openInEditor` IPC handler with `--goto` support; context menu in FileTree)_
 - [ ] **Port forwarding** — Manage dev server ports across parallel agent sessions
 - [x] **Terminal multiplexing** — Multiple terminal tabs per agent workspace _(multi-tab xterm with node-pty, create/close/switch tabs)_
 

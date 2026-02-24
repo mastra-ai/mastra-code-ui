@@ -23,6 +23,7 @@ interface ProjectListProps {
 	activeWorktrees: Set<string>
 	unreadWorktrees: Set<string>
 	worktreeStatuses: Map<string, WorktreeStatus>
+	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string }>
 	onSwitchProject: (path: string) => void
 	onOpenFolder: () => void
 	onRemoveProject: (path: string) => void
@@ -150,6 +151,7 @@ export function ProjectList({
 	activeWorktrees,
 	unreadWorktrees,
 	worktreeStatuses,
+	linkedIssues,
 	onSwitchProject,
 	onOpenFolder,
 	onRemoveProject,
@@ -610,9 +612,27 @@ export function ProjectList({
 														fontSize: 10,
 														color: "var(--dim)",
 														marginTop: 1,
+														display: "flex",
+														alignItems: "center",
+														gap: 6,
 													}}
 												>
 													{repoName}
+													{linkedIssues?.[wt.rootPath] && (
+														<span
+															style={{
+																fontSize: 9,
+																color: "#5E6AD2",
+																background: "#5E6AD218",
+																padding: "0px 4px",
+																borderRadius: 2,
+																fontFamily: "monospace",
+																fontWeight: 500,
+															}}
+														>
+															{linkedIssues[wt.rootPath].issueIdentifier}
+														</span>
+													)}
 												</div>
 											</div>
 										</button>
@@ -843,7 +863,24 @@ export function ProjectList({
 												>
 													{wt.gitBranch || wt.name}
 												</span>
-												{wtStatus && <StatusBadge status={wtStatus} />}
+												{linkedIssues?.[wt.rootPath] && (
+												<span
+													style={{
+														fontSize: 9,
+														color: "#5E6AD2",
+														background: "#5E6AD218",
+														padding: "1px 6px",
+														borderRadius: 3,
+														border: "1px solid #5E6AD233",
+														fontFamily: "monospace",
+														fontWeight: 500,
+														flexShrink: 0,
+													}}
+												>
+													{linkedIssues[wt.rootPath].issueIdentifier}
+												</span>
+											)}
+											{wtStatus && <StatusBadge status={wtStatus} />}
 											</button>
 										)
 									})}
