@@ -120,12 +120,13 @@ export function detectProject(projectPath: string): ProjectInfo {
 	}
 
 	// Generate resource ID
-	// Priority: normalized git URL > main repo path (for worktrees) > absolute path
+	// Worktrees get their own scope so each branch has independent threads/state.
+	// Non-worktree projects use: normalized git URL > absolute path.
 	let resourceIdSource: string
-	if (gitUrl) {
+	if (isWorktree) {
+		resourceIdSource = rootPath
+	} else if (gitUrl) {
 		resourceIdSource = normalizeGitUrl(gitUrl)
-	} else if (mainRepoPath) {
-		resourceIdSource = mainRepoPath
 	} else {
 		resourceIdSource = rootPath
 	}

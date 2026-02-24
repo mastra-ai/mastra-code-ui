@@ -7,6 +7,7 @@ import { ToolApprovalDialog } from "./components/ToolApprovalDialog"
 import { AskQuestionDialog } from "./components/AskQuestionDialog"
 import { PlanApproval } from "./components/PlanApproval"
 import { ModelSelector } from "./components/ModelSelector"
+import { Settings } from "./components/Settings"
 import { LoginDialog } from "./components/LoginDialog"
 import { WelcomeScreen } from "./components/WelcomeScreen"
 import { RightSidebar, type RightSidebarTab } from "./components/RightSidebar"
@@ -369,6 +370,7 @@ export function App() {
 	const [threads, setThreads] = useState<ThreadInfo[]>([])
 	const [currentThreadId, setCurrentThreadId] = useState<string | null>(null)
 	const [showModelSelector, setShowModelSelector] = useState(false)
+	const [showSettings, setShowSettings] = useState(false)
 	const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
 	const [loggedInProviders, setLoggedInProviders] = useState<Set<string>>(
 		new Set(),
@@ -391,6 +393,16 @@ export function App() {
 	const [enrichedProjects, setEnrichedProjects] = useState<EnrichedProject[]>([])
 	const [unreadWorktrees, setUnreadWorktrees] = useState<Set<string>>(new Set())
 	const [activeWorktrees, setActiveWorktrees] = useState<Set<string>>(new Set())
+	const [prStatus, setPrStatus] = useState<{
+		exists: boolean
+		number?: number
+		title?: string
+		state?: string
+		url?: string
+		isDraft?: boolean
+		checks?: "pending" | "passing" | "failing" | "none"
+	} | null>(null)
+	const [worktreeStatuses, setWorktreeStatuses] = useState<Map<string, "in_progress" | "in_review" | "done" | "archived">>(new Map())
 	const projectInfoRef = useRef<ProjectInfo | null>(null)
 	const notificationPrefRef = useRef<string>("off")
 
@@ -398,6 +410,20 @@ export function App() {
 	useEffect(() => {
 		projectInfoRef.current = projectInfo
 	}, [projectInfo])
+
+	// Refresh PR status when project/branch changes, and poll every 30s
+	useEffect(() => {
+		loadPRStatus()
+		const interval = setInterval(loadPRStatus, 30_000)
+		return () => clearInterval(interval)
+	}, [projectInfo?.rootPath, projectInfo?.gitBranch])
+
+	// Refresh worktree statuses periodically (every 60s)
+	useEffect(() => {
+		if (enrichedProjects.length === 0) return
+		const interval = setInterval(() => loadWorktreeStatuses(), 60_000)
+		return () => clearInterval(interval)
+	}, [enrichedProjects])
 
 	// Sync dock badge count with unread worktrees
 	useEffect(() => {
@@ -432,7 +458,7 @@ export function App() {
 		title: string
 		plan: string
 	} | null>(null)
-	const [todos, setTodos] = useState<
+	const [tasks, setTasks] = useState<
 		Array<{
 			content: string
 			status: "pending" | "in_progress" | "completed"
@@ -461,6 +487,7 @@ export function App() {
 					if (isActiveWorktree) {
 						dispatch({ type: "AGENT_END" })
 						loadThreads()
+						loadPRStatus()
 					}
 					if (endPath) {
 						setActiveWorktrees((prev) => {
@@ -580,9 +607,9 @@ export function App() {
 				case "usage_update":
 					setTokenUsage(event.usage as TokenUsage)
 					break
-				case "todo_updated":
-					setTodos(
-						event.todos as Array<{
+				case "task_updated":
+					setTasks(
+						event.tasks as Array<{
 							content: string
 							status: "pending" | "in_progress" | "completed"
 							activeForm: string
@@ -711,7 +738,7 @@ export function App() {
 					setOpenFiles([])
 					setOpenThreadTabs([])
 					setActiveTab("chat")
-					loadEnrichedProjects()
+					loadPRStatus()
 					// Load threads and auto-open the most recent one
 					loadThreads().then(async (loaded) => {
 						if (loaded && loaded.length > 0) {
@@ -763,6 +790,11 @@ export function App() {
 				e.preventDefault()
 				handleOpenFolder()
 			}
+			// Cmd+, open settings
+			if (isMod && e.key === ",") {
+				e.preventDefault()
+				setShowSettings((v) => !v)
+			}
 			// Cmd+W close active file tab
 			if (isMod && e.key === "w" && activeTab !== "chat") {
 				e.preventDefault()
@@ -801,14 +833,14 @@ export function App() {
 			const state = (await window.api.invoke({ type: "getState" })) as {
 				currentModelId?: string
 				notifications?: string
-				todos?: Array<{
+				tasks?: Array<{
 					content: string
 					status: "pending" | "in_progress" | "completed"
 					activeForm: string
 				}>
 			}
 			if (state?.currentModelId) setModelId(state.currentModelId)
-			if (state?.todos) setTodos(state.todos)
+			if (state?.tasks) setTasks(state.tasks)
 			if (state?.notifications) notificationPrefRef.current = state.notifications
 
 			const usage = (await window.api.invoke({
@@ -842,6 +874,9 @@ export function App() {
 			await loadEnrichedProjects()
 
 			await loadMessages()
+
+			// Load PR status for current branch
+			loadPRStatus()
 		} catch (err) {
 			console.error("Failed to initialize:", err)
 		}
@@ -876,10 +911,64 @@ export function App() {
 			const projects = (await window.api.invoke({
 				type: "getRecentProjects",
 			})) as EnrichedProject[]
-			if (projects) setEnrichedProjects(projects)
+			if (projects) {
+				setEnrichedProjects(projects)
+				loadWorktreeStatuses(projects)
+			}
 		} catch {
 			// ignore
 		}
+	}
+
+	async function loadPRStatus() {
+		try {
+			const result = (await window.api.invoke({ type: "getPRStatus" })) as {
+				exists: boolean
+				number?: number
+				title?: string
+				state?: string
+				url?: string
+				isDraft?: boolean
+				checks?: "pending" | "passing" | "failing" | "none"
+			}
+			setPrStatus(result)
+		} catch {
+			setPrStatus(null)
+		}
+	}
+
+	async function loadWorktreeStatuses(projects?: EnrichedProject[]) {
+		const projectList = projects || enrichedProjects
+		if (projectList.length === 0) return
+
+		const statusMap = new Map<string, "in_progress" | "in_review" | "done" | "archived">()
+		// Process each repo group
+		for (const project of projectList) {
+			if (project.isWorktree || project.worktrees.length === 0) continue
+			try {
+				const result = (await window.api.invoke({
+					type: "getWorktreePRStatuses",
+					repoPath: project.rootPath,
+					worktrees: project.worktrees,
+				})) as Record<string, { exists: boolean; state?: string }>
+				for (const [wtPath, pr] of Object.entries(result)) {
+					if (!pr.exists) {
+						statusMap.set(wtPath, "in_progress")
+					} else if (pr.state === "merged") {
+						statusMap.set(wtPath, "done")
+					} else if (pr.state === "open") {
+						statusMap.set(wtPath, "in_review")
+					} else if (pr.state === "closed") {
+						statusMap.set(wtPath, "archived")
+					} else {
+						statusMap.set(wtPath, "in_progress")
+					}
+				}
+			} catch {
+				// ignore per-repo failures
+			}
+		}
+		setWorktreeStatuses(statusMap)
 	}
 
 	const handleSend = useCallback(async (content: string) => {
@@ -1101,6 +1190,12 @@ export function App() {
 			next.delete(switchPath)
 			return next
 		})
+		// Eagerly clear tabs so stale threads from another branch are never visible
+		dispatch({ type: "CLEAR" })
+		setOpenThreadTabs([])
+		setOpenFiles([])
+		setActiveTab("chat")
+		setThreads([])
 		await window.api.invoke({ type: "switchProject", path: switchPath })
 	}, [])
 
@@ -1156,6 +1251,7 @@ export function App() {
 				isAgentActive={chat.isAgentActive}
 				activeWorktrees={activeWorktrees}
 				unreadWorktrees={unreadWorktrees}
+				worktreeStatuses={worktreeStatuses}
 				onSwitchThread={handleSwitchThread}
 				onNewThread={handleNewThread}
 				onDeleteThread={handleDeleteThread}
@@ -1364,6 +1460,84 @@ export function App() {
 					{/* Spacer (draggable) */}
 					<div style={{ flex: 1 }} />
 
+					{/* PR button — status-aware */}
+					{projectInfo?.gitBranch && projectInfo.gitBranch !== "main" && projectInfo.gitBranch !== "master" && (() => {
+						const pr = prStatus
+						const hasOpenPR = pr?.exists && (pr.state === "open")
+						const isMerged = pr?.exists && pr.state === "merged"
+
+						// Determine label and color
+						let label = "Create PR"
+						let dotColor = ""
+						let titleText = "Create PR from current branch"
+
+						if (hasOpenPR) {
+							label = `#${pr.number}`
+							titleText = `${pr.title} — ${pr.url}`
+							if (pr.checks === "passing") {
+								dotColor = "var(--success)"
+								label += " passing"
+							} else if (pr.checks === "failing") {
+								dotColor = "var(--error)"
+								label += " failing"
+							} else if (pr.checks === "pending") {
+								dotColor = "var(--warning)"
+								label += " pending"
+							}
+							if (pr.isDraft) label = `#${pr.number} draft`
+						} else if (isMerged) {
+							label = `#${pr!.number} merged`
+							dotColor = "var(--accent)"
+							titleText = `Merged — ${pr!.url}`
+						}
+
+						return (
+							<button
+								className="titlebar-no-drag"
+								onClick={() => {
+									if (hasOpenPR && pr?.url) {
+										window.api.invoke({ type: "openExternal", url: pr.url })
+									} else if (!isMerged) {
+										if (chat.isAgentActive) return
+										handleSend("Create a pull request for this branch. Push if needed first.")
+									}
+								}}
+								style={{
+									display: "flex",
+									alignItems: "center",
+									gap: 5,
+									padding: "0 10px",
+									fontSize: 11,
+									fontWeight: 500,
+									color: hasOpenPR ? "var(--text)" : isMerged ? "var(--dim)" : chat.isAgentActive ? "var(--dim)" : "var(--muted)",
+									cursor: isMerged ? "default" : "pointer",
+									transition: "color 0.1s",
+								}}
+								title={titleText}
+							>
+								{dotColor && (
+									<span style={{
+										width: 6,
+										height: 6,
+										borderRadius: "50%",
+										background: dotColor,
+										flexShrink: 0,
+									}} />
+								)}
+								{!dotColor && (
+									<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+										<circle cx="5" cy="3.5" r="2" />
+										<circle cx="5" cy="12.5" r="2" />
+										<circle cx="11" cy="5.5" r="2" />
+										<line x1="5" y1="5.5" x2="5" y2="10.5" />
+										<path d="M9 5.5 H7 C5.9 5.5 5 6.4 5 7.5" />
+									</svg>
+								)}
+								{label}
+							</button>
+						)
+					})()}
+
 					{/* Right sidebar toggle */}
 					<button
 						className="titlebar-no-drag"
@@ -1412,7 +1586,7 @@ export function App() {
 								isAgentActive={chat.isAgentActive}
 								agentStartedAt={chat.agentStartedAt}
 								streamingMessageId={chat.streamingMessageId}
-								todos={todos}
+								todos={tasks}
 							/>
 							<EditorInput
 								onSend={handleSend}
@@ -1453,6 +1627,7 @@ export function App() {
 					projectName={projectInfo?.name}
 					gitBranch={projectInfo?.gitBranch}
 					onOpenModelSelector={handleOpenModelSelector}
+					onOpenSettings={() => setShowSettings(true)}
 				/>
 			</div>
 
@@ -1504,6 +1679,10 @@ export function App() {
 					onSelect={handleSwitchModel}
 					onClose={() => setShowModelSelector(false)}
 				/>
+			)}
+
+			{showSettings && (
+				<Settings onClose={() => setShowSettings(false)} />
 			)}
 
 			{loginState && (

@@ -128,8 +128,9 @@ Use this tool when:
 					: DEFAULT_SUBAGENT_MODEL
 
 			// Check for configured subagent model from harness (per-type)
-			const configuredSubagentModel =
-				await harnessCtx?.getSubagentModelId?.(agentType)
+			const configuredSubagentModel = harnessCtx?.getSubagentModelId?.({
+				agentType,
+			})
 
 			const resolvedModelId =
 				modelId ??

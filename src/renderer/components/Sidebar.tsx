@@ -2,6 +2,8 @@ import { useState } from "react"
 import { ProjectList, type EnrichedProject } from "./ProjectList"
 import type { ThreadInfo } from "../types/ipc"
 
+export type WorktreeStatus = "in_progress" | "in_review" | "done" | "archived"
+
 interface SidebarProps {
 	threads: ThreadInfo[]
 	currentThreadId: string | null
@@ -13,6 +15,7 @@ interface SidebarProps {
 	isAgentActive: boolean
 	activeWorktrees: Set<string>
 	unreadWorktrees: Set<string>
+	worktreeStatuses: Map<string, WorktreeStatus>
 	onSwitchThread: (threadId: string) => void
 	onNewThread: () => void
 	onDeleteThread: (threadId: string) => void
@@ -39,6 +42,7 @@ export function Sidebar({
 	isAgentActive,
 	activeWorktrees,
 	unreadWorktrees,
+	worktreeStatuses,
 	onSwitchThread,
 	onNewThread,
 	onDeleteThread,
@@ -96,6 +100,7 @@ export function Sidebar({
 					isAgentActive={isAgentActive}
 					activeWorktrees={activeWorktrees}
 					unreadWorktrees={unreadWorktrees}
+					worktreeStatuses={worktreeStatuses}
 					onSwitchProject={onSwitchProject}
 					onOpenFolder={onOpenFolder}
 					onRemoveProject={onRemoveProject}

@@ -179,10 +179,10 @@ function getToolDisplay(tool: ToolExecutionProps["tool"]): ToolDisplay {
 					: null,
 			}
 		}
-		case "todo_write":
-			return { icon: "\u{1F4CB}", label: "Update todos", pill: null }
-		case "todo_check":
-			return { icon: "\u2611\uFE0F", label: "Check todo", pill: null }
+		case "task_write":
+			return { icon: "\u{1F4CB}", label: "Update tasks", pill: null }
+		case "task_check":
+			return { icon: "\u2611\uFE0F", label: "Check tasks", pill: null }
 		case "ask_user":
 			return { icon: "\u2753", label: "Ask user", pill: null }
 		case "submit_plan":

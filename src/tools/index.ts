@@ -1,5 +1,9 @@
 /**
  * Tool exports for Mastra Code
+ *
+ * Note: ask_user, submit_plan, task_write, and task_check are built-in
+ * Harness tools (auto-injected via buildToolsets) — they don't need to
+ * be registered here.
  */
 
 export { createViewTool } from "./file-view"
@@ -15,11 +19,5 @@ export { createGlobTool } from "./glob"
 export { createWriteFileTool } from "./write"
 export { createSubagentTool } from "./subagent"
 export type { SubagentToolDeps } from "./subagent"
-export { todoWriteTool } from "./todo"
-export type { TodoItem } from "./todo"
-export { todoCheckTool } from "./todo-check"
-export { askUserTool } from "./ask-user"
-export { submitPlanTool } from "./submit-plan"
-export type { PlanApprovalResult } from "./submit-plan"
 export { astSmartEditTool } from "./ast-smart-edit"
 export { requestSandboxAccessTool } from "./request-sandbox-access"

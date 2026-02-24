@@ -59,10 +59,6 @@ import {
 	createGlobTool,
 	createWriteFileTool,
 	createSubagentTool,
-	todoWriteTool,
-	todoCheckTool,
-	askUserTool,
-	submitPlanTool,
 	requestSandboxAccessTool,
 } from "../tools/index.js"
 import { buildFullPrompt, type PromptContext } from "../prompts/index.js"
@@ -168,14 +164,20 @@ function loadRecentProjects(): Array<{
 }
 
 function saveRecentProject(projectPath: string, name: string) {
-	const projects = loadRecentProjects().filter(
-		(p) => p.rootPath !== projectPath,
-	)
-	projects.unshift({
-		name,
-		rootPath: projectPath,
-		lastOpened: new Date().toISOString(),
-	})
+	const projects = loadRecentProjects()
+	const existing = projects.find((p) => p.rootPath === projectPath)
+	if (existing) {
+		// Update timestamp but keep position stable — don't reorder
+		existing.lastOpened = new Date().toISOString()
+		existing.name = name
+	} else {
+		// New project goes at the end
+		projects.push({
+			name,
+			rootPath: projectPath,
+			lastOpened: new Date().toISOString(),
+		})
+	}
 	if (projects.length > 10) projects.length = 10
 	const dir = path.dirname(getRecentProjectsPath())
 	if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -268,7 +270,7 @@ async function createHarness(projectPath: string) {
 		yolo: z.boolean().default(false),
 		smartEditing: z.boolean().default(true),
 		notifications: z.enum(["bell", "system", "both", "off"]).default("off"),
-		todos: z
+		tasks: z
 			.array(
 				z.object({
 					content: z.string(),
@@ -277,6 +279,7 @@ async function createHarness(projectPath: string) {
 				}),
 			)
 			.default([]),
+		prInstructions: z.string().default(""),
 		sandboxAllowedPaths: z.array(z.string()).default([]),
 		activePlan: z
 			.object({
@@ -410,8 +413,6 @@ async function createHarness(projectPath: string) {
 			string_replace_lsp: stringReplaceLspTool,
 			write_file: writeFileTool,
 			execute_command: executeCommandTool,
-			todo_write: todoWriteTool,
-			todo_check: todoCheckTool,
 		},
 		resolveModel,
 	})
@@ -514,15 +515,14 @@ async function createHarness(projectPath: string) {
 			const modeId = harnessContext?.modeId ?? "build"
 			const isAnthropicModel = modelId.startsWith("anthropic/")
 
+			// Built-in tools (ask_user, submit_plan, task_write, task_check) are
+			// auto-injected by the Harness via buildToolsets — no need to register them here.
 			const tools: Record<string, any> = {
 				view: viewTool,
 				search_content: grepTool,
 				find_files: globTool,
 				execute_command: executeCommandTool,
 				subagent: modeId === "plan" ? subagentToolReadOnly : subagentTool,
-				todo_write: todoWriteTool,
-				todo_check: todoCheckTool,
-				ask_user: askUserTool,
 				request_sandbox_access: requestSandboxAccessTool,
 			}
 
@@ -530,10 +530,6 @@ async function createHarness(projectPath: string) {
 				tools.string_replace_lsp = stringReplaceLspTool
 				tools.ast_smart_edit = astSmartEditTool
 				tools.write_file = writeFileTool
-			}
-
-			if (modeId === "plan") {
-				tools.submit_plan = submitPlanTool
 			}
 
 			if (webSearchTool) {
@@ -609,6 +605,12 @@ async function createHarness(projectPath: string) {
 		modelAuthChecker: (provider: string) => {
 			return authStorage.isLoggedIn(provider) || undefined
 		},
+		omConfig: {
+			defaultObserverModelId: DEFAULT_OM_MODEL_ID,
+			defaultReflectorModelId: DEFAULT_OM_MODEL_ID,
+			defaultObservationThreshold: DEFAULT_OBS_THRESHOLD,
+			defaultReflectionThreshold: DEFAULT_REF_THRESHOLD,
+		},
 	})
 
 	// Sync OM state
@@ -658,7 +660,7 @@ async function generateThreadTitle(
 		})
 		const title = result.text?.trim()
 		if (title) {
-			await h.renameThread(title)
+			await h.renameThread({ title })
 			// Notify renderer so it can refresh the thread list
 			mainWindow?.webContents.send("harness:event", {
 				type: "thread_title_updated",
@@ -688,7 +690,7 @@ async function deleteThread(h: Harness<any>, threadId: string): Promise<void> {
 	const currentThreadId = h.getCurrentThreadId()
 	if (currentThreadId === threadId) {
 		// Create a new thread so we're not on the deleted one
-		await h.createThread("New Thread")
+		await h.createThread({ title: "New Thread" })
 	}
 	// NOTE: Actual storage deletion requires upstream Harness.deleteThread().
 	// For now we just ensure the UI moves away from the deleted thread.
@@ -709,40 +711,52 @@ function registerIpcHandlers() {
 		switch (command.type) {
 			case "sendMessage": {
 				const threadBefore = h.getCurrentThreadId()
-				await h.sendMessage(
-					command.content,
-					command.images ? { images: command.images } : undefined,
-				)
-				// Auto-generate title for new threads (Mastra core skips this
-				// because the harness pre-creates threads before streaming)
-				const threadAfter = h.getCurrentThreadId()
-				if (threadAfter && threadAfter !== threadBefore) {
-					generateThreadTitle(h, command.content, resolveModel).catch(() => {})
-				}
+				// Fire-and-forget: do NOT await sendMessage so the IPC channel
+				// stays unblocked — otherwise abort/steer commands are queued
+				// behind the running message and can never arrive in time.
+				h.sendMessage({
+					content: command.content,
+					...(command.images ? { images: command.images } : {}),
+				})
+					.then(() => {
+						const threadAfter = h.getCurrentThreadId()
+						if (threadAfter && threadAfter !== threadBefore) {
+							generateThreadTitle(h, command.content, resolveModel).catch(
+								() => {},
+							)
+						}
+					})
+					.catch((err: unknown) => {
+						console.error("sendMessage error:", err)
+					})
 				return
 			}
 			case "abort":
 				h.abort()
 				return
 			case "steer":
-				await h.steer(command.content)
+				await h.steer({ content: command.content })
 				return
 			case "followUp":
-				await h.followUp(command.content)
+				await h.followUp({ content: command.content })
 				return
 			case "switchMode":
-				await h.switchMode(command.modeId)
+				await h.switchMode({ modeId: command.modeId })
 				return
 			case "switchModel":
-				await h.switchModel(command.modelId, command.scope, command.modeId)
+				await h.switchModel({
+					modelId: command.modelId,
+					scope: command.scope,
+					modeId: command.modeId,
+				})
 				return
 			case "switchThread":
-				await h.switchThread(command.threadId)
+				await h.switchThread({ threadId: command.threadId })
 				return
 			case "createThread":
-				return await h.createThread(command.title)
+				return await h.createThread({ title: command.title })
 			case "renameThread":
-				await h.renameThread(command.title)
+				await h.renameThread({ title: command.title })
 				return
 			case "deleteThread":
 				// TODO [UPSTREAM]: Harness.deleteThread() not yet in published @mastra/core.
@@ -750,16 +764,22 @@ function registerIpcHandlers() {
 				await deleteThread(h, command.threadId)
 				return
 			case "approveToolCall":
-				h.resolveToolApprovalDecision("approve")
+				h.respondToToolApproval({ decision: "approve" })
 				return
 			case "declineToolCall":
-				h.resolveToolApprovalDecision("decline")
+				h.respondToToolApproval({ decision: "decline" })
 				return
 			case "respondToQuestion":
-				h.respondToQuestion(command.questionId, command.answer)
+				h.respondToQuestion({
+					questionId: command.questionId,
+					answer: command.answer,
+				})
 				return
 			case "respondToPlanApproval":
-				await h.respondToPlanApproval(command.planId, command.response)
+				await h.respondToPlanApproval({
+					planId: command.planId,
+					response: command.response,
+				})
 				return
 			case "setYoloMode":
 				await h.setState({ yolo: command.enabled })
@@ -767,8 +787,147 @@ function registerIpcHandlers() {
 			case "setThinkingLevel":
 				await h.setState({ thinkingLevel: command.level })
 				return
+			case "setNotifications":
+				await h.setState({ notifications: command.mode })
+				return
+			case "setSmartEditing":
+				await h.setState({ smartEditing: command.enabled })
+				return
+			case "setObserverModel":
+				await h.setState({ observerModelId: command.modelId })
+				return
+			case "setReflectorModel":
+				await h.setState({ reflectorModelId: command.modelId })
+				return
+			case "setState":
+				await h.setState(command.patch)
+				return
+			case "getPRStatus": {
+				const { execSync } = require("child_process")
+				try {
+					const json = execSync(
+						"gh pr view --json number,title,state,url,statusCheckRollup,mergeable,isDraft,headRefName 2>&1",
+						{
+							cwd: projectRoot,
+							encoding: "utf-8",
+							stdio: ["pipe", "pipe", "pipe"],
+						},
+					) as string
+					const pr = JSON.parse(json) as {
+						number: number
+						title: string
+						state: string
+						url: string
+						isDraft: boolean
+						headRefName: string
+						mergeable: string
+						statusCheckRollup: Array<{
+							state: string
+							conclusion: string
+						}> | null
+					}
+					// Summarize check status
+					let checks: "pending" | "passing" | "failing" | "none" = "none"
+					if (pr.statusCheckRollup && pr.statusCheckRollup.length > 0) {
+						const hasFailure = pr.statusCheckRollup.some(
+							(c) => c.conclusion === "FAILURE" || c.conclusion === "ERROR",
+						)
+						const hasPending = pr.statusCheckRollup.some(
+							(c) => c.state === "PENDING" || c.conclusion === "",
+						)
+						if (hasFailure) checks = "failing"
+						else if (hasPending) checks = "pending"
+						else checks = "passing"
+					}
+					return {
+						exists: true,
+						number: pr.number,
+						title: pr.title,
+						state: pr.state.toLowerCase(),
+						url: pr.url,
+						isDraft: pr.isDraft,
+						checks,
+						mergeable: pr.mergeable,
+					}
+				} catch {
+					// No PR for this branch
+					return { exists: false }
+				}
+			}
+			case "getWorktreePRStatuses": {
+				const { execSync: execSyncPR } = require("child_process")
+				const repoPath = command.repoPath as string
+				const worktreeBranches = command.worktrees as Array<{
+					path: string
+					branch: string
+				}>
+				const result: Record<
+					string,
+					{
+						exists: boolean
+						state?: string
+						number?: number
+						url?: string
+						isDraft?: boolean
+					}
+				> = {}
+
+				// Fetch all PRs in one call (much faster than per-worktree)
+				let allPRs: Array<{
+					number: number
+					headRefName: string
+					state: string
+					url: string
+					isDraft: boolean
+				}> = []
+				try {
+					const json = execSyncPR(
+						"gh pr list --state all --json number,headRefName,state,url,isDraft --limit 200 2>&1",
+						{
+							cwd: repoPath,
+							encoding: "utf-8",
+							stdio: ["pipe", "pipe", "pipe"],
+							timeout: 10000,
+						},
+					) as string
+					allPRs = JSON.parse(json)
+				} catch {
+					// gh CLI not available or not a GitHub repo
+				}
+
+				// Build a map of branch -> most recent PR
+				const branchToPR = new Map<string, (typeof allPRs)[0]>()
+				for (const pr of allPRs) {
+					const existing = branchToPR.get(pr.headRefName)
+					if (!existing || pr.number > existing.number) {
+						branchToPR.set(pr.headRefName, pr)
+					}
+				}
+
+				// Match each worktree to its PR
+				for (const wt of worktreeBranches) {
+					const pr = branchToPR.get(wt.branch)
+					if (pr) {
+						result[wt.path] = {
+							exists: true,
+							state: pr.state.toLowerCase(),
+							number: pr.number,
+							url: pr.url,
+							isDraft: pr.isDraft,
+						}
+					} else {
+						result[wt.path] = { exists: false }
+					}
+				}
+				return result
+			}
+			case "openExternal": {
+				const { shell } = require("electron") as typeof import("electron")
+				shell.openExternal(command.url as string)
+				return
+			}
 			case "getAvailableModels":
-				return await h.getAvailableModels()
+				return await h.listAvailableModels()
 			case "getSlashCommands": {
 				const { loadCustomCommands } =
 					await import("../utils/slash-command-loader.js")
@@ -787,9 +946,9 @@ function registerIpcHandlers() {
 				return await processSlashCommand(cmd, command.args ?? [], projectRoot)
 			}
 			case "getMessages":
-				return await h.getMessages({ limit: command.limit })
+				return await h.listMessages({ limit: command.limit })
 			case "getModes":
-				return h.getModes().map((m) => ({
+				return h.listModes().map((m) => ({
 					id: m.id,
 					name: m.name,
 					color: m.color,
@@ -872,7 +1031,7 @@ function registerIpcHandlers() {
 						command.providerId,
 					)
 					if (defaultModel) {
-						await h.switchModel(defaultModel)
+						await h.switchModel({ modelId: defaultModel })
 					}
 					mainWindow?.webContents.send("harness:event", {
 						type: "login_success",
@@ -1085,12 +1244,26 @@ function registerIpcHandlers() {
 			case "getRecentProjects": {
 				const { execSync } = require("child_process")
 				const projects = loadRecentProjects()
-				return projects.map((p) => {
+
+				// First pass: enrich each project with git info
+				const enriched = projects.map((p) => {
 					let gitBranch: string | undefined
 					let isWorktree = false
 					let mainRepoPath: string | undefined
 					const worktrees: Array<{ path: string; branch: string }> = []
+					let exists = true
 					try {
+						if (!fs.existsSync(p.rootPath)) {
+							exists = false
+							return {
+								...p,
+								gitBranch,
+								isWorktree,
+								mainRepoPath,
+								worktrees,
+								exists,
+							}
+						}
 						const info = detectProject(p.rootPath)
 						gitBranch = info.gitBranch
 						isWorktree = info.isWorktree
@@ -1124,7 +1297,42 @@ function registerIpcHandlers() {
 					} catch {
 						// not a git repo or worktree detection failed
 					}
-					return { ...p, gitBranch, isWorktree, mainRepoPath, worktrees }
+					return {
+						...p,
+						gitBranch,
+						isWorktree,
+						mainRepoPath,
+						worktrees,
+						exists,
+					}
+				})
+
+				// Filter out non-existent paths and worktrees that are already
+				// listed under their parent repo (avoid duplicates)
+				const rootPaths = new Set(
+					enriched
+						.filter((p) => !p.isWorktree && p.exists)
+						.map((p) => p.rootPath),
+				)
+				const worktreePathsUnderRoots = new Set<string>()
+				for (const p of enriched) {
+					if (!p.isWorktree && p.exists) {
+						for (const wt of p.worktrees) {
+							worktreePathsUnderRoots.add(wt.path)
+						}
+					}
+				}
+
+				return enriched.filter((p) => {
+					if (!p.exists) return false
+					// If this is a worktree and its parent root is already in the list,
+					// skip it (it'll show nested under the parent)
+					if (p.isWorktree && p.mainRepoPath && rootPaths.has(p.mainRepoPath))
+						return false
+					// Also skip if this path shows up as a child worktree of another project
+					if (p.isWorktree && worktreePathsUnderRoots.has(p.rootPath))
+						return false
+					return true
 				})
 			}
 			case "removeRecentProject": {
@@ -1394,35 +1602,33 @@ function registerIpcHandlers() {
 			case "switchProject": {
 				const newPath = command.path as string
 
-				// If we already have a session for this path, just switch to it
 				if (sessions.has(newPath)) {
+					// Fast path: session already exists, just switch to it
 					activeSessionPath = newPath
 					if (mainWindow) bridgeAllEvents(mainWindow)
-				} else {
-					// Create a new session (old session stays alive in background)
-					const result2 = await createHarness(newPath)
-					const newSession: WorktreeSession = {
-						harness: result2.harness,
-						mcpManager: result2.mcpManager,
-						resolveModel: result2.resolveModel,
-						authStorage: result2.authStorage,
-						projectRoot: newPath,
-						unsubscribe: null,
-						ptySessions: new Map(),
+
+					// Use cached state from harness — no git calls needed
+					const cachedState = sessions.get(newPath)!.harness.getState?.() as
+						| { projectName?: string; gitBranch?: string }
+						| undefined
+					const fastProject = {
+						name: cachedState?.projectName || path.basename(newPath),
+						rootPath: newPath,
+						gitBranch: cachedState?.gitBranch,
+						isWorktree: true,
 					}
-					sessions.set(newPath, newSession)
-					activeSessionPath = newPath
-					if (mainWindow) bridgeAllEvents(mainWindow)
-					// Initialize
-					await newSession.harness.init()
-					if (newSession.mcpManager.hasServers())
-						await newSession.mcpManager.init()
+					// Notify renderer immediately
+					mainWindow?.webContents.send("harness:event", {
+						type: "project_changed",
+						project: fastProject,
+					})
+					saveRecentProject(newPath, fastProject.name)
+					return { project: fastProject }
 				}
 
-				// Save to recent projects
+				// Slow path: first visit — create harness
 				const project = detectProject(newPath)
-				saveRecentProject(newPath, project.name)
-				// Notify renderer
+				// Notify renderer early so the UI updates while harness initializes
 				mainWindow?.webContents.send("harness:event", {
 					type: "project_changed",
 					project: {
@@ -1432,6 +1638,26 @@ function registerIpcHandlers() {
 						isWorktree: project.isWorktree,
 					},
 				})
+
+				const result2 = await createHarness(newPath)
+				const newSession: WorktreeSession = {
+					harness: result2.harness,
+					mcpManager: result2.mcpManager,
+					resolveModel: result2.resolveModel,
+					authStorage: result2.authStorage,
+					projectRoot: newPath,
+					unsubscribe: null,
+					ptySessions: new Map(),
+				}
+				sessions.set(newPath, newSession)
+				activeSessionPath = newPath
+				if (mainWindow) bridgeAllEvents(mainWindow)
+				// Initialize in background
+				await newSession.harness.init()
+				if (newSession.mcpManager.hasServers())
+					await newSession.mcpManager.init()
+
+				saveRecentProject(newPath, project.name)
 				return { project }
 			}
 

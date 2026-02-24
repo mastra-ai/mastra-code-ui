@@ -78,11 +78,19 @@ export function buildFullPrompt(ctx: PromptContext): string {
 	const instructionSources = loadAgentInstructions(ctx.workingDir)
 	const instructionsSection = formatAgentInstructions(instructionSources)
 
+	// Inject user PR instructions if set
+	let prSection = ""
+	const prInstructions = ctx.state?.prInstructions as string | undefined
+	if (prInstructions?.trim()) {
+		prSection = `\n# PR Instructions\nWhen creating pull requests, follow these additional instructions from the user:\n${prInstructions.trim()}\n`
+	}
+
 	return (
 		base +
 		toolsSection +
 		todoSection +
 		instructionsSection +
+		prSection +
 		"\n" +
 		modeSpecific
 	)
