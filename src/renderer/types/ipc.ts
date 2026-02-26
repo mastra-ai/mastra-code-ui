@@ -64,6 +64,7 @@ export type HarnessEventType =
 	| "pty_exit"
 	| "project_changed"
 	| "thread_title_updated"
+	| "display_state_changed"
 
 export interface HarnessEventPayload {
 	type: HarnessEventType

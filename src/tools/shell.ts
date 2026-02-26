@@ -283,19 +283,12 @@ Usage notes:
 			let capturedOutput = "" // Track output ourselves for abort case
 
 			// Get abort signal and emit function from harness context
-			const harnessCtx = (toolContext as any)?.requestContext?.get("harness")
-			const abortSignal = harnessCtx?.abortSignal as AbortSignal | undefined
-			const emitEvent = harnessCtx?.emitEvent as
-				| ((event: {
-						type: "shell_output"
-						toolCallId: string
-						output: string
-						stream: "stdout" | "stderr"
-				  }) => void)
+			const harnessCtx = toolContext?.requestContext?.get("harness") as
+				| import("@mastra/core/harness").HarnessRequestContext
 				| undefined
-			const toolCallId = (toolContext as any)?.agent?.toolCallId as
-				| string
-				| undefined
+			const abortSignal = harnessCtx?.abortSignal
+			const emitEvent = harnessCtx?.emitEvent
+			const toolCallId = toolContext?.agent?.toolCallId
 
 			// Define abort handler outside try block so it's accessible in catch
 			const abortHandler = () => {

@@ -232,9 +232,9 @@ export function Settings({ onClose }: SettingsProps) {
 		load()
 	}, [])
 
-	// Load permissions when that section is active
+	// Load permissions when general or permissions section is active
 	useEffect(() => {
-		if (activeSection !== "permissions") return
+		if (activeSection !== "general" && activeSection !== "permissions") return
 		async function load() {
 			const p = await window.api.invoke({ type: "getPermissionRules" })
 			setPermissions(p as PermissionData)
@@ -302,11 +302,20 @@ export function Settings({ onClose }: SettingsProps) {
 				category,
 				policy,
 			})
-			// Refresh
-			const p = await window.api.invoke({ type: "getPermissionRules" })
-			setPermissions(p as PermissionData)
+			// Refresh permissions
+			const p = await window.api.invoke({ type: "getPermissionRules" }) as PermissionData
+			setPermissions(p)
+			// Sync YOLO state: on if all categories are "allow", off otherwise
+			const allAllow = p.rules?.categories
+				? Object.values(p.rules.categories).every((v) => v === "allow")
+				: false
+			const currentYolo = state?.yolo ?? false
+			if (allAllow !== currentYolo) {
+				await window.api.invoke({ type: "setState", patch: { yolo: allAllow } })
+				setState((prev) => prev ? { ...prev, yolo: allAllow } : prev)
+			}
 		},
-		[],
+		[state?.yolo],
 	)
 
 	const resetSessionGrants = useCallback(async () => {
@@ -377,7 +386,6 @@ export function Settings({ onClose }: SettingsProps) {
 
 	const sections = [
 		{ id: "general", label: "General" },
-		{ id: "permissions", label: "Permissions" },
 		{ id: "mcp", label: "MCP" },
 		{ id: "models", label: "Models" },
 		{ id: "agent", label: "Agent" },
@@ -517,113 +525,81 @@ export function Settings({ onClose }: SettingsProps) {
 											/>
 										</SettingRow>
 
-										<SectionHeader title="Behavior" />
+										<SectionHeader title="Permissions" />
 										<SettingRow
-											label="Auto-approve tools"
-											description="Skip confirmation dialogs for tool execution (YOLO mode)"
+											label="Auto-approve all tools"
+											description="Skip confirmation dialogs for all tool execution (YOLO mode)"
 										>
 											<Toggle
 												checked={state.yolo}
 												onChange={(v) => update("yolo", v)}
 											/>
 										</SettingRow>
-									</>
-								)}
 
-								{activeSection === "permissions" && (
-									<>
-										<SectionHeader title="Tool Categories" />
-										<div
-											style={{
-												fontSize: 11,
-												color: "var(--muted)",
-												padding: "4px 0 8px",
-												lineHeight: 1.4,
-											}}
-										>
-											Control which tool categories require
-											approval before execution.
-										</div>
-										{permissions &&
-											Object.entries(
-												permissions.categories,
-											).map(([catId, cat]) => (
-												<SettingRow
-													key={catId}
-													label={cat.label}
-													description={cat.description}
-												>
-													<div
-														style={{
-															display: "flex",
-															alignItems: "center",
-															gap: 8,
-														}}
-													>
-														<Select
-															value={
-																permissions.rules
-																	.categories[
-																	catId
-																] ?? "ask"
-															}
-															options={policyOptions}
-															onChange={(v) =>
-																updatePermissionPolicy(
-																	catId,
-																	v,
-																)
-															}
-														/>
-														{permissions.sessionGrants.includes(
-															catId,
-														) && (
-															<span
-																style={{
-																	fontSize: 9,
-																	color: "#059669",
-																	background:
-																		"#05966922",
-																	padding: "1px 5px",
-																	borderRadius: 3,
-																	border: "1px solid #05966944",
-																	whiteSpace:
-																		"nowrap",
-																}}
-															>
-																Session grant
-															</span>
-														)}
-													</div>
-												</SettingRow>
-											))}
-										{permissions &&
-											permissions.sessionGrants.length >
-												0 && (
+										{!state.yolo && permissions && (
+											<div style={{ paddingBottom: 8 }}>
 												<div
 													style={{
-														paddingTop: 12,
+														fontSize: 11,
+														color: "var(--muted)",
+														padding: "4px 0 8px",
+														lineHeight: 1.4,
 													}}
 												>
-													<button
-														onClick={
-															resetSessionGrants
-														}
-														style={{
-															padding: "6px 12px",
-															background:
-																"var(--bg-surface)",
-															color: "var(--muted)",
-															borderRadius: 6,
-															border: "1px solid var(--border)",
-															cursor: "pointer",
-															fontSize: 11,
-														}}
-													>
-														Reset session grants
-													</button>
+													Fine-tune approval per tool category:
 												</div>
-											)}
+												{Object.entries(permissions.categories).map(
+													([catId, cat]) => (
+														<SettingRow
+															key={catId}
+															label={cat.label}
+															description={cat.description}
+														>
+															<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+																<Select
+																	value={permissions.rules.categories[catId] ?? "ask"}
+																	options={policyOptions}
+																	onChange={(v) => updatePermissionPolicy(catId, v)}
+																/>
+																{permissions.sessionGrants.includes(catId) && (
+																	<span
+																		style={{
+																			fontSize: 9,
+																			color: "#059669",
+																			background: "#05966922",
+																			padding: "1px 5px",
+																			borderRadius: 3,
+																			border: "1px solid #05966944",
+																			whiteSpace: "nowrap",
+																		}}
+																	>
+																		Session grant
+																	</span>
+																)}
+															</div>
+														</SettingRow>
+													),
+												)}
+												{permissions.sessionGrants.length > 0 && (
+													<div style={{ paddingTop: 8 }}>
+														<button
+															onClick={resetSessionGrants}
+															style={{
+																padding: "5px 10px",
+																background: "var(--bg-surface)",
+																color: "var(--muted)",
+																borderRadius: 6,
+																border: "1px solid var(--border)",
+																cursor: "pointer",
+																fontSize: 11,
+															}}
+														>
+															Reset session grants
+														</button>
+													</div>
+												)}
+											</div>
+										)}
 									</>
 								)}
 

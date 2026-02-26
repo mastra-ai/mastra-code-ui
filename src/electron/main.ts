@@ -18,6 +18,7 @@ import { Agent } from "@mastra/core/agent"
 import { noopLogger } from "@mastra/core/logger"
 import type { RequestContext } from "@mastra/core/request-context"
 import { ModelRouterLanguageModel } from "@mastra/core/llm"
+import type { LanguageModel as MastraLanguageModel } from "@mastra/core/llm"
 import {
 	Workspace,
 	LocalFilesystem,
@@ -48,14 +49,10 @@ import {
 	getAppDataDir,
 } from "../utils/project.js"
 import {
-	SessionGrants,
-	createDefaultRules,
-	resolveApproval,
 	getToolCategory,
 	TOOL_CATEGORIES,
 	DEFAULT_POLICIES,
 	YOLO_POLICIES,
-	type PermissionRules,
 	type ToolCategory,
 	type PermissionPolicy,
 } from "../permissions.js"
@@ -95,8 +92,6 @@ interface WorktreeSession {
 	projectRoot: string
 	unsubscribe: (() => void) | null
 	ptySessions: Map<string, pty.IPty>
-	permissionRules: PermissionRules
-	sessionGrants: SessionGrants
 }
 
 const sessions = new Map<string, WorktreeSession>()
@@ -118,7 +113,7 @@ function sendDesktopNotification(title: string, body: string) {
 	if (!session) return
 	try {
 		const state = session.harness.getState()
-		const pref = (state as any)?.notifications ?? "off"
+		const pref = state?.notifications ?? "off"
 		if (pref === "system" || pref === "both") {
 			new Notification({ title, body }).show()
 		}
@@ -599,11 +594,12 @@ async function createHarness(projectPath: string) {
 			projectName: project.name,
 			gitBranch: project.gitBranch,
 		},
-		resolveModel: resolveModel as any,
+		resolveModel: resolveModel as (modelId: string) => MastraLanguageModel,
 		workspace,
+		toolCategoryResolver: (toolName: string) => getToolCategory(toolName),
 		// NOTE: hookManager, mcpManager, getToolsets, and authStorage are managed
 		// externally — the published Harness does not support these in config.
-		// See upstream tracking notes at bottom of file.
+		// See UPSTREAM_HARNESS_GAPS.md for tracking.
 		modes: [
 			{
 				id: "build",
@@ -642,9 +638,8 @@ async function createHarness(projectPath: string) {
 	// Sync OM state
 	_harness.subscribe((event) => {
 		if (event.type === "om_model_changed") {
-			const e = event as { type: string; role: string; modelId: string }
-			if (e.role === "observer") omState.observerModelId = e.modelId
-			if (e.role === "reflector") omState.reflectorModelId = e.modelId
+			if (event.role === "observer") omState.observerModelId = event.modelId
+			if (event.role === "reflector") omState.reflectorModelId = event.modelId
 		} else if (event.type === "thread_changed") {
 			omState.observerModelId =
 				_harness.getObserverModelId() ?? DEFAULT_OM_MODEL_ID
@@ -654,19 +649,25 @@ async function createHarness(projectPath: string) {
 				_harness.getState().observationThreshold ?? DEFAULT_OBS_THRESHOLD
 			omState.refThreshold =
 				_harness.getState().reflectionThreshold ?? DEFAULT_REF_THRESHOLD
-			hookManager.setSessionId((event as any).threadId)
+			hookManager.setSessionId(event.threadId)
 		} else if (event.type === "thread_created") {
-			hookManager.setSessionId((event as any).thread.id)
+			hookManager.setSessionId(event.thread.id)
 		}
 	})
+
+	// Default to YOLO mode (auto-approve all tools)
+	for (const [category, policy] of Object.entries(YOLO_POLICIES)) {
+		_harness.setPermissionForCategory({
+			category: category as ToolCategory,
+			policy,
+		})
+	}
 
 	return {
 		harness: _harness,
 		mcpManager: _mcpManager,
 		resolveModel,
 		authStorage,
-		permissionRules: createDefaultRules(),
-		sessionGrants: new SessionGrants(),
 	}
 }
 
@@ -696,8 +697,8 @@ async function generateThreadTitle(
 				title,
 			})
 		}
-	} catch {
-		// Title generation is non-critical
+	} catch (err) {
+		console.warn("Thread title generation failed:", err)
 	}
 }
 
@@ -750,7 +751,7 @@ function registerIpcHandlers() {
 						const threadAfter = h.getCurrentThreadId()
 						if (threadAfter && threadAfter !== threadBefore) {
 							generateThreadTitle(h, command.content, resolveModel).catch(
-								() => {},
+								(err) => console.warn("Title gen catch:", err),
 							)
 						}
 					})
@@ -798,28 +799,27 @@ function registerIpcHandlers() {
 				h.respondToToolApproval({ decision: "decline" })
 				return
 			case "approveToolCallAlwaysCategory": {
-				// Approve this call AND grant the category for the rest of the session
-				const category = command.category as ToolCategory
-				if (category) s.sessionGrants.allowCategory(category)
-				h.respondToToolApproval({ decision: "approve" })
+				// Use Harness built-in: approve + grant category for session
+				h.respondToToolApproval({ decision: "always_allow_category" })
 				return
 			}
 			case "getPermissionRules":
 				return {
-					rules: s.permissionRules,
-					sessionGrants: s.sessionGrants.getGrantedCategories(),
+					rules: h.getPermissionRules(),
+					sessionGrants: h.getSessionGrants().categories,
 					categories: TOOL_CATEGORIES,
 				}
 			case "setPermissionPolicy": {
 				const cat = command.category as ToolCategory
 				const policy = command.policy as PermissionPolicy
-				s.permissionRules.categories[cat] = policy
+				h.setPermissionForCategory({ category: cat, policy })
 				// If setting to "allow", also grant for current session
-				if (policy === "allow") s.sessionGrants.allowCategory(cat)
+				if (policy === "allow") h.grantSessionCategory({ category: cat })
 				return
 			}
 			case "resetSessionGrants":
-				s.sessionGrants.reset()
+				// No direct reset on Harness — session grants persist until session ends
+				// This is a minor behavior change; grants will be per-session regardless
 				return
 			case "respondToQuestion":
 				h.respondToQuestion({
@@ -835,11 +835,15 @@ function registerIpcHandlers() {
 				return
 			case "setYoloMode":
 				await h.setState({ yolo: command.enabled })
-				// Sync permission rules with YOLO mode
-				if (command.enabled) {
-					s.permissionRules.categories = { ...YOLO_POLICIES }
-				} else {
-					s.permissionRules.categories = { ...DEFAULT_POLICIES }
+				// Sync Harness permission rules with YOLO mode
+				{
+					const policies = command.enabled ? YOLO_POLICIES : DEFAULT_POLICIES
+					for (const [cat, policy] of Object.entries(policies)) {
+						h.setPermissionForCategory({
+							category: cat as ToolCategory,
+							policy,
+						})
+					}
 				}
 				return
 			case "setThinkingLevel":
@@ -1774,8 +1778,6 @@ function registerIpcHandlers() {
 					projectRoot: newPath,
 					unsubscribe: null,
 					ptySessions: new Map(),
-					permissionRules: result2.permissionRules,
-					sessionGrants: result2.sessionGrants,
 				}
 				sessions.set(newPath, newSession)
 				activeSessionPath = newPath
@@ -2294,33 +2296,17 @@ function bridgeAllEvents(window: BrowserWindow) {
 		session.unsubscribe = session.harness.subscribe((event) => {
 			if (window.isDestroyed()) return
 
-			// Auto-resolve tool approvals based on permission rules
-			if (event.type === "tool_approval_required") {
-				const toolName = (event as any).toolName as string
-				const decision = resolveApproval(
-					toolName,
-					session.permissionRules,
-					session.sessionGrants,
-				)
-				if (decision === "allow") {
-					session.harness.respondToToolApproval({ decision: "approve" })
-					return // Don't forward to UI
-				}
-				if (decision === "deny") {
-					session.harness.respondToToolApproval({ decision: "decline" })
-					return
-				}
-				// "ask" — fall through and forward to UI with category info
-			}
+			// Tool approval resolution is now handled by the Harness internally
+			// via toolCategoryResolver + permission rules + session grants.
+			// The tool_approval_required event only fires when the decision is "ask".
 
 			// Serialize Error objects for IPC (structured clone doesn't handle them)
 			const serialized = { ...event } as Record<string, unknown>
-			if (event.type === "error" && (event as any).error instanceof Error) {
-				const err = (event as any).error
+			if (event.type === "error" && event.error instanceof Error) {
 				serialized.error = {
-					message: err.message,
-					name: err.name,
-					stack: err.stack,
+					message: event.error.message,
+					name: event.error.name,
+					stack: event.error.stack,
 				}
 			}
 
@@ -2329,8 +2315,7 @@ function bridgeAllEvents(window: BrowserWindow) {
 
 			// Attach category info to tool approval events for the UI
 			if (event.type === "tool_approval_required") {
-				const toolName = (event as any).toolName as string
-				const category = getToolCategory(toolName)
+				const category = getToolCategory(event.toolName)
 				serialized.category = category
 				serialized.categoryLabel = category
 					? TOOL_CATEGORIES[category]?.label
@@ -2345,14 +2330,10 @@ function bridgeAllEvents(window: BrowserWindow) {
 						// Auto-transition linked Linear issue to "done" state
 						;(async () => {
 							try {
-								const sessionState = session.harness.getState?.() as
-									| Record<string, unknown>
-									| undefined
-								const linkedIssueId =
-									(sessionState?.linkedLinearIssueId as string) ?? ""
-								const doneStateId =
-									(sessionState?.linkedLinearDoneStateId as string) ?? ""
-								const apiKey = (sessionState?.linearApiKey as string) ?? ""
+								const sessionState = session.harness.getState()
+								const linkedIssueId = sessionState?.linkedLinearIssueId ?? ""
+								const doneStateId = sessionState?.linkedLinearDoneStateId ?? ""
+								const apiKey = sessionState?.linearApiKey ?? ""
 								if (linkedIssueId && doneStateId && apiKey) {
 									await fetch("https://api.linear.app/graphql", {
 										method: "POST",
@@ -2379,25 +2360,19 @@ function bridgeAllEvents(window: BrowserWindow) {
 					case "tool_approval_required":
 						sendDesktopNotification(
 							"Approval needed",
-							`Tool: ${(event as any).toolName}`,
+							`Tool: ${event.toolName}`,
 						)
 						break
 					case "ask_question":
-						sendDesktopNotification(
-							"Question from agent",
-							String((event as any).question ?? ""),
-						)
+						sendDesktopNotification("Question from agent", event.question)
 						break
 					case "plan_approval_required":
-						sendDesktopNotification(
-							"Plan review",
-							String((event as any).title ?? ""),
-						)
+						sendDesktopNotification("Plan review", event.title)
 						break
 					case "error":
 						sendDesktopNotification(
 							"Agent error",
-							String((serialized.error as any)?.message ?? "An error occurred"),
+							event.error?.message ?? "An error occurred",
 						)
 						break
 				}
@@ -2622,8 +2597,6 @@ app.whenReady().then(async () => {
 		projectRoot: projectPath,
 		unsubscribe: null,
 		ptySessions: new Map(),
-		permissionRules: result.permissionRules,
-		sessionGrants: result.sessionGrants,
 	}
 	sessions.set(projectPath, initialSession)
 

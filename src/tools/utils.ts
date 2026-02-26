@@ -1,5 +1,6 @@
 import { promises as fs } from "fs"
 import * as path from "path"
+import type { HarnessRequestContext } from "@mastra/core/harness"
 import { ToolError } from "./types.js"
 import { truncateStringForTokenEstimate } from "../utils/token-estimator.js"
 
@@ -183,14 +184,7 @@ export function getAllowedPathsFromContext(
 ): string[] {
 	if (!toolContext?.requestContext) return []
 	const harnessCtx = toolContext.requestContext.get("harness") as
-		| {
-				state?: { sandboxAllowedPaths?: string[] }
-				getState?: () => { sandboxAllowedPaths?: string[] }
-		  }
+		| HarnessRequestContext
 		| undefined
-	return (
-		harnessCtx?.getState?.()?.sandboxAllowedPaths ??
-		harnessCtx?.state?.sandboxAllowedPaths ??
-		[]
-	)
+	return harnessCtx?.getState()?.sandboxAllowedPaths ?? []
 }

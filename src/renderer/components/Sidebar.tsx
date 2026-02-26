@@ -241,7 +241,7 @@ export function Sidebar({
 										textOverflow: "ellipsis",
 									}}
 								>
-									{thread.title || thread.id.slice(0, 8)}
+									{thread.title || "New Thread"}
 								</div>
 							</button>
 							{hoveredThreadId === thread.id && (

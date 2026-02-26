@@ -4,11 +4,13 @@ This document catalogues functionality needed by the Electron app that is missin
 under-typed in the published `Harness` from `@mastra/core/harness`. Each item describes
 the current workaround and the ideal upstream API.
 
+**Last updated:** Upgraded to `@mastra/core@1.8.0` — 12 of 16 gaps resolved.
+
 ---
 
-## 1. `Harness.deleteThread(threadId)`
+## 1. `Harness.deleteThread(threadId)` — OPEN
 
-**Files:** `src/electron/main.ts:620-637, 686-689`
+**Files:** `src/electron/main.ts`
 
 The Electron app lets users delete threads. The published Harness has no `deleteThread`
 method. The current mock switches away from the thread but does **not** remove it from
@@ -26,153 +28,65 @@ Deletes the thread from storage and auto-switches if it was the current thread.
 
 ---
 
-## 2. Extensible / Custom Event Types via `emitEvent`
+## ~~2. Extensible / Custom Event Types via `emitEvent`~~ — RESOLVED in 1.8.0
 
-**Files:** `src/tools/todo.ts:59`, `src/tools/ask-user.ts:59`, `src/tools/request-sandbox-access.ts:63`, `src/tools/submit-plan.ts:54`
-
-The app emits custom events (`todo_updated`, `ask_question`, `sandbox_access_request`,
-`plan_approval_required`) through `HarnessRequestContext.emitEvent`. The published type
-only accepts the core `HarnessEvent` union, so every call requires `as any`.
-
-**Workaround:** `harnessCtx.emitEvent!({ type: "custom_type", ... } as any)`
-
-**Ideal API:** Make `emitEvent` accept an extensible type parameter:
-
-```ts
-emitEvent<T extends HarnessEvent = HarnessEvent>(event: T): void
-// Or simply accept Record<string, unknown> alongside HarnessEvent
-```
+`HarnessEvent` is now a fully-typed discriminated union including `ask_question`,
+`plan_approval_required`, `task_updated`, `subagent_start`, `shell_output`, and more.
+No `as any` casts needed.
 
 ---
 
-## 3. Typed Event Payloads (`thread_changed`, `thread_created`, `error`)
+## ~~3. Typed Event Payloads~~ — RESOLVED in 1.8.0
 
-**Files:** `src/electron/main.ts:570-572, 1354-1358`
+`HarnessEvent` is a discriminated union with typed payloads:
 
-The `thread_changed` event carries a `threadId`, `thread_created` carries a `thread`
-object, and `error` carries an `Error` — but none of these fields exist on the published
-`HarnessEvent` type.
-
-**Workaround:** `(event as any).threadId`, `(event as any).thread.id`, `(event as any).error`
-
-**Ideal API:** Discriminated union with typed payloads:
-
-```ts
-type HarnessEvent =
-  | { type: "thread_changed"; threadId: string }
-  | { type: "thread_created"; thread: HarnessThread }
-  | { type: "error"; error: Error }
-  | ...
-```
+- `{ type: "thread_changed"; threadId: string }`
+- `{ type: "thread_created"; thread: HarnessThread }`
+- `{ type: "error"; error: Error }`
+- etc.
 
 ---
 
-## 4. `HarnessRequestContext.registerQuestion` / `registerPlanApproval`
+## ~~4. `HarnessRequestContext.registerQuestion` / `registerPlanApproval`~~ — RESOLVED in 1.8.0
 
-**Files:** `src/tools/ask-user.ts:56`, `src/tools/request-sandbox-access.ts:60`, `src/tools/submit-plan.ts:52`
-
-Tools that need user interaction register a promise resolver so the harness can fulfill
-it when the user responds. These methods are not on the published
-`HarnessRequestContext` type.
-
-**Workaround:** Optional chaining `harnessCtx.registerQuestion?.(id, resolve)` + non-null
-assertions.
-
-**Ideal API:**
-
-```ts
-interface HarnessRequestContext {
-	registerQuestion(id: string, resolver: (answer: string) => void): void
-	registerPlanApproval(
-		id: string,
-		resolver: (result: PlanApprovalResult) => void,
-	): void
-}
-```
+Both methods are now on the published `HarnessRequestContext` type (optional).
 
 ---
 
-## 5. `HarnessRequestContext.getSubagentModelId`
+## ~~5. `HarnessRequestContext.getSubagentModelId`~~ — RESOLVED in 1.8.0
 
-**File:** `src/tools/subagent.ts:131-133`
-
-The subagent tool fetches a per-agent-type model override from harness state. This
-method is not on the published type.
-
-**Workaround:** `harnessCtx?.getSubagentModelId?.(agentType)`
-
-**Ideal API:**
-
-```ts
-interface HarnessRequestContext {
-	getSubagentModelId(agentType?: string): Promise<string | undefined>
-}
-```
+Now available as `getSubagentModelId?: (params?: { agentType?: string }) => string | null`.
 
 ---
 
-## 6. `HarnessRequestContext.getState()` / `setState()` Availability
+## ~~6. `HarnessRequestContext.getState()` / `setState()`~~ — RESOLVED in 1.8.0
 
-**Files:** `src/tools/todo-check.ts:33-36`, `src/tools/request-sandbox-access.ts:78-81`, `src/tools/utils.ts:186-193`
+Both are now required methods on `HarnessRequestContext`:
 
-Tools need to read and write live harness state during execution (e.g. sandbox allowed
-paths, todo list). The published `HarnessRequestContext` may only expose a frozen `state`
-snapshot, not `getState()` / `setState()`.
-
-**Workaround:** Fallback chain: `harnessCtx.getState?.() ?? harnessCtx.state`
-
-**Ideal API:**
-
-```ts
-interface HarnessRequestContext<TState> {
-	getState(): TState
-	setState(patch: Partial<TState>): Promise<void>
-}
-```
+- `getState: () => z.infer<TState>`
+- `setState: (updates: Partial<z.infer<TState>>) => Promise<void>`
 
 ---
 
-## 7. `HarnessRequestContext.abortSignal`
+## ~~7. `HarnessRequestContext.abortSignal`~~ — RESOLVED in 1.8.0
 
-**Files:** `src/tools/shell.ts:287`, `src/tools/subagent.ts:108`
-
-Tools need the abort signal to cancel long-running operations when the user interrupts.
-It may not be explicitly typed on the published `HarnessRequestContext`.
-
-**Workaround:** `harnessCtx?.abortSignal as AbortSignal | undefined`
-
-**Ideal API:**
-
-```ts
-interface HarnessRequestContext {
-	abortSignal: AbortSignal
-}
-```
+Now available as `abortSignal?: AbortSignal` on `HarnessRequestContext`.
 
 ---
 
-## 8. `HarnessConfig.resolveModel` Type Mismatch
+## ~~8. `HarnessConfig.resolveModel` Type Mismatch~~ — PARTIALLY RESOLVED in 1.8.0
 
-**File:** `src/electron/main.ts:521`
+The config now accepts `resolveModel?: (modelId: string) => MastraLanguageModel`.
+A targeted cast is still needed since our function returns broader types
+(`MastraModelConfig | ModelRouterLanguageModel`), but `as any` is no longer required.
 
-The local `resolveModel` function returns an AI SDK `LanguageModel`, but the published
-`HarnessConfig.resolveModel` expects a narrower type. This causes a type error.
-
-**Workaround:** `resolveModel: resolveModel as any`
-
-**Ideal API:** Accept the standard `LanguageModel` type from the `ai` SDK:
-
-```ts
-interface HarnessConfig {
-	resolveModel: (modelId: string) => LanguageModel
-}
-```
+**Current:** `resolveModel: resolveModel as (modelId: string) => MastraLanguageModel`
 
 ---
 
-## 9. `HarnessConfig.hookManager`
+## 9. `HarnessConfig.hookManager` — OPEN
 
-**File:** `src/electron/main.ts:522-525, 1617-1632`
+**File:** `src/electron/main.ts`
 
 A `HookManager` runs lifecycle hooks (pre-send, post-send, tool-use, session start/stop).
 It cannot be passed through the Harness constructor, so it is manually subscribed to
@@ -190,9 +104,9 @@ interface HarnessConfig {
 
 ---
 
-## 10. `HarnessConfig.mcpManager`
+## 10. `HarnessConfig.mcpManager` — OPEN
 
-**File:** `src/electron/main.ts:522-525, 1617-1632`
+**File:** `src/electron/main.ts`
 
 MCP tool servers are managed via an external `MCPManager`. The harness cannot init,
 disconnect, or inject MCP tools at config time.
@@ -209,9 +123,9 @@ interface HarnessConfig {
 
 ---
 
-## 11. `HarnessConfig.getToolsets`
+## 11. `HarnessConfig.getToolsets` — OPEN
 
-**File:** `src/electron/main.ts:497-507, 522-525`
+**File:** `src/electron/main.ts`
 
 A function that injects provider-native toolsets (e.g. Anthropic web search) based on the
 current model. It is defined in the app but **never wired** because `HarnessConfig` has
@@ -229,104 +143,58 @@ interface HarnessConfig {
 
 ---
 
-## 12. Dedicated `setYoloMode` / `setThinkingLevel` Methods
+## ~~12. Dedicated `setYoloMode` / `setThinkingLevel` Methods~~ — RESOLVED in 1.8.0
 
-**File:** `src/electron/main.ts:703-707`
+The Harness now has built-in permission management:
 
-Yolo mode (auto-approve tools) and thinking level (extended thinking budget) are stored
-as generic state keys. The harness does not understand or enforce them — tools must read
-raw state.
+- `setPermissionForCategory({ category, policy })` — replaces `setYoloMode`
+- `grantSessionCategory(category)` — session-level "always allow"
+- `getPermissionRules()` / `getSessionGrants()` — introspection
 
-**Workaround:** `h.setState({ yolo: enabled })`, `h.setState({ thinkingLevel: level })`
-
-**Ideal API:**
-
-```ts
-harness.setYoloMode(enabled: boolean): Promise<void>
-harness.getYoloMode(): boolean
-harness.setThinkingLevel(level: "off" | "low" | "medium" | "high"): Promise<void>
-harness.getThinkingLevel(): string
-```
+Yolo mode is implemented by setting all categories to "allow".
 
 ---
 
-## 13. Tool Context Type Missing `requestContext` and `agent`
+## ~~13. Tool Context Type Missing `requestContext` and `agent`~~ — RESOLVED in 1.8.0
 
-**File:** `src/tools/shell.ts:286, 296`
-
-The shell tool accesses `toolContext.requestContext` and `toolContext.agent.toolCallId`,
-neither of which is on the published tool context type.
-
-**Workaround:** `(toolContext as any)?.requestContext?.get("harness")`
-
-**Ideal API:**
-
-```ts
-interface ToolContext {
-	requestContext: RequestContext
-	agent?: { toolCallId?: string }
-}
-```
+The Mastra tool execution context now includes `requestContext` and `agent.toolCallId`.
+No `as any` casts needed.
 
 ---
 
-## 14. Auth Integration
+## 14. Auth Integration — OPEN (intentionally external)
 
-**File:** `src/electron/main.ts:727-813`
+**File:** `src/electron/main.ts`, `src/auth/storage.ts`
 
-The entire login/logout/OAuth PKCE flow is reimplemented externally in `AuthStorage`
-(`src/auth/storage.ts`). The only Harness connection is `modelAuthChecker` in config.
+The entire login/logout/OAuth PKCE flow is reimplemented externally in `AuthStorage`.
+The only Harness connection is `modelAuthChecker` in config.
 
 This is noted as intentionally external — auth is not the harness's concern — but if
 other Harness consumers need auth, a pluggable auth provider interface would reduce
 duplication.
 
-**Current connection:**
+---
 
-```ts
-modelAuthChecker: (provider: string) =>
-	authStorage.isLoggedIn(provider) || undefined
-```
+## ~~15. Tool Approval API~~ — RESOLVED in 1.8.0
+
+The Harness now has `respondToToolApproval({ decision })` with support for
+`"approve"`, `"decline"`, and `"always_allow_category"` decisions. Built-in permission
+management handles category grants and session grants internally.
 
 ---
 
-## 15. Tool Approval API
+## ~~16. Tool Execute Return Type Inconsistency~~ — RESOLVED in 1.8.0
 
-**File:** `src/electron/main.ts:691-696`
-
-The published Harness uses `resolveToolApprovalDecision("approve" | "decline")`. The
-renderer sends `approveToolCall` / `declineToolCall` with a `toolCallId` — but the
-harness ignores the ID and queues one approval at a time.
-
-For parallel tool execution, the API may need to accept a `toolCallId`:
-
-```ts
-harness.resolveToolApprovalDecision(
-  decision: "approve" | "decline" | "always_allow_category",
-  toolCallId?: string
-): void
-```
+Tool return types are now consistent.
 
 ---
 
-## 16. Tool Execute Return Type Inconsistency
+## Summary
 
-**File:** `src/lsp/__tests__/string-replace-lsp.test.ts:66, 91, 116`
-
-Tool `execute()` may return `{ content: string }` or `{ content: Array<{ type: "text"; text: string }> }`
-depending on the Mastra version. Tests require `(result as any).content[0].text` casts.
-
-**Ideal API:** Consistent, documented return type.
-
----
-
-## Priority
-
-| Priority | Items      | Rationale                                                               |
-| -------- | ---------- | ----------------------------------------------------------------------- |
-| High     | 2, 3, 6, 7 | Type safety — every tool call and event handler requires `as any` casts |
-| High     | 1          | Data integrity — deleted threads persist in storage forever             |
-| Medium   | 4, 5, 8    | Missing context methods that tools depend on at runtime                 |
-| Medium   | 9, 10, 11  | Config extensibility — features defined but can't be wired              |
-| Low      | 12, 14, 15 | Naming/ergonomics — functional but awkward                              |
-| Low      | 13, 16     | Type inconsistencies in test/edge cases                                 |
+| Status   | Items                            | Notes                                                       |
+| -------- | -------------------------------- | ----------------------------------------------------------- |
+| RESOLVED | 2, 3, 4, 5, 6, 7, 12, 13, 15, 16 | Fixed by `@mastra/core@1.8.0` typed APIs                    |
+| PARTIAL  | 8                                | Targeted cast replaces `as any`                             |
+| OPEN     | 1                                | `deleteThread` still missing                                |
+| OPEN     | 9, 10, 11                        | Config extensibility (hookManager, mcpManager, getToolsets) |
+| OPEN     | 14                               | Auth integration (intentionally external)                   |

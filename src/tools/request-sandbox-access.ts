@@ -61,11 +61,10 @@ export const requestSandboxAccessTool = createTool({
 
 				// Emit event — UI will show the dialog
 				harnessCtx.emitEvent!({
-					type: "sandbox_access_request",
+					type: "ask_question",
 					questionId,
-					path: absolutePath,
-					reason,
-				} as any)
+					question: `Grant access to "${absolutePath}"? Reason: ${reason}`,
+				})
 			})
 
 			const approved =
@@ -74,10 +73,9 @@ export const requestSandboxAccessTool = createTool({
 
 			if (approved) {
 				// Add to allowed paths
-				const currentAllowed =
-					harnessCtx.getState?.()?.sandboxAllowedPaths ?? []
+				const currentAllowed = harnessCtx.getState()?.sandboxAllowedPaths ?? []
 				if (!currentAllowed.includes(absolutePath)) {
-					harnessCtx.setState?.({
+					await harnessCtx.setState({
 						sandboxAllowedPaths: [...currentAllowed, absolutePath],
 					})
 				}
