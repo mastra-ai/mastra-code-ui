@@ -97,6 +97,40 @@ export function Sidebar({
 				</svg>
 			</div>
 
+			{/* Tasks — primary navigation, above workspace list */}
+			<button
+				onClick={onOpenTasks}
+				style={{
+					display: "flex",
+					alignItems: "center",
+					gap: 8,
+					width: "100%",
+					padding: "10px 14px",
+					background: isTasksActive ? "var(--selected-bg)" : "transparent",
+					borderLeft: isTasksActive
+						? "3px solid var(--accent)"
+						: "3px solid transparent",
+					borderTop: "none",
+					borderRight: "none",
+					borderBottom: "1px solid var(--border-muted)",
+					cursor: "pointer",
+					flexShrink: 0,
+					textAlign: "left" as const,
+				}}
+			>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+					<path d="M9 11l3 3L22 4" />
+					<path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+				</svg>
+				<span style={{
+					fontSize: 13,
+					fontWeight: 600,
+					color: isTasksActive ? "var(--text)" : "var(--muted)",
+				}}>
+					Tasks
+				</span>
+			</button>
+
 			{/* Project list — primary feature, takes available space */}
 			<div
 				style={{
@@ -279,125 +313,89 @@ export function Sidebar({
 					}}
 				/>
 
-				{/* Provider login status */}
+				{/* Provider login status + Settings gear */}
 				<div
 					style={{
 						padding: "8px 12px",
+						borderTop: "1px solid var(--border-muted)",
 						display: "flex",
-						flexDirection: "column",
-						gap: 4,
+						alignItems: "flex-start",
+						gap: 8,
 					}}
 				>
-					{providers.map((p) => {
-						const isLoggedIn = loggedInProviders.has(p.id)
-						return (
-							<button
-								key={p.id}
-								onClick={() => {
-									if (!isLoggedIn) onLogin(p.id)
-								}}
-								style={{
-									display: "flex",
-									alignItems: "center",
-									gap: 6,
-									padding: "5px 8px",
-									background: "transparent",
-									borderRadius: 4,
-									fontSize: 11,
-									color: isLoggedIn
-										? "var(--success)"
-										: "var(--muted)",
-									cursor: isLoggedIn ? "default" : "pointer",
-									border: "none",
-									textAlign: "left",
-									width: "100%",
-								}}
-							>
-								<span
-									style={{
-										width: 6,
-										height: 6,
-										borderRadius: "50%",
-										background: isLoggedIn
-											? "var(--success)"
-											: "var(--dim)",
-										flexShrink: 0,
+					<div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+						{providers.map((p) => {
+							const isLoggedIn = loggedInProviders.has(p.id)
+							return (
+								<button
+									key={p.id}
+									onClick={() => {
+										if (!isLoggedIn) onLogin(p.id)
 									}}
-								/>
-								{p.label}
-								<span
 									style={{
-										marginLeft: "auto",
-										fontSize: 10,
+										display: "flex",
+										alignItems: "center",
+										gap: 6,
+										padding: "3px 0",
+										background: "transparent",
+										fontSize: 11,
 										color: isLoggedIn
 											? "var(--success)"
-											: "var(--dim)",
+											: "var(--muted)",
+										cursor: isLoggedIn ? "default" : "pointer",
+										border: "none",
+										textAlign: "left",
 									}}
 								>
-									{isLoggedIn ? "Connected" : "Sign in"}
-								</span>
-							</button>
-						)
-					})}
+									<span
+										style={{
+											width: 6,
+											height: 6,
+											borderRadius: "50%",
+											background: isLoggedIn
+												? "var(--success)"
+												: "var(--dim)",
+											flexShrink: 0,
+										}}
+									/>
+									{p.label}
+									<span
+										style={{
+											marginLeft: "auto",
+											fontSize: 10,
+											color: isLoggedIn
+												? "var(--success)"
+												: "var(--dim)",
+										}}
+									>
+										{isLoggedIn ? "Connected" : "Sign in"}
+									</span>
+								</button>
+							)
+						})}
+					</div>
+					<button
+						onClick={onOpenSettings}
+						title="Settings"
+						style={{
+							padding: 6,
+							background: isSettingsActive ? "var(--selected-bg)" : "transparent",
+							borderRadius: 4,
+							cursor: "pointer",
+							border: "none",
+							color: isSettingsActive ? "var(--text)" : "var(--dim)",
+							flexShrink: 0,
+							display: "flex",
+							alignItems: "center",
+							marginTop: 2,
+						}}
+					>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+							<circle cx="12" cy="12" r="3" />
+							<path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+						</svg>
+					</button>
 				</div>
-
-			{/* Tasks + Settings */}
-			<div
-				style={{
-					padding: "4px 12px 8px",
-					borderTop: "1px solid var(--border-muted)",
-					display: "flex",
-					flexDirection: "column",
-					gap: 2,
-				}}
-			>
-				<button
-					onClick={onOpenTasks}
-					style={{
-						display: "flex",
-						alignItems: "center",
-						gap: 6,
-						padding: "5px 8px",
-						background: isTasksActive ? "var(--selected-bg)" : "transparent",
-						borderRadius: 4,
-						fontSize: 11,
-						color: isTasksActive ? "var(--text)" : "var(--muted)",
-						cursor: "pointer",
-						border: "none",
-						textAlign: "left",
-						width: "100%",
-					}}
-				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-						<path d="M9 11l3 3L22 4" />
-						<path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-					</svg>
-					Tasks
-				</button>
-				<button
-					onClick={onOpenSettings}
-					style={{
-						display: "flex",
-						alignItems: "center",
-						gap: 6,
-						padding: "5px 8px",
-						background: isSettingsActive ? "var(--selected-bg)" : "transparent",
-						borderRadius: 4,
-						fontSize: 11,
-						color: isSettingsActive ? "var(--text)" : "var(--muted)",
-						cursor: "pointer",
-						border: "none",
-						textAlign: "left",
-						width: "100%",
-					}}
-				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-						<circle cx="12" cy="12" r="3" />
-						<path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
-					</svg>
-					Settings
-				</button>
-			</div>
 			</div>
 
 			{/* Delete confirmation modal */}

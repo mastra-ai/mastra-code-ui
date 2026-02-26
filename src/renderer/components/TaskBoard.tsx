@@ -50,6 +50,15 @@ interface AgentTask {
 	activeForm: string
 }
 
+interface HandmadeIssue {
+	id: string
+	title: string
+	description?: string
+	status: "todo" | "in_progress" | "done"
+	createdAt: string
+	updatedAt: string
+}
+
 export interface WorkflowStates {
 	startedStateId: string
 	doneStateId: string
@@ -60,7 +69,7 @@ interface UnifiedIssue {
 	id: string
 	identifier: string
 	title: string
-	provider: "linear" | "github"
+	provider: "linear" | "github" | "handmade"
 	state: { name: string; color: string; type: string }
 	assignee?: string
 	priority?: number
@@ -189,6 +198,15 @@ function GitHubIcon({ size = 12 }: { size?: number }) {
 	)
 }
 
+function HandmadeIcon({ size = 12 }: { size?: number }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+			<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+			<path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+		</svg>
+	)
+}
+
 export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub, linkedIssues, onSwitchToWorktree }: TaskBoardProps) {
 	// Linear state
 	const [linearApiKey, setLinearApiKey] = useState("")
@@ -219,6 +237,15 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 	const [githubConnecting, setGithubConnecting] = useState(false)
 	const [showGithubPATInput, setShowGithubPATInput] = useState(false)
 	const [githubPATInput, setGithubPATInput] = useState("")
+
+	// Handmade (local) issues
+	const [handmadeIssues, setHandmadeIssues] = useState<HandmadeIssue[]>([])
+	const [creatingHandmade, setCreatingHandmade] = useState(false)
+	const [newHandmadeTitle, setNewHandmadeTitle] = useState("")
+
+	// Filters
+	const [sourceFilter, setSourceFilter] = useState<Set<string> | null>(null)
+	const [workspaceFilter, setWorkspaceFilter] = useState<string | null>(null)
 
 	const isDemo = demo && !linearApiKey
 	const anyConnected = linearConnected || githubConnected || isDemo
@@ -252,6 +279,9 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 				setGithubUsername(ghUser)
 				setGithubConnected(true)
 			}
+			// Handmade
+			const handmade = (state?.handmadeIssues as HandmadeIssue[]) ?? []
+			setHandmadeIssues(handmade)
 		}
 		load()
 	}, [])
@@ -578,6 +608,36 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 		await window.api.invoke({ type: "githubDisconnect" })
 	}, [])
 
+	// ── Handmade issue helpers ──────────────────────────────────────
+
+	const handleCreateHandmade = useCallback(async () => {
+		if (!newHandmadeTitle.trim()) return
+		const issue: HandmadeIssue = {
+			id: `handmade-${Date.now()}`,
+			title: newHandmadeTitle.trim(),
+			status: "todo",
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+		}
+		const next = [...handmadeIssues, issue]
+		setHandmadeIssues(next)
+		setNewHandmadeTitle("")
+		setCreatingHandmade(false)
+		await window.api.invoke({ type: "setState", patch: { handmadeIssues: next } })
+	}, [newHandmadeTitle, handmadeIssues])
+
+	const handleUpdateHandmadeStatus = useCallback(async (id: string, status: HandmadeIssue["status"]) => {
+		const next = handmadeIssues.map(i => i.id === id ? { ...i, status, updatedAt: new Date().toISOString() } : i)
+		setHandmadeIssues(next)
+		await window.api.invoke({ type: "setState", patch: { handmadeIssues: next } })
+	}, [handmadeIssues])
+
+	const handleDeleteHandmade = useCallback(async (id: string) => {
+		const next = handmadeIssues.filter(i => i.id !== id)
+		setHandmadeIssues(next)
+		await window.api.invoke({ type: "setState", patch: { handmadeIssues: next } })
+	}, [handmadeIssues])
+
 	// ── Unified issue normalization ─────────────────────────────────
 
 	const workflowStates = useMemo<WorkflowStates>(() => {
@@ -649,15 +709,80 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 			})
 		}
 
+		// Handmade issues
+		for (const issue of handmadeIssues) {
+			const stateType = issue.status === "done" ? "completed" : issue.status === "in_progress" ? "started" : "unstarted"
+			const stateColor = issue.status === "done" ? "#5e6ad2" : issue.status === "in_progress" ? "#f2c94c" : "#e2e2e2"
+			const stateName = issue.status === "done" ? "Done" : issue.status === "in_progress" ? "In Progress" : "Todo"
+
+			result.push({
+				id: issue.id,
+				identifier: `T-${handmadeIssues.indexOf(issue) + 1}`,
+				title: issue.title,
+				provider: "handmade",
+				state: { name: stateName, color: stateColor, type: stateType },
+				url: "#",
+				labels: [],
+				createdAt: issue.createdAt,
+				updatedAt: issue.updatedAt,
+			})
+		}
+
 		return result
-	}, [activeIssues, githubIssues, issueWorktreeMap])
+	}, [activeIssues, githubIssues, issueWorktreeMap, handmadeIssues])
+
+	// Available sources for filter chips
+	const availableSources = useMemo(() => {
+		const sources = new Set<string>()
+		for (const issue of unifiedIssues) sources.add(issue.provider)
+		return Array.from(sources)
+	}, [unifiedIssues])
+
+	// Available workspaces for filter dropdown
+	const availableWorkspaces = useMemo(() => {
+		if (!linkedIssues) return []
+		return Object.keys(linkedIssues).map(path => ({
+			path,
+			name: path.split("/").pop() || path,
+		}))
+	}, [linkedIssues])
+
+	// Source filter toggle
+	const toggleSourceFilter = useCallback((source: string) => {
+		setSourceFilter(prev => {
+			if (prev === null) {
+				return new Set([source])
+			}
+			const next = new Set(prev)
+			if (next.has(source)) {
+				next.delete(source)
+				if (next.size === 0) return null
+			} else {
+				next.add(source)
+			}
+			return next
+		})
+	}, [])
 
 	// Filter issues
 	const filteredIssues = unifiedIssues.filter((issue) => {
-		if (filter === "all") return true
-		if (filter === "active")
-			return issue.state.type === "started" || issue.state.type === "unstarted"
-		if (filter === "backlog") return issue.state.type === "backlog"
+		// Status filter
+		if (filter === "active" && issue.state.type !== "started" && issue.state.type !== "unstarted") return false
+		if (filter === "backlog" && issue.state.type !== "backlog") return false
+
+		// Source filter
+		if (sourceFilter !== null && !sourceFilter.has(issue.provider)) return false
+
+		// Workspace filter
+		if (workspaceFilter !== null) {
+			const linkedWt = issueWorktreeMap[issue.id]
+			if (workspaceFilter === "__unlinked__") {
+				if (linkedWt) return false
+			} else {
+				if (linkedWt !== workspaceFilter) return false
+			}
+		}
+
 		return true
 	})
 
@@ -839,9 +964,27 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 
 						{!isDemo && (
 							<>
+								<button
+									onClick={() => { setCreatingHandmade(!creatingHandmade); setCreating(false) }}
+									style={{
+										padding: "4px 12px",
+										fontSize: 11,
+										background: creatingHandmade ? "var(--bg-elevated)" : "var(--bg-surface)",
+										color: creatingHandmade ? "var(--text)" : "var(--muted)",
+										borderRadius: 4,
+										cursor: "pointer",
+										fontWeight: 500,
+										border: "1px solid var(--border-muted)",
+										display: "flex",
+										alignItems: "center",
+										gap: 4,
+									}}
+								>
+									<HandmadeIcon size={10} /> + Task
+								</button>
 								{linearConnected && (
 									<button
-										onClick={() => setCreating(!creating)}
+										onClick={() => { setCreating(!creating); setCreatingHandmade(false) }}
 										style={{
 											padding: "4px 12px",
 											fontSize: 11,
@@ -951,6 +1094,183 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 						}}
 					>
 						dismiss
+					</button>
+				</div>
+			)}
+
+			{/* Source + Workspace filter bar */}
+			{anyConnected && (availableSources.length > 1 || availableWorkspaces.length > 0 || handmadeIssues.length > 0) && (
+				<div
+					style={{
+						display: "flex",
+						alignItems: "center",
+						padding: "6px 20px",
+						gap: 8,
+						borderBottom: "1px solid var(--border-muted)",
+						flexShrink: 0,
+						flexWrap: "wrap",
+					}}
+				>
+					{/* Source filter */}
+					<span style={{ fontSize: 10, color: "var(--dim)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.3px" }}>Source</span>
+					{availableSources.includes("linear") && (
+						<button
+							onClick={() => toggleSourceFilter("linear")}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 4,
+								padding: "2px 8px",
+								fontSize: 10,
+								borderRadius: 3,
+								cursor: "pointer",
+								border: "1px solid",
+								borderColor: sourceFilter === null || sourceFilter.has("linear") ? "#5E6AD2" : "var(--border)",
+								background: sourceFilter === null || sourceFilter.has("linear") ? "#5E6AD218" : "transparent",
+								color: sourceFilter === null || sourceFilter.has("linear") ? "#5E6AD2" : "var(--dim)",
+								fontWeight: 600,
+							}}
+						>
+							<LinearIcon size={10} /> Linear
+						</button>
+					)}
+					{availableSources.includes("github") && (
+						<button
+							onClick={() => toggleSourceFilter("github")}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 4,
+								padding: "2px 8px",
+								fontSize: 10,
+								borderRadius: 3,
+								cursor: "pointer",
+								border: "1px solid",
+								borderColor: sourceFilter === null || sourceFilter.has("github") ? "#8b949e" : "var(--border)",
+								background: sourceFilter === null || sourceFilter.has("github") ? "#8b949e18" : "transparent",
+								color: sourceFilter === null || sourceFilter.has("github") ? "var(--text)" : "var(--dim)",
+								fontWeight: 600,
+							}}
+						>
+							<GitHubIcon size={10} /> GitHub
+						</button>
+					)}
+					{availableSources.includes("handmade") && (
+						<button
+							onClick={() => toggleSourceFilter("handmade")}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 4,
+								padding: "2px 8px",
+								fontSize: 10,
+								borderRadius: 3,
+								cursor: "pointer",
+								border: "1px solid",
+								borderColor: sourceFilter === null || sourceFilter.has("handmade") ? "#f59e0b" : "var(--border)",
+								background: sourceFilter === null || sourceFilter.has("handmade") ? "#f59e0b18" : "transparent",
+								color: sourceFilter === null || sourceFilter.has("handmade") ? "#f59e0b" : "var(--dim)",
+								fontWeight: 600,
+							}}
+						>
+							<HandmadeIcon size={10} /> Manual
+						</button>
+					)}
+
+					{/* Workspace filter */}
+					{availableWorkspaces.length > 0 && (
+						<>
+							<div style={{ width: 1, height: 16, background: "var(--border-muted)", margin: "0 4px" }} />
+							<span style={{ fontSize: 10, color: "var(--dim)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.3px" }}>Workspace</span>
+							<select
+								value={workspaceFilter ?? ""}
+								onChange={(e) => setWorkspaceFilter(e.target.value || null)}
+								style={{
+									background: "var(--bg-elevated)",
+									color: "var(--text)",
+									border: "1px solid var(--border)",
+									borderRadius: 4,
+									padding: "2px 6px",
+									fontSize: 10,
+									cursor: "pointer",
+									fontFamily: "inherit",
+								}}
+							>
+								<option value="">All</option>
+								{availableWorkspaces.map(ws => (
+									<option key={ws.path} value={ws.path}>{ws.name}</option>
+								))}
+								<option value="__unlinked__">Unlinked</option>
+							</select>
+						</>
+					)}
+
+					{(sourceFilter !== null || workspaceFilter !== null) && (
+						<button
+							onClick={() => { setSourceFilter(null); setWorkspaceFilter(null) }}
+							style={{
+								fontSize: 10,
+								color: "var(--dim)",
+								background: "transparent",
+								border: "none",
+								cursor: "pointer",
+								padding: "2px 4px",
+								textDecoration: "underline",
+							}}
+						>
+							Clear filters
+						</button>
+					)}
+				</div>
+			)}
+
+			{/* Create handmade task form */}
+			{creatingHandmade && (
+				<div
+					style={{
+						padding: "12px 20px",
+						borderBottom: "1px solid var(--border-muted)",
+						display: "flex",
+						gap: 8,
+						alignItems: "center",
+					}}
+				>
+					<HandmadeIcon size={14} />
+					<input
+						value={newHandmadeTitle}
+						onChange={(e) => setNewHandmadeTitle(e.target.value)}
+						placeholder="Task title"
+						autoFocus
+						onKeyDown={(e) => {
+							if (e.key === "Enter") handleCreateHandmade()
+							if (e.key === "Escape") setCreatingHandmade(false)
+						}}
+						style={{
+							flex: 1,
+							padding: "6px 10px",
+							background: "var(--bg-elevated)",
+							color: "var(--text)",
+							border: "1px solid var(--border)",
+							borderRadius: 4,
+							fontSize: 13,
+							fontFamily: "inherit",
+						}}
+					/>
+					<button
+						onClick={handleCreateHandmade}
+						disabled={!newHandmadeTitle.trim()}
+						style={{
+							padding: "6px 16px",
+							background: newHandmadeTitle.trim() ? "#f59e0b" : "var(--bg-elevated)",
+							color: newHandmadeTitle.trim() ? "#fff" : "var(--muted)",
+							borderRadius: 4,
+							cursor: newHandmadeTitle.trim() ? "pointer" : "default",
+							fontSize: 12,
+							fontWeight: 500,
+							border: "none",
+						}}
+					>
+						Create
 					</button>
 				</div>
 			)}
@@ -1528,6 +1848,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 											onStartWork={() => handleStartWorkUnified(issue)}
 											linkedWorktree={issueWorktreeMap[issue.id]}
 											onSwitchToWorktree={onSwitchToWorktree}
+											onUpdateHandmadeStatus={handleUpdateHandmadeStatus}
+											onDeleteHandmade={handleDeleteHandmade}
 										/>
 									))}
 									{col.issues.length === 0 && (
@@ -1625,8 +1947,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 								}}
 							>
 								{/* Provider icon */}
-								<span style={{ color: "var(--dim)", flexShrink: 0, display: "flex" }}>
-									{issue.provider === "github" ? <GitHubIcon size={11} /> : <LinearIcon size={11} />}
+								<span style={{ color: issue.provider === "handmade" ? "#f59e0b" : "var(--dim)", flexShrink: 0, display: "flex" }}>
+									{issue.provider === "github" ? <GitHubIcon size={11} /> : issue.provider === "handmade" ? <HandmadeIcon size={11} /> : <LinearIcon size={11} />}
 								</span>
 								<span
 									style={{
@@ -1649,12 +1971,14 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 									{issue.identifier}
 								</span>
 								<button
-									onClick={() =>
-										window.api.invoke({
-											type: "openExternal",
-											url: issue.url,
-										})
-									}
+									onClick={() => {
+										if (issue.provider !== "handmade") {
+											window.api.invoke({
+												type: "openExternal",
+												url: issue.url,
+											})
+										}
+									}}
 									style={{
 										fontSize: 13,
 										color: "var(--text)",
@@ -1668,28 +1992,74 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 								>
 									{issue.title}
 								</button>
-								<span
-									style={{
-										fontSize: 10,
-										color: issue.state.color,
-										background: issue.state.color + "18",
-										padding: "2px 8px",
-										borderRadius: 3,
-										flexShrink: 0,
-									}}
-								>
-									{issue.state.name}
-								</span>
-								{issue.priority != null && issue.priority > 0 && (
-									<span
-										style={{
-											fontSize: 10,
-											color: PRIORITY_LABELS[issue.priority]?.color,
-											flexShrink: 0,
-										}}
-									>
-										{PRIORITY_LABELS[issue.priority]?.label}
-									</span>
+								{issue.provider === "handmade" ? (
+									<>
+										<button
+											onClick={(e) => {
+												e.stopPropagation()
+												const next = issue.state.type === "unstarted" ? "in_progress" : issue.state.type === "started" ? "done" : "todo"
+												handleUpdateHandmadeStatus(issue.id, next)
+											}}
+											style={{
+												fontSize: 10,
+												color: issue.state.color,
+												background: issue.state.color + "18",
+												padding: "2px 8px",
+												borderRadius: 3,
+												flexShrink: 0,
+												cursor: "pointer",
+												border: "none",
+												fontFamily: "inherit",
+											}}
+											title="Cycle status"
+										>
+											{issue.state.name} &#8634;
+										</button>
+										<button
+											onClick={(e) => {
+												e.stopPropagation()
+												handleDeleteHandmade(issue.id)
+											}}
+											style={{
+												fontSize: 10,
+												color: "var(--dim)",
+												background: "transparent",
+												border: "none",
+												cursor: "pointer",
+												padding: "2px 4px",
+												flexShrink: 0,
+											}}
+											title="Delete task"
+										>
+											&#10005;
+										</button>
+									</>
+								) : (
+									<>
+										<span
+											style={{
+												fontSize: 10,
+												color: issue.state.color,
+												background: issue.state.color + "18",
+												padding: "2px 8px",
+												borderRadius: 3,
+												flexShrink: 0,
+											}}
+										>
+											{issue.state.name}
+										</span>
+										{issue.priority != null && issue.priority > 0 && (
+											<span
+												style={{
+													fontSize: 10,
+													color: PRIORITY_LABELS[issue.priority]?.color,
+													flexShrink: 0,
+												}}
+											>
+												{PRIORITY_LABELS[issue.priority]?.label}
+											</span>
+										)}
+									</>
 								)}
 							</div>
 						))}
@@ -1813,6 +2183,8 @@ function UnifiedIssueCard({
 	onStartWork,
 	linkedWorktree,
 	onSwitchToWorktree,
+	onUpdateHandmadeStatus,
+	onDeleteHandmade,
 }: {
 	issue: UnifiedIssue
 	states: LinearState[]
@@ -1820,6 +2192,8 @@ function UnifiedIssueCard({
 	onStartWork?: () => void
 	linkedWorktree?: string
 	onSwitchToWorktree?: (worktreePath: string) => void
+	onUpdateHandmadeStatus?: (id: string, status: "todo" | "in_progress" | "done") => void
+	onDeleteHandmade?: (id: string) => void
 }) {
 	const [showStates, setShowStates] = useState(false)
 	const priority = issue.priority != null ? PRIORITY_LABELS[issue.priority] : undefined
@@ -1835,9 +2209,11 @@ function UnifiedIssueCard({
 				border: linkedWorktree ? "1px solid var(--accent)" : "1px solid var(--border-muted)",
 				cursor: "pointer",
 			}}
-			onClick={() =>
-				window.api.invoke({ type: "openExternal", url: issue.url })
-			}
+			onClick={() => {
+				if (issue.provider !== "handmade") {
+					window.api.invoke({ type: "openExternal", url: issue.url })
+				}
+			}}
 		>
 			{/* Identifier + priority + provider */}
 			<div
@@ -1849,8 +2225,8 @@ function UnifiedIssueCard({
 				}}
 			>
 				{/* Provider icon */}
-				<span style={{ color: "var(--dim)", display: "flex", flexShrink: 0 }}>
-					{issue.provider === "github" ? <GitHubIcon size={10} /> : <LinearIcon size={10} />}
+				<span style={{ color: issue.provider === "handmade" ? "#f59e0b" : "var(--dim)", display: "flex", flexShrink: 0 }}>
+					{issue.provider === "github" ? <GitHubIcon size={10} /> : issue.provider === "handmade" ? <HandmadeIcon size={10} /> : <LinearIcon size={10} />}
 				</span>
 				<span
 					style={{
@@ -1872,8 +2248,47 @@ function UnifiedIssueCard({
 					</span>
 				)}
 				<div style={{ flex: 1 }} />
-				{/* State changer (Linear only — GitHub state changes not supported via simple dropdown) */}
-				{issue.provider === "linear" && issue.linearIssue ? (
+				{/* State changer */}
+				{issue.provider === "handmade" ? (
+					<div style={{ display: "flex", gap: 2 }} onClick={(e) => e.stopPropagation()}>
+						<button
+							onClick={() => {
+								const next = issue.state.type === "unstarted" ? "in_progress" : issue.state.type === "started" ? "done" : "todo"
+								onUpdateHandmadeStatus?.(issue.id, next)
+							}}
+							style={{
+								fontSize: 9,
+								color: issue.state.color,
+								background: issue.state.color + "18",
+								padding: "1px 6px",
+								borderRadius: 3,
+								cursor: "pointer",
+								border: "none",
+								display: "flex",
+								alignItems: "center",
+								gap: 3,
+							}}
+							title="Cycle status"
+						>
+							{issue.state.name} &#8634;
+						</button>
+						<button
+							onClick={() => onDeleteHandmade?.(issue.id)}
+							style={{
+								fontSize: 9,
+								color: "var(--dim)",
+								background: "transparent",
+								padding: "1px 4px",
+								borderRadius: 3,
+								cursor: "pointer",
+								border: "none",
+							}}
+							title="Delete task"
+						>
+							&#10005;
+						</button>
+					</div>
+				) : issue.provider === "linear" && issue.linearIssue ? (
 					<div
 						style={{ position: "relative" }}
 						onClick={(e) => e.stopPropagation()}

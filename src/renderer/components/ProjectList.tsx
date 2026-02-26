@@ -349,6 +349,18 @@ export function ProjectList({
 				}
 			`}</style>
 
+			{/* Section label */}
+			<div style={{
+				padding: "0 14px 4px",
+				fontSize: 10,
+				fontWeight: 600,
+				color: "var(--dim)",
+				textTransform: "uppercase",
+				letterSpacing: "0.5px",
+			}}>
+				Workspaces
+			</div>
+
 			{/* Filter + Group controls */}
 			<div style={{ padding: "0 12px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
 				{/* Filter input */}
