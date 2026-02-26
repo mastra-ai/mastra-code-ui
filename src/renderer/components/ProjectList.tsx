@@ -23,7 +23,7 @@ interface ProjectListProps {
 	activeWorktrees: Set<string>
 	unreadWorktrees: Set<string>
 	worktreeStatuses: Map<string, WorktreeStatus>
-	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string }>
+	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string; provider?: string }>
 	onSwitchProject: (path: string) => void
 	onOpenFolder: () => void
 	onRemoveProject: (path: string) => void

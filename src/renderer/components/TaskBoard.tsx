@@ -14,6 +14,22 @@ export interface LinearIssue {
 	updatedAt: string
 }
 
+export interface GitHubIssue {
+	id: number
+	number: number
+	title: string
+	body?: string
+	state: "open" | "closed"
+	labels: Array<{ name: string; color: string; description?: string }>
+	assignee?: { login: string; avatar_url: string }
+	assignees: Array<{ login: string }>
+	milestone?: { title: string; number: number }
+	html_url: string
+	created_at: string
+	updated_at: string
+	pull_request?: unknown
+}
+
 interface LinearTeam {
 	id: string
 	name: string
@@ -39,11 +55,29 @@ export interface WorkflowStates {
 	doneStateId: string
 }
 
+// Normalized issue for the unified view
+interface UnifiedIssue {
+	id: string
+	identifier: string
+	title: string
+	provider: "linear" | "github"
+	state: { name: string; color: string; type: string }
+	assignee?: string
+	priority?: number
+	url: string
+	labels: Array<{ name: string; color: string }>
+	createdAt: string
+	updatedAt: string
+	linearIssue?: LinearIssue
+	githubIssue?: GitHubIssue
+}
+
 interface TaskBoardProps {
 	agentTasks: AgentTask[]
 	onClose?: () => void
 	onStartWork?: (issue: LinearIssue, workflowStates: WorkflowStates) => void
-	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string }>
+	onStartWorkGithub?: (issue: GitHubIssue) => void
+	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string; provider?: string }>
 	onSwitchToWorktree?: (worktreePath: string) => void
 }
 
@@ -136,7 +170,27 @@ const DEMO_ISSUES: LinearIssue[] = [
 	},
 ]
 
-export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSwitchToWorktree }: TaskBoardProps) {
+function LinearIcon({ size = 12 }: { size?: number }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+			<path
+				d="M5.22 58.87a47.2 47.2 0 0 1-1.05-5.97l38.93 38.93a47.2 47.2 0 0 1-5.97-1.05L5.22 58.87ZM2.33 46.44a49 49 0 0 0-.3 3.51l48.02 48.02c1.18-.04 2.35-.14 3.5-.3L2.34 46.44Zm1.54 19.18a47.6 47.6 0 0 1-.53-3.6l40.7 40.7c-1.23-.12-2.43-.3-3.6-.53l-36.57-36.57Zm-1.7-9.6 51.77 51.78c1.2-.17 2.39-.4 3.55-.68L3.48 53.1a49 49 0 0 0-.31 2.92Zm45.78 43.7L1.02 52.79c-.02.2-.05.39-.06.58l47.59 47.58c.13-.07.27-.14.4-.23Zm5.71-1.4L4.17 48.82A49.2 49.2 0 0 0 3 52.12l47.06 47.06a47 47 0 0 0 3.6-.86Zm3.4-1.24L8.35 48.37a48 48 0 0 0-1.76 2.84l46.18 46.18a47 47 0 0 0 4.29-1.3Zm4.04-1.69L11.44 45.73c-.8.81-1.56 1.66-2.28 2.53l44.25 44.25a47 47 0 0 0 7.69-3.12Zm5.64-3.63L15.6 41.62c-.93.85-1.82 1.75-2.67 2.68l44.35 44.35a47.4 47.4 0 0 0 9.46-5.9Zm12.48-14.38c9.4-14.87 8.04-34.64-4.1-48.07L24.64 80.59c13.43 12.14 33.2 13.5 48.07 4.09l3.51-3.3ZM73.7 25.64C60.14 10.8 38.5 8.8 22.76 19.04l58.2 58.2C91.2 61.5 89.2 39.86 74.36 26.3l-.66-.66Z"
+				fill="currentColor"
+			/>
+		</svg>
+	)
+}
+
+function GitHubIcon({ size = 12 }: { size?: number }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor">
+			<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+		</svg>
+	)
+}
+
+export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub, linkedIssues, onSwitchToWorktree }: TaskBoardProps) {
+	// Linear state
 	const [linearApiKey, setLinearApiKey] = useState("")
 	const [teams, setTeams] = useState<LinearTeam[]>([])
 	const [selectedTeamId, setSelectedTeamId] = useState("")
@@ -144,7 +198,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 	const [states, setStates] = useState<LinearState[]>([])
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
-	const [connected, setConnected] = useState(false)
+	const [linearConnected, setLinearConnected] = useState(false)
 	const [creating, setCreating] = useState(false)
 	const [newTitle, setNewTitle] = useState("")
 	const [newDescription, setNewDescription] = useState("")
@@ -154,52 +208,70 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 	const [connecting, setConnecting] = useState(false)
 	const [demo, setDemo] = useState(false)
 
+	// GitHub state
+	const [githubToken, setGithubToken] = useState("")
+	const [githubConnected, setGithubConnected] = useState(false)
+	const [githubOwner, setGithubOwner] = useState("")
+	const [githubRepo, setGithubRepo] = useState("")
+	const [githubUsername, setGithubUsername] = useState("")
+	const [githubIssues, setGithubIssues] = useState<GitHubIssue[]>([])
+	const [githubLoading, setGithubLoading] = useState(false)
+	const [githubConnecting, setGithubConnecting] = useState(false)
+	const [showGithubPATInput, setShowGithubPATInput] = useState(false)
+	const [githubPATInput, setGithubPATInput] = useState("")
+
 	const isDemo = demo && !linearApiKey
-	const showConnected = connected || isDemo
+	const anyConnected = linearConnected || githubConnected || isDemo
 	const activeIssues = isDemo ? DEMO_ISSUES : issues
 	const activeStates = isDemo ? DEMO_STATES : states
 	const activeTeams = isDemo ? [{ id: "demo", name: "Mastra", key: "MAS" }] : teams
 	const activeTeamId = isDemo ? "demo" : selectedTeamId
 
-	// Load saved Linear API key
+	// Load saved state
 	useEffect(() => {
 		async function load() {
 			const state = (await window.api.invoke({ type: "getState" })) as Record<string, unknown>
+			// Linear
 			const key = (state?.linearApiKey as string) ?? ""
 			const teamId = (state?.linearTeamId as string) ?? ""
 			setLinearApiKey(key)
 			if (teamId) setSelectedTeamId(teamId)
 			if (key) {
-				setConnected(true)
+				setLinearConnected(true)
 				loadTeams(key)
+			}
+			// GitHub
+			const ghToken = (state?.githubToken as string) ?? ""
+			const ghOwner = (state?.githubOwner as string) ?? ""
+			const ghRepo = (state?.githubRepo as string) ?? ""
+			const ghUser = (state?.githubUsername as string) ?? ""
+			if (ghToken) {
+				setGithubToken(ghToken)
+				setGithubOwner(ghOwner)
+				setGithubRepo(ghRepo)
+				setGithubUsername(ghUser)
+				setGithubConnected(true)
 			}
 		}
 		load()
 	}, [])
 
-	// Load issues when team changes
+	// Load Linear issues when team changes
 	useEffect(() => {
-		if (connected && linearApiKey && selectedTeamId) {
+		if (linearConnected && linearApiKey && selectedTeamId) {
 			loadIssues()
 			loadStates()
 		}
-	}, [selectedTeamId, connected])
+	}, [selectedTeamId, linearConnected])
 
-	const linearQuery = useCallback(
-		async (query: string, variables?: Record<string, unknown>) => {
-			const result = (await window.api.invoke({
-				type: "linearQuery",
-				apiKey: linearApiKey,
-				query,
-				variables,
-			})) as { data?: unknown; errors?: Array<{ message: string }> }
-			if (result.errors?.length) {
-				throw new Error(result.errors[0].message)
-			}
-			return result.data
-		},
-		[linearApiKey],
-	)
+	// Load GitHub issues when connected
+	useEffect(() => {
+		if (githubConnected && githubToken && githubOwner && githubRepo) {
+			loadGithubIssues()
+		}
+	}, [githubConnected, githubOwner, githubRepo])
+
+	// ── Linear API helpers ──────────────────────────────────────────
 
 	const loadTeams = useCallback(
 		async (key?: string) => {
@@ -290,7 +362,6 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 			})) as { success: boolean; accessToken?: string; error?: string }
 
 			if (result.error === "needs_api_key" || result.error === "cancelled") {
-				// Popup was closed — show API key paste input
 				setShowApiKeyInput(true)
 				setConnecting(false)
 				return
@@ -300,9 +371,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 				throw new Error(result.error || "Failed to connect")
 			}
 
-			// OAuth succeeded — use the access token
 			setLinearApiKey(result.accessToken)
-			setConnected(true)
+			setLinearConnected(true)
 			loadTeams(result.accessToken)
 		} catch (err: any) {
 			setError(err.message || "Failed to connect to Linear")
@@ -325,7 +395,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 			const teamNodes = data.data?.teams?.nodes ?? []
 			setTeams(teamNodes)
 			if (teamNodes.length > 0) setSelectedTeamId(teamNodes[0].id)
-			setConnected(true)
+			setLinearConnected(true)
 			await window.api.invoke({
 				type: "setState",
 				patch: { linearApiKey: linearApiKey },
@@ -337,8 +407,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 		}
 	}, [linearApiKey])
 
-	const handleDisconnect = useCallback(async () => {
-		setConnected(false)
+	const handleLinearDisconnect = useCallback(async () => {
+		setLinearConnected(false)
 		setIssues([])
 		setTeams([])
 		setStates([])
@@ -373,7 +443,6 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 					}`,
 					variables: { id: issueId, stateId },
 				})
-				// Update locally
 				setIssues((prev) =>
 					prev.map((issue) => {
 						if (issue.id !== issueId) return issue
@@ -409,7 +478,6 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 			setNewTitle("")
 			setNewDescription("")
 			setCreating(false)
-			// Reload issues
 			await loadIssues()
 		} catch (err: any) {
 			setError(err.message)
@@ -418,7 +486,100 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 		}
 	}, [linearApiKey, selectedTeamId, newTitle, newDescription, loadIssues])
 
-	// Compute workflow state IDs for "started" and "completed" types
+	// ── GitHub API helpers ───────────────────────────────────────────
+
+	const loadGithubIssues = useCallback(async () => {
+		if (!githubToken || !githubOwner || !githubRepo) return
+		setGithubLoading(true)
+		try {
+			const endpoint = `/repos/${githubOwner}/${githubRepo}/issues?assignee=${githubUsername}&state=open&per_page=100&sort=updated`
+			const data = (await window.api.invoke({
+				type: "githubApi",
+				token: githubToken,
+				method: "GET",
+				endpoint,
+			})) as GitHubIssue[]
+			// Filter out pull requests (GitHub Issues API includes them)
+			setGithubIssues(data.filter((i) => !i.pull_request))
+		} catch (err: any) {
+			setError(err.message)
+		} finally {
+			setGithubLoading(false)
+		}
+	}, [githubToken, githubOwner, githubRepo, githubUsername])
+
+	const handleGithubCLIConnect = useCallback(async () => {
+		setGithubConnecting(true)
+		setError(null)
+		try {
+			const result = (await window.api.invoke({
+				type: "githubConnect",
+			})) as { success: boolean; username?: string; owner?: string; repo?: string; error?: string }
+
+			if (!result.success) {
+				if (result.error === "gh_not_authenticated") {
+					setShowGithubPATInput(true)
+				} else {
+					throw new Error(result.error || "Failed to connect")
+				}
+				return
+			}
+
+			setGithubToken("__from_state__") // token is stored in state, we just need a truthy value
+			setGithubUsername(result.username ?? "")
+			setGithubOwner(result.owner ?? "")
+			setGithubRepo(result.repo ?? "")
+			setGithubConnected(true)
+
+			// Re-read the actual token from state for API calls
+			const state = (await window.api.invoke({ type: "getState" })) as Record<string, unknown>
+			setGithubToken((state?.githubToken as string) ?? "")
+		} catch (err: any) {
+			setError(err.message || "Failed to connect to GitHub")
+		} finally {
+			setGithubConnecting(false)
+		}
+	}, [])
+
+	const handleGithubPATConnect = useCallback(async () => {
+		if (!githubPATInput.trim()) return
+		setGithubConnecting(true)
+		setError(null)
+		try {
+			const result = (await window.api.invoke({
+				type: "githubConnect",
+				token: githubPATInput.trim(),
+			})) as { success: boolean; username?: string; owner?: string; repo?: string; error?: string }
+
+			if (!result.success) {
+				throw new Error(result.error || "Failed to connect")
+			}
+
+			setGithubToken(githubPATInput.trim())
+			setGithubUsername(result.username ?? "")
+			setGithubOwner(result.owner ?? "")
+			setGithubRepo(result.repo ?? "")
+			setGithubConnected(true)
+			setGithubPATInput("")
+		} catch (err: any) {
+			setError(err.message || "Failed to connect to GitHub")
+		} finally {
+			setGithubConnecting(false)
+		}
+	}, [githubPATInput])
+
+	const handleGithubDisconnect = useCallback(async () => {
+		setGithubConnected(false)
+		setGithubIssues([])
+		setGithubToken("")
+		setGithubOwner("")
+		setGithubRepo("")
+		setGithubUsername("")
+		await window.api.invoke({ type: "githubDisconnect" })
+	}, [])
+
+	// ── Unified issue normalization ─────────────────────────────────
+
 	const workflowStates = useMemo<WorkflowStates>(() => {
 		const started = activeStates.find((s) => s.type === "started")
 		const done = activeStates.find((s) => s.type === "completed")
@@ -439,8 +600,60 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 		return map
 	}, [linkedIssues])
 
+	// Normalize all issues into UnifiedIssue[]
+	const unifiedIssues = useMemo<UnifiedIssue[]>(() => {
+		const result: UnifiedIssue[] = []
+
+		// Linear issues
+		for (const issue of activeIssues) {
+			result.push({
+				id: issue.id,
+				identifier: issue.identifier,
+				title: issue.title,
+				provider: "linear",
+				state: { name: issue.state.name, color: issue.state.color, type: issue.state.type },
+				assignee: issue.assignee?.displayName || issue.assignee?.name,
+				priority: issue.priority,
+				url: issue.url,
+				labels: issue.labels,
+				createdAt: issue.createdAt,
+				updatedAt: issue.updatedAt,
+				linearIssue: issue,
+			})
+		}
+
+		// GitHub issues
+		for (const issue of githubIssues) {
+			const ghId = `gh-${issue.number}`
+			const isLinkedToWorktree = !!issueWorktreeMap[ghId]
+			// Map GitHub state: open → unstarted (or started if linked to worktree), closed → completed
+			const stateType = issue.state === "closed" ? "completed" : isLinkedToWorktree ? "started" : "unstarted"
+			const stateColor = issue.state === "closed" ? "#5e6ad2" : isLinkedToWorktree ? "#f2c94c" : "#e2e2e2"
+			const stateName = issue.state === "closed" ? "Done" : isLinkedToWorktree ? "In Progress" : "Open"
+
+			result.push({
+				id: ghId,
+				identifier: `#${issue.number}`,
+				title: issue.title,
+				provider: "github",
+				state: { name: stateName, color: stateColor, type: stateType },
+				assignee: issue.assignee?.login,
+				url: issue.html_url,
+				labels: issue.labels.map((l) => ({
+					name: l.name,
+					color: `#${l.color}`,
+				})),
+				createdAt: issue.created_at,
+				updatedAt: issue.updated_at,
+				githubIssue: issue,
+			})
+		}
+
+		return result
+	}, [activeIssues, githubIssues, issueWorktreeMap])
+
 	// Filter issues
-	const filteredIssues = activeIssues.filter((issue) => {
+	const filteredIssues = unifiedIssues.filter((issue) => {
 		if (filter === "all") return true
 		if (filter === "active")
 			return issue.state.type === "started" || issue.state.type === "unstarted"
@@ -468,6 +681,19 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 							: "Cancelled"
 		return { type, label, states: columnStates, issues: columnIssues }
 	})
+
+	const handleRefreshAll = useCallback(() => {
+		if (linearConnected) loadIssues()
+		if (githubConnected) loadGithubIssues()
+	}, [linearConnected, githubConnected, loadIssues, loadGithubIssues])
+
+	const handleStartWorkUnified = useCallback((issue: UnifiedIssue) => {
+		if (issue.provider === "linear" && issue.linearIssue && onStartWork) {
+			onStartWork(issue.linearIssue, workflowStates)
+		} else if (issue.provider === "github" && issue.githubIssue && onStartWorkGithub) {
+			onStartWorkGithub(issue.githubIssue)
+		}
+	}, [onStartWork, onStartWorkGithub, workflowStates])
 
 	return (
 		<div
@@ -522,30 +748,48 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 					Tasks
 				</span>
 
-				{showConnected && (
+				{anyConnected && (
 					<>
-						{/* Team selector */}
-						<select
-							value={activeTeamId}
-							onChange={(e) => !isDemo && handleTeamChange(e.target.value)}
-							disabled={isDemo}
-							style={{
-								background: "var(--bg-elevated)",
-								color: "var(--text)",
-								border: "1px solid var(--border)",
-								borderRadius: 4,
-								padding: "3px 8px",
-								fontSize: 11,
-								cursor: isDemo ? "default" : "pointer",
-								fontFamily: "inherit",
-							}}
-						>
-							{activeTeams.map((t) => (
-								<option key={t.id} value={t.id}>
-									{t.name} ({t.key})
-								</option>
-							))}
-						</select>
+						{/* Connected provider badges */}
+						<div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+							{(linearConnected || isDemo) && (
+								<span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--muted)", background: "var(--bg-surface)", padding: "2px 8px", borderRadius: 3, border: "1px solid var(--border-muted)" }}>
+									<LinearIcon size={10} />
+									{isDemo ? "Demo" : activeTeams.find((t) => t.id === activeTeamId)?.key ?? "Linear"}
+								</span>
+							)}
+							{githubConnected && (
+								<span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--muted)", background: "var(--bg-surface)", padding: "2px 8px", borderRadius: 3, border: "1px solid var(--border-muted)" }}>
+									<GitHubIcon size={10} />
+									{githubOwner}/{githubRepo}
+								</span>
+							)}
+						</div>
+
+						{/* Team selector (Linear) */}
+						{(linearConnected || isDemo) && activeTeams.length > 1 && (
+							<select
+								value={activeTeamId}
+								onChange={(e) => !isDemo && handleTeamChange(e.target.value)}
+								disabled={isDemo}
+								style={{
+									background: "var(--bg-elevated)",
+									color: "var(--text)",
+									border: "1px solid var(--border)",
+									borderRadius: 4,
+									padding: "3px 8px",
+									fontSize: 11,
+									cursor: isDemo ? "default" : "pointer",
+									fontFamily: "inherit",
+								}}
+							>
+								{activeTeams.map((t) => (
+									<option key={t.id} value={t.id}>
+										{t.name} ({t.key})
+									</option>
+								))}
+							</select>
+						)}
 
 						{/* View toggle */}
 						<div style={{ display: "flex", gap: 2, background: "var(--bg-surface)", borderRadius: 4, padding: 1 }}>
@@ -595,24 +839,25 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 
 						{!isDemo && (
 							<>
-								{/* Create + Refresh */}
+								{linearConnected && (
+									<button
+										onClick={() => setCreating(!creating)}
+										style={{
+											padding: "4px 12px",
+											fontSize: 11,
+											background: "var(--accent)",
+											color: "#fff",
+											borderRadius: 4,
+											cursor: "pointer",
+											fontWeight: 500,
+										}}
+									>
+										+ New Issue
+									</button>
+								)}
 								<button
-									onClick={() => setCreating(!creating)}
-									style={{
-										padding: "4px 12px",
-										fontSize: 11,
-										background: "var(--accent)",
-										color: "#fff",
-										borderRadius: 4,
-										cursor: "pointer",
-										fontWeight: 500,
-									}}
-								>
-									+ New Issue
-								</button>
-								<button
-									onClick={loadIssues}
-									disabled={loading}
+									onClick={handleRefreshAll}
+									disabled={loading || githubLoading}
 									style={{
 										padding: "4px 10px",
 										fontSize: 11,
@@ -623,22 +868,55 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 										cursor: "pointer",
 									}}
 								>
-									{loading ? "..." : "Refresh"}
+									{loading || githubLoading ? "..." : "Refresh"}
 								</button>
-								<button
-									onClick={handleDisconnect}
-									style={{
-										padding: "4px 10px",
-										fontSize: 11,
-										background: "transparent",
-										color: "var(--dim)",
-										borderRadius: 4,
-										border: "1px solid var(--border-muted)",
-										cursor: "pointer",
-									}}
-								>
-									Disconnect
-								</button>
+								{/* Connect more providers */}
+								{!linearConnected && (
+									<button
+										onClick={handleOAuthConnect}
+										style={{
+											padding: "4px 10px",
+											fontSize: 11,
+											background: "transparent",
+											color: "var(--dim)",
+											borderRadius: 4,
+											border: "1px solid var(--border-muted)",
+											cursor: "pointer",
+											display: "flex",
+											alignItems: "center",
+											gap: 4,
+										}}
+									>
+										<LinearIcon size={10} /> + Linear
+									</button>
+								)}
+								{!githubConnected && (
+									<button
+										onClick={handleGithubCLIConnect}
+										disabled={githubConnecting}
+										style={{
+											padding: "4px 10px",
+											fontSize: 11,
+											background: "transparent",
+											color: "var(--dim)",
+											borderRadius: 4,
+											border: "1px solid var(--border-muted)",
+											cursor: "pointer",
+											display: "flex",
+											alignItems: "center",
+											gap: 4,
+										}}
+									>
+										<GitHubIcon size={10} /> + GitHub
+									</button>
+								)}
+								{/* Disconnect dropdown */}
+								<DisconnectMenu
+									linearConnected={linearConnected}
+									githubConnected={githubConnected}
+									onDisconnectLinear={handleLinearDisconnect}
+									onDisconnectGithub={handleGithubDisconnect}
+								/>
 							</>
 						)}
 						{isDemo && (
@@ -743,9 +1021,9 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 			)}
 
 			{/* Main content */}
-			<div style={{ flex: 1, overflow: "auto", padding: showConnected ? 0 : 20 }}>
-				{!showConnected ? (
-					/* Connect to Linear */
+			<div style={{ flex: 1, overflow: "auto", padding: anyConnected ? 0 : 20 }}>
+				{!anyConnected ? (
+					/* Connect to providers */
 					<div
 						style={{
 							maxWidth: 420,
@@ -816,21 +1094,6 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 							</div>
 						)}
 
-						{/* Linear Logo */}
-						<div style={{ marginBottom: 16 }}>
-							<svg
-								width="40"
-								height="40"
-								viewBox="0 0 100 100"
-								fill="none"
-								style={{ opacity: 0.6 }}
-							>
-								<path
-									d="M5.22 58.87a47.2 47.2 0 0 1-1.05-5.97l38.93 38.93a47.2 47.2 0 0 1-5.97-1.05L5.22 58.87ZM2.33 46.44a49 49 0 0 0-.3 3.51l48.02 48.02c1.18-.04 2.35-.14 3.5-.3L2.34 46.44Zm1.54 19.18a47.6 47.6 0 0 1-.53-3.6l40.7 40.7c-1.23-.12-2.43-.3-3.6-.53l-36.57-36.57Zm-1.7-9.6 51.77 51.78c1.2-.17 2.39-.4 3.55-.68L3.48 53.1a49 49 0 0 0-.31 2.92Zm45.78 43.7L1.02 52.79c-.02.2-.05.39-.06.58l47.59 47.58c.13-.07.27-.14.4-.23Zm5.71-1.4L4.17 48.82A49.2 49.2 0 0 0 3 52.12l47.06 47.06a47 47 0 0 0 3.6-.86Zm3.4-1.24L8.35 48.37a48 48 0 0 0-1.76 2.84l46.18 46.18a47 47 0 0 0 4.29-1.3Zm4.04-1.69L11.44 45.73c-.8.81-1.56 1.66-2.28 2.53l44.25 44.25a47 47 0 0 0 7.69-3.12Zm5.64-3.63L15.6 41.62c-.93.85-1.82 1.75-2.67 2.68l44.35 44.35a47.4 47.4 0 0 0 9.46-5.9Zm12.48-14.38c9.4-14.87 8.04-34.64-4.1-48.07L24.64 80.59c13.43 12.14 33.2 13.5 48.07 4.09l3.51-3.3ZM73.7 25.64C60.14 10.8 38.5 8.8 22.76 19.04l58.2 58.2C91.2 61.5 89.2 39.86 74.36 26.3l-.66-.66Z"
-									fill="var(--muted)"
-								/>
-							</svg>
-						</div>
 						<div
 							style={{
 								fontSize: 15,
@@ -839,20 +1102,116 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 								marginBottom: 6,
 							}}
 						>
-							Connect to Linear
+							Connect your issue tracker
 						</div>
 						<div
 							style={{
 								fontSize: 12,
 								color: "var(--dim)",
-								marginBottom: 20,
+								marginBottom: 24,
 								lineHeight: 1.5,
 							}}
 						>
-							Sync your issues, track progress, and manage tasks directly from here.
+							Pull issues from Linear and GitHub into a unified dashboard.
 						</div>
 
-						{/* Primary: Sign in button */}
+						{/* GitHub connect */}
+						<button
+							onClick={handleGithubCLIConnect}
+							disabled={githubConnecting}
+							style={{
+								width: "100%",
+								padding: "10px 20px",
+								background: githubConnecting ? "var(--bg-elevated)" : "#24292e",
+								color: githubConnecting ? "var(--muted)" : "#fff",
+								borderRadius: 8,
+								cursor: githubConnecting ? "default" : "pointer",
+								fontSize: 13,
+								fontWeight: 600,
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								gap: 8,
+								border: "none",
+								marginBottom: 8,
+							}}
+						>
+							{githubConnecting ? (
+								"Connecting..."
+							) : (
+								<>
+									<GitHubIcon size={16} />
+									Connect with GitHub CLI
+								</>
+							)}
+						</button>
+
+						{!showGithubPATInput ? (
+							<button
+								onClick={() => setShowGithubPATInput(true)}
+								style={{
+									background: "transparent",
+									border: "none",
+									color: "var(--dim)",
+									cursor: "pointer",
+									fontSize: 11,
+									padding: "4px 0",
+									marginBottom: 16,
+								}}
+							>
+								Or paste a GitHub token
+							</button>
+						) : (
+							<div style={{ marginBottom: 16 }}>
+								<div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+									<input
+										type="password"
+										value={githubPATInput}
+										onChange={(e) => setGithubPATInput(e.target.value)}
+										placeholder="ghp_..."
+										onKeyDown={(e) => {
+											if (e.key === "Enter") handleGithubPATConnect()
+										}}
+										autoFocus
+										style={{
+											flex: 1,
+											padding: "8px 12px",
+											background: "var(--bg-elevated)",
+											color: "var(--text)",
+											border: "1px solid var(--border)",
+											borderRadius: 6,
+											fontSize: 12,
+											fontFamily: "monospace",
+										}}
+									/>
+									<button
+										onClick={handleGithubPATConnect}
+										disabled={!githubPATInput.trim() || githubConnecting}
+										style={{
+											padding: "8px 16px",
+											background: githubPATInput.trim() && !githubConnecting ? "#24292e" : "var(--bg-elevated)",
+											color: githubPATInput.trim() && !githubConnecting ? "#fff" : "var(--muted)",
+											borderRadius: 6,
+											cursor: githubPATInput.trim() && !githubConnecting ? "pointer" : "default",
+											fontSize: 12,
+											fontWeight: 500,
+											border: "none",
+										}}
+									>
+										{githubConnecting ? "..." : "Connect"}
+									</button>
+								</div>
+							</div>
+						)}
+
+						{/* Divider */}
+						<div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0 16px" }}>
+							<div style={{ flex: 1, height: 1, background: "var(--border-muted)" }} />
+							<span style={{ fontSize: 10, color: "var(--dim)", textTransform: "uppercase", letterSpacing: "0.5px" }}>or</span>
+							<div style={{ flex: 1, height: 1, background: "var(--border-muted)" }} />
+						</div>
+
+						{/* Linear connect */}
 						<button
 							onClick={handleOAuthConnect}
 							disabled={connecting}
@@ -870,32 +1229,23 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 								justifyContent: "center",
 								gap: 8,
 								border: "none",
-								transition: "opacity 0.15s",
 							}}
 						>
 							{connecting ? (
 								"Connecting..."
 							) : (
 								<>
-									<svg
-										width="16"
-										height="16"
-										viewBox="0 0 100 100"
-										fill="currentColor"
-									>
-										<path d="M5.22 58.87a47.2 47.2 0 0 1-1.05-5.97l38.93 38.93a47.2 47.2 0 0 1-5.97-1.05L5.22 58.87ZM2.33 46.44a49 49 0 0 0-.3 3.51l48.02 48.02c1.18-.04 2.35-.14 3.5-.3L2.34 46.44Zm1.54 19.18a47.6 47.6 0 0 1-.53-3.6l40.7 40.7c-1.23-.12-2.43-.3-3.6-.53l-36.57-36.57Zm-1.7-9.6 51.77 51.78c1.2-.17 2.39-.4 3.55-.68L3.48 53.1a49 49 0 0 0-.31 2.92Zm45.78 43.7L1.02 52.79c-.02.2-.05.39-.06.58l47.59 47.58c.13-.07.27-.14.4-.23Zm5.71-1.4L4.17 48.82A49.2 49.2 0 0 0 3 52.12l47.06 47.06a47 47 0 0 0 3.6-.86Zm3.4-1.24L8.35 48.37a48 48 0 0 0-1.76 2.84l46.18 46.18a47 47 0 0 0 4.29-1.3Zm4.04-1.69L11.44 45.73c-.8.81-1.56 1.66-2.28 2.53l44.25 44.25a47 47 0 0 0 7.69-3.12Zm5.64-3.63L15.6 41.62c-.93.85-1.82 1.75-2.67 2.68l44.35 44.35a47.4 47.4 0 0 0 9.46-5.9Zm12.48-14.38c9.4-14.87 8.04-34.64-4.1-48.07L24.64 80.59c13.43 12.14 33.2 13.5 48.07 4.09l3.51-3.3ZM73.7 25.64C60.14 10.8 38.5 8.8 22.76 19.04l58.2 58.2C91.2 61.5 89.2 39.86 74.36 26.3l-.66-.66Z" />
-									</svg>
+									<LinearIcon size={16} />
 									Sign in with Linear
 								</>
 							)}
 						</button>
 
-						{/* Divider + API key fallback */}
 						{!showApiKeyInput ? (
 							<button
 								onClick={() => setShowApiKeyInput(true)}
 								style={{
-									marginTop: 12,
+									marginTop: 8,
 									background: "transparent",
 									border: "none",
 									color: "var(--dim)",
@@ -904,43 +1254,10 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 									padding: "4px 0",
 								}}
 							>
-								Or use a personal API key
+								Or use a Linear API key
 							</button>
 						) : (
-							<div style={{ marginTop: 16 }}>
-								<div
-									style={{
-										display: "flex",
-										alignItems: "center",
-										gap: 8,
-										marginBottom: 8,
-									}}
-								>
-									<div
-										style={{
-											flex: 1,
-											height: 1,
-											background: "var(--border-muted)",
-										}}
-									/>
-									<span
-										style={{
-											fontSize: 10,
-											color: "var(--dim)",
-											textTransform: "uppercase",
-											letterSpacing: "0.5px",
-										}}
-									>
-										API Key
-									</span>
-									<div
-										style={{
-											flex: 1,
-											height: 1,
-											background: "var(--border-muted)",
-										}}
-									/>
-								</div>
+							<div style={{ marginTop: 12 }}>
 								<div
 									style={{
 										fontSize: 11,
@@ -1161,7 +1478,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 							</div>
 						)}
 
-						{/* Linear columns */}
+						{/* Issue columns */}
 						{columns.map((col) => (
 							<div
 								key={col.type}
@@ -1203,12 +1520,12 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 								</div>
 								<div style={{ flex: 1, overflow: "auto", padding: 8 }}>
 									{col.issues.map((issue) => (
-										<IssueCard
+										<UnifiedIssueCard
 											key={issue.id}
 											issue={issue}
 											states={activeStates}
 											onUpdateStatus={handleUpdateStatus}
-											onStartWork={onStartWork ? () => onStartWork(issue, workflowStates) : undefined}
+											onStartWork={() => handleStartWorkUnified(issue)}
 											linkedWorktree={issueWorktreeMap[issue.id]}
 											onSwitchToWorktree={onSwitchToWorktree}
 										/>
@@ -1295,7 +1612,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 							</div>
 						)}
 
-						{/* Linear issues */}
+						{/* Unified issues */}
 						{filteredIssues.map((issue) => (
 							<div
 								key={issue.id}
@@ -1307,6 +1624,10 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 									borderBottom: "1px solid var(--border-muted)",
 								}}
 							>
+								{/* Provider icon */}
+								<span style={{ color: "var(--dim)", flexShrink: 0, display: "flex" }}>
+									{issue.provider === "github" ? <GitHubIcon size={11} /> : <LinearIcon size={11} />}
+								</span>
 								<span
 									style={{
 										width: 8,
@@ -1359,7 +1680,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 								>
 									{issue.state.name}
 								</span>
-								{issue.priority > 0 && (
+								{issue.priority != null && issue.priority > 0 && (
 									<span
 										style={{
 											fontSize: 10,
@@ -1372,7 +1693,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 								)}
 							</div>
 						))}
-						{filteredIssues.length === 0 && !loading && (
+						{filteredIssues.length === 0 && !loading && !githubLoading && (
 							<div
 								style={{
 									padding: 32,
@@ -1391,7 +1712,101 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, linkedIssues, onSw
 	)
 }
 
-function IssueCard({
+function DisconnectMenu({
+	linearConnected,
+	githubConnected,
+	onDisconnectLinear,
+	onDisconnectGithub,
+}: {
+	linearConnected: boolean
+	githubConnected: boolean
+	onDisconnectLinear: () => void
+	onDisconnectGithub: () => void
+}) {
+	const [open, setOpen] = useState(false)
+	if (!linearConnected && !githubConnected) return null
+
+	return (
+		<div style={{ position: "relative" }}>
+			<button
+				onClick={() => setOpen(!open)}
+				style={{
+					padding: "4px 10px",
+					fontSize: 11,
+					background: "transparent",
+					color: "var(--dim)",
+					borderRadius: 4,
+					border: "1px solid var(--border-muted)",
+					cursor: "pointer",
+				}}
+			>
+				Disconnect
+			</button>
+			{open && (
+				<div
+					style={{
+						position: "absolute",
+						top: "100%",
+						right: 0,
+						zIndex: 10,
+						background: "var(--bg-elevated)",
+						border: "1px solid var(--border)",
+						borderRadius: 6,
+						padding: 4,
+						marginTop: 2,
+						minWidth: 160,
+						boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+					}}
+				>
+					{linearConnected && (
+						<button
+							onClick={() => { onDisconnectLinear(); setOpen(false) }}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 6,
+								padding: "5px 8px",
+								fontSize: 11,
+								color: "var(--muted)",
+								background: "transparent",
+								cursor: "pointer",
+								width: "100%",
+								textAlign: "left",
+								borderRadius: 3,
+								border: "none",
+							}}
+						>
+							<LinearIcon size={10} /> Disconnect Linear
+						</button>
+					)}
+					{githubConnected && (
+						<button
+							onClick={() => { onDisconnectGithub(); setOpen(false) }}
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 6,
+								padding: "5px 8px",
+								fontSize: 11,
+								color: "var(--muted)",
+								background: "transparent",
+								cursor: "pointer",
+								width: "100%",
+								textAlign: "left",
+								borderRadius: 3,
+								border: "none",
+							}}
+						>
+							<GitHubIcon size={10} /> Disconnect GitHub
+						</button>
+					)}
+				</div>
+			)}
+		</div>
+	)
+}
+
+function UnifiedIssueCard({
 	issue,
 	states,
 	onUpdateStatus,
@@ -1399,7 +1814,7 @@ function IssueCard({
 	linkedWorktree,
 	onSwitchToWorktree,
 }: {
-	issue: LinearIssue
+	issue: UnifiedIssue
 	states: LinearState[]
 	onUpdateStatus: (issueId: string, stateId: string) => void
 	onStartWork?: () => void
@@ -1407,7 +1822,7 @@ function IssueCard({
 	onSwitchToWorktree?: (worktreePath: string) => void
 }) {
 	const [showStates, setShowStates] = useState(false)
-	const priority = PRIORITY_LABELS[issue.priority]
+	const priority = issue.priority != null ? PRIORITY_LABELS[issue.priority] : undefined
 	const isTerminal = issue.state.type === "completed" || issue.state.type === "cancelled"
 
 	return (
@@ -1424,7 +1839,7 @@ function IssueCard({
 				window.api.invoke({ type: "openExternal", url: issue.url })
 			}
 		>
-			{/* Identifier + priority */}
+			{/* Identifier + priority + provider */}
 			<div
 				style={{
 					display: "flex",
@@ -1433,6 +1848,10 @@ function IssueCard({
 					marginBottom: 4,
 				}}
 			>
+				{/* Provider icon */}
+				<span style={{ color: "var(--dim)", display: "flex", flexShrink: 0 }}>
+					{issue.provider === "github" ? <GitHubIcon size={10} /> : <LinearIcon size={10} />}
+				</span>
 				<span
 					style={{
 						fontSize: 10,
@@ -1442,95 +1861,109 @@ function IssueCard({
 				>
 					{issue.identifier}
 				</span>
-				{issue.priority > 0 && (
+				{priority && issue.priority != null && issue.priority > 0 && (
 					<span
 						style={{
 							fontSize: 9,
-							color: priority?.color,
+							color: priority.color,
 						}}
 					>
-						{priority?.label}
+						{priority.label}
 					</span>
 				)}
 				<div style={{ flex: 1 }} />
-				{/* State changer */}
-				<div
-					style={{ position: "relative" }}
-					onClick={(e) => e.stopPropagation()}
-				>
-					<button
-						onClick={() => setShowStates(!showStates)}
+				{/* State changer (Linear only — GitHub state changes not supported via simple dropdown) */}
+				{issue.provider === "linear" && issue.linearIssue ? (
+					<div
+						style={{ position: "relative" }}
+						onClick={(e) => e.stopPropagation()}
+					>
+						<button
+							onClick={() => setShowStates(!showStates)}
+							style={{
+								fontSize: 9,
+								color: issue.state.color,
+								background: issue.state.color + "18",
+								padding: "1px 6px",
+								borderRadius: 3,
+								cursor: "pointer",
+								border: "none",
+							}}
+						>
+							{issue.state.name}
+						</button>
+						{showStates && (
+							<div
+								style={{
+									position: "absolute",
+									top: "100%",
+									right: 0,
+									zIndex: 10,
+									background: "var(--bg-elevated)",
+									border: "1px solid var(--border)",
+									borderRadius: 6,
+									padding: 4,
+									marginTop: 2,
+									minWidth: 140,
+									boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+								}}
+							>
+								{states
+									.sort((a, b) => {
+										const ai = STATE_TYPE_ORDER.indexOf(a.type)
+										const bi = STATE_TYPE_ORDER.indexOf(b.type)
+										return ai - bi || a.position - b.position
+									})
+									.map((s) => (
+										<button
+											key={s.id}
+											onClick={() => {
+												onUpdateStatus(issue.linearIssue!.id, s.id)
+												setShowStates(false)
+											}}
+											style={{
+												display: "flex",
+												alignItems: "center",
+												gap: 6,
+												padding: "5px 8px",
+												fontSize: 11,
+												color: s.id === issue.linearIssue!.state.id ? "var(--text)" : "var(--muted)",
+												background: s.id === issue.linearIssue!.state.id ? "var(--bg-surface)" : "transparent",
+												cursor: "pointer",
+												width: "100%",
+												textAlign: "left",
+												borderRadius: 3,
+												border: "none",
+											}}
+										>
+											<span
+												style={{
+													width: 6,
+													height: 6,
+													borderRadius: "50%",
+													background: s.color,
+													flexShrink: 0,
+												}}
+											/>
+											{s.name}
+										</button>
+									))}
+							</div>
+						)}
+					</div>
+				) : (
+					<span
 						style={{
 							fontSize: 9,
 							color: issue.state.color,
 							background: issue.state.color + "18",
 							padding: "1px 6px",
 							borderRadius: 3,
-							cursor: "pointer",
-							border: "none",
 						}}
 					>
 						{issue.state.name}
-					</button>
-					{showStates && (
-						<div
-							style={{
-								position: "absolute",
-								top: "100%",
-								right: 0,
-								zIndex: 10,
-								background: "var(--bg-elevated)",
-								border: "1px solid var(--border)",
-								borderRadius: 6,
-								padding: 4,
-								marginTop: 2,
-								minWidth: 140,
-								boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-							}}
-						>
-							{states
-								.sort((a, b) => {
-									const ai = STATE_TYPE_ORDER.indexOf(a.type)
-									const bi = STATE_TYPE_ORDER.indexOf(b.type)
-									return ai - bi || a.position - b.position
-								})
-								.map((s) => (
-									<button
-										key={s.id}
-										onClick={() => {
-											onUpdateStatus(issue.id, s.id)
-											setShowStates(false)
-										}}
-										style={{
-											display: "flex",
-											alignItems: "center",
-											gap: 6,
-											padding: "5px 8px",
-											fontSize: 11,
-											color: s.id === issue.state.id ? "var(--text)" : "var(--muted)",
-											background: s.id === issue.state.id ? "var(--bg-surface)" : "transparent",
-											cursor: "pointer",
-											width: "100%",
-											textAlign: "left",
-											borderRadius: 3,
-											border: "none",
-										}}
-									>
-										<span
-											style={{
-												width: 6,
-												height: 6,
-												borderRadius: "50%",
-												background: s.color,
-												flexShrink: 0,
-											}}
-										/>
-										{s.name}
-									</button>
-								))}
-						</div>
-					)}
-				</div>
+					</span>
+				)}
 			</div>
 			{/* Title */}
 			<div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.4 }}>
@@ -1572,7 +2005,7 @@ function IssueCard({
 						marginTop: 4,
 					}}
 				>
-					{issue.assignee.displayName || issue.assignee.name}
+					{issue.assignee}
 				</div>
 			)}
 			{/* Worktree action */}

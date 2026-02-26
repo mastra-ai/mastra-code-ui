@@ -8,7 +8,7 @@ import { AskQuestionDialog } from "./components/AskQuestionDialog"
 import { PlanApproval } from "./components/PlanApproval"
 import { ModelSelector } from "./components/ModelSelector"
 import { Settings } from "./components/Settings"
-import { TaskBoard, type LinearIssue, type WorkflowStates } from "./components/TaskBoard"
+import { TaskBoard, type LinearIssue, type GitHubIssue, type WorkflowStates } from "./components/TaskBoard"
 import { LoginDialog } from "./components/LoginDialog"
 import { WelcomeScreen } from "./components/WelcomeScreen"
 import { RightSidebar, type RightSidebarTab } from "./components/RightSidebar"
@@ -467,12 +467,12 @@ export function App() {
 			activeForm: string
 		}>
 	>([])
-	const [linkedIssues, setLinkedIssues] = useState<Record<string, { issueId: string; issueIdentifier: string }>>({})
+	const [linkedIssues, setLinkedIssues] = useState<Record<string, { issueId: string; issueIdentifier: string; provider?: string }>>({})
 
 	// Load linked issues map
 	const loadLinkedIssues = useCallback(async () => {
 		try {
-			const result = (await window.api.invoke({ type: "getLinkedIssues" })) as Record<string, { issueId: string; issueIdentifier: string }>
+			const result = (await window.api.invoke({ type: "getLinkedIssues" })) as Record<string, { issueId: string; issueIdentifier: string; provider?: string }>
 			setLinkedIssues(result ?? {})
 		} catch {
 			// ignore
@@ -1305,6 +1305,57 @@ export function App() {
 		await loadLinkedIssues()
 	}, [loadLinkedIssues, enrichedProjects])
 
+	const handleStartWorkOnGithubIssue = useCallback(async (issue: GitHubIssue) => {
+		const rootPath = projectInfoRef.current?.rootPath
+		if (!rootPath) return
+
+		const parentState = (await window.api.invoke({ type: "getState" })) as Record<string, unknown>
+		const token = (parentState?.githubToken as string) ?? ""
+		const owner = (parentState?.githubOwner as string) ?? ""
+		const repo = (parentState?.githubRepo as string) ?? ""
+
+		// Slugify: "#123" + "Fix login bug" -> "123-fix-login-bug"
+		const slug = `${issue.number}-${issue.title}`
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-|-$/g, "")
+			.slice(0, 60)
+
+		const currentProject = enrichedProjects.find((p) => p.rootPath === rootPath)
+		const mainRepoPath = currentProject?.isWorktree
+			? currentProject.mainRepoPath ?? rootPath
+			: rootPath
+
+		const result = (await window.api.invoke({
+			type: "createWorktree",
+			repoPath: mainRepoPath,
+			branchName: slug,
+		})) as { success: boolean; path?: string; error?: string }
+
+		if (!result.success || !result.path) {
+			console.error("Failed to create worktree:", result.error)
+			return
+		}
+
+		dispatch({ type: "CLEAR" })
+		setOpenThreadTabs([])
+		setOpenFiles([])
+		setActiveTab("chat")
+		setThreads([])
+		await window.api.invoke({ type: "switchProject", path: result.path })
+
+		await window.api.invoke({
+			type: "linkGithubIssue",
+			issueNumber: issue.number,
+			issueTitle: issue.title,
+			githubToken: token,
+			owner,
+			repo,
+		})
+
+		await loadLinkedIssues()
+	}, [loadLinkedIssues, enrichedProjects])
+
 	const handleCreateWorktree = useCallback(async (repoPath: string) => {
 		const result = (await window.api.invoke({
 			type: "createWorktree",
@@ -1693,7 +1744,7 @@ export function App() {
 						{activeTab === "settings" && <Settings onClose={() => setActiveTab("chat")} />}
 
 						{/* Task board */}
-						{activeTab === "tasks" && <TaskBoard agentTasks={tasks} onClose={() => setActiveTab("chat")} onStartWork={handleStartWorkOnIssue} linkedIssues={linkedIssues} onSwitchToWorktree={handleSwitchProject} />}
+						{activeTab === "tasks" && <TaskBoard agentTasks={tasks} onClose={() => setActiveTab("chat")} onStartWork={handleStartWorkOnIssue} onStartWorkGithub={handleStartWorkOnGithubIssue} linkedIssues={linkedIssues} onSwitchToWorktree={handleSwitchProject} />}
 
 						{/* File or diff editor (when a file/diff tab is active) */}
 						{activeTab !== "chat" && activeTab !== "settings" && activeTab !== "tasks" && !activeTab.startsWith("thread:") &&

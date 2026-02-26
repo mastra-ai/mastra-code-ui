@@ -298,6 +298,13 @@ async function createHarness(projectPath: string) {
 		linkedLinearIssueId: z.string().default(""),
 		linkedLinearIssueIdentifier: z.string().default(""),
 		linkedLinearDoneStateId: z.string().default(""),
+		// GitHub Issues integration
+		githubToken: z.string().default(""),
+		githubOwner: z.string().default(""),
+		githubRepo: z.string().default(""),
+		githubUsername: z.string().default(""),
+		linkedGithubIssueNumber: z.number().default(0),
+		linkedGithubIssueTitle: z.string().default(""),
 		prInstructions: z.string().default(""),
 		sandboxAllowedPaths: z.array(z.string()).default([]),
 		activePlan: z
@@ -2005,16 +2012,21 @@ function registerIpcHandlers() {
 			}
 
 			case "getLinkedIssues": {
-				// Return a map of worktreePath → { issueId, issueIdentifier } for all sessions
+				// Return a map of worktreePath → { issueId, issueIdentifier, provider } for all sessions
 				const linked: Record<
 					string,
-					{ issueId: string; issueIdentifier: string }
+					{
+						issueId: string
+						issueIdentifier: string
+						provider: "linear" | "github"
+					}
 				> = {}
 				for (const [wtPath, session] of sessions.entries()) {
 					try {
 						const wtState = session.harness.getState?.() as
 							| Record<string, unknown>
 							| undefined
+						// Check Linear first
 						const wtIssueId = (wtState?.linkedLinearIssueId as string) ?? ""
 						const wtIssueIdentifier =
 							(wtState?.linkedLinearIssueIdentifier as string) ?? ""
@@ -2022,6 +2034,17 @@ function registerIpcHandlers() {
 							linked[wtPath] = {
 								issueId: wtIssueId,
 								issueIdentifier: wtIssueIdentifier,
+								provider: "linear",
+							}
+						}
+						// Check GitHub
+						const wtGithubIssue =
+							(wtState?.linkedGithubIssueNumber as number) ?? 0
+						if (wtGithubIssue > 0 && !linked[wtPath]) {
+							linked[wtPath] = {
+								issueId: `gh-${wtGithubIssue}`,
+								issueIdentifier: `#${wtGithubIssue}`,
+								provider: "github",
 							}
 						}
 					} catch {
@@ -2029,6 +2052,133 @@ function registerIpcHandlers() {
 					}
 				}
 				return linked
+			}
+
+			// =================================================================
+			// GitHub Issues Integration
+			// =================================================================
+			case "githubConnect": {
+				const { execSync: ghExec } =
+					require("child_process") as typeof import("child_process")
+				let ghToken = (command.token as string) || ""
+
+				// Auto-detect token from gh CLI if none provided
+				if (!ghToken) {
+					try {
+						ghToken = (
+							ghExec("gh auth token", {
+								encoding: "utf-8",
+								stdio: ["pipe", "pipe", "pipe"],
+								timeout: 5000,
+							}) as string
+						).trim()
+					} catch {
+						return { success: false, error: "gh_not_authenticated" }
+					}
+				}
+
+				// Validate token by fetching /user
+				try {
+					const userResp = await fetch("https://api.github.com/user", {
+						headers: {
+							Authorization: `Bearer ${ghToken}`,
+							Accept: "application/vnd.github+json",
+						},
+					})
+					if (!userResp.ok) throw new Error(`GitHub API: ${userResp.status}`)
+					const ghUser = (await userResp.json()) as { login: string }
+
+					// Detect owner/repo from git remote
+					let ghOwner = ""
+					let ghRepo = ""
+					try {
+						const remoteUrl = (
+							ghExec("git remote get-url origin", {
+								cwd: projectRoot,
+								encoding: "utf-8",
+								stdio: ["pipe", "pipe", "pipe"],
+							}) as string
+						).trim()
+						const ghMatch = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/)
+						if (ghMatch) {
+							ghOwner = ghMatch[1]
+							ghRepo = ghMatch[2].replace(/\.git$/, "")
+						}
+					} catch {
+						// Not a git repo or no remote
+					}
+
+					await h.setState({
+						githubToken: ghToken,
+						githubOwner: ghOwner,
+						githubRepo: ghRepo,
+						githubUsername: ghUser.login,
+					})
+
+					return {
+						success: true,
+						username: ghUser.login,
+						owner: ghOwner,
+						repo: ghRepo,
+					}
+				} catch (err: any) {
+					return {
+						success: false,
+						error: err.message || "Token validation failed",
+					}
+				}
+			}
+
+			case "githubDisconnect": {
+				await h.setState({
+					githubToken: "",
+					githubOwner: "",
+					githubRepo: "",
+					githubUsername: "",
+				})
+				return { success: true }
+			}
+
+			case "githubApi": {
+				const ghApiToken = command.token as string
+				if (!ghApiToken) throw new Error("No GitHub token provided")
+				const ghMethod = (command.method as string) || "GET"
+				const ghEndpoint = command.endpoint as string
+				const ghBody = command.body as Record<string, unknown> | undefined
+
+				const ghResponse = await fetch(`https://api.github.com${ghEndpoint}`, {
+					method: ghMethod,
+					headers: {
+						Authorization: `Bearer ${ghApiToken}`,
+						Accept: "application/vnd.github+json",
+						...(ghBody ? { "Content-Type": "application/json" } : {}),
+					},
+					...(ghBody ? { body: JSON.stringify(ghBody) } : {}),
+				})
+				if (!ghResponse.ok) {
+					throw new Error(
+						`GitHub API error: ${ghResponse.status} ${ghResponse.statusText}`,
+					)
+				}
+				return await ghResponse.json()
+			}
+
+			case "linkGithubIssue": {
+				const ghIssueNumber = command.issueNumber as number
+				const ghIssueTitle = command.issueTitle as string
+				const parentGithubToken = command.githubToken as string
+				const parentGithubOwner = command.owner as string
+				const parentGithubRepo = command.repo as string
+
+				await h.setState({
+					linkedGithubIssueNumber: ghIssueNumber,
+					linkedGithubIssueTitle: ghIssueTitle,
+					githubToken: parentGithubToken,
+					githubOwner: parentGithubOwner,
+					githubRepo: parentGithubRepo,
+				})
+
+				return { success: true }
 			}
 
 			// =================================================================

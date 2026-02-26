@@ -16,7 +16,7 @@ interface SidebarProps {
 	activeWorktrees: Set<string>
 	unreadWorktrees: Set<string>
 	worktreeStatuses: Map<string, WorktreeStatus>
-	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string }>
+	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string; provider?: string }>
 	onSwitchThread: (threadId: string) => void
 	onNewThread: () => void
 	onDeleteThread: (threadId: string) => void

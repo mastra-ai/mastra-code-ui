@@ -4,11 +4,17 @@ A desktop coding agent built with [Mastra](https://mastra.ai) and Electron.
 
 ## Features
 
-- **Multi-model support** - Use Claude, GPT, Gemini, and 70+ other models via Mastra's unified model router
+- **Multi-model support** - Claude, GPT, Gemini, and 70+ other models via Mastra's unified model router
 - **OAuth login** - Authenticate with Anthropic (Claude Max) and OpenAI (ChatGPT Plus/Codex)
-- **Persistent conversations** - Threads are saved per-project and resume automatically
-- **Coding tools** - View files, edit code, run shell commands
-- **Token tracking** - Monitor usage with persistent token counts per thread
+- **Persistent conversations** - Threads saved per-project, resume automatically across clones and worktrees
+- **Coding tools** - File viewing, AST-aware smart editing, grep, glob, shell execution, web search, and more
+- **MCP support** - Connect external tool servers via Model Context Protocol with per-project or global config
+- **Permission system** - Granular allow/ask/deny policies per tool category (read, edit, execute, MCP) with YOLO mode
+- **Linear integration** - Kanban board with issue tracking, status updates, and worktree linking
+- **Git worktree management** - Isolated sessions per worktree with automatic project detection
+- **Observational memory** - Observer/reflector models extract and synthesize context from conversations
+- **Subagent execution** - Spawn nested agents for parallel task execution
+- **Token tracking** - Persistent token counts per thread
 - **Multi-panel IDE** - Chat, file explorer, git panel, embedded terminal, and multi-thread tabs
 
 ## Installation
@@ -40,17 +46,46 @@ Threads are automatically scoped to your project based on:
 
 This means conversations are shared across clones, worktrees, and SSH/HTTPS URLs of the same repository.
 
-### Database location
+### Database
 
-The SQLite database is stored in your system's application data directory:
+The LibSQL database defaults to `~/.mastracode/mastra.db`. Override with:
 
-- **macOS**: `~/Library/Application Support/mastra-code/`
-- **Linux**: `~/.local/share/mastra-code/`
-- **Windows**: `%APPDATA%/mastra-code/`
+- `MASTRA_DB_PATH` environment variable
+- `MASTRA_DB_URL` + `MASTRA_DB_AUTH_TOKEN` for remote databases
+- Project-level `.mastracode/database.json`
+- Global `~/.mastracode/database.json`
+
+### MCP Servers
+
+MCP servers can be configured per-project (`.mastracode/mcp.json`) or globally (`~/.mastracode/mcp.json`). Tools from MCP servers are automatically namespaced as `serverName_toolName` and integrated into the permission system.
+
+### Permissions
+
+Tool permissions are configured per category:
+
+| Category | Default | Covers               |
+| -------- | ------- | -------------------- |
+| read     | allow   | File search, viewing |
+| edit     | ask     | File modification    |
+| execute  | ask     | Shell commands       |
+| mcp      | ask     | External MCP tools   |
+
+Enable **YOLO mode** in Settings to auto-approve all tool calls.
 
 ### Authentication
 
 OAuth credentials are stored alongside the database in `auth.json`.
+
+### Settings
+
+Accessible from the app UI:
+
+- **Notifications** - Off, bell, system, or both
+- **Extended thinking** - Off, minimal, low, medium, high
+- **Smart editing** - AST-aware code edits
+- **Observer/Reflector models** - Configure memory extraction models and token thresholds
+- **PR instructions** - Custom instructions for pull request generation
+- **MCP servers** - Add, remove, reload, and monitor server connections
 
 ## Architecture
 
@@ -58,6 +93,10 @@ OAuth credentials are stored alongside the database in `auth.json`.
 ┌──────────────────────────────────────────────────────────────┐
 │                   Electron Desktop App                       │
 │               (React + IPC + node-pty)                       │
+├──────────────────────────────────────────────────────────────┤
+│                    Permission System                         │
+│  - Per-category policies (read, edit, execute, mcp)          │
+│  - Session grants and YOLO mode                              │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            ▼
@@ -68,17 +107,19 @@ OAuth credentials are stored alongside the database in `auth.json`.
 │  - Thread/message persistence                                │
 │  - Event system for UI updates                               │
 │  - State management with Zod schemas                         │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│                      Mastra Agent                            │
-│  - Dynamic model selection                                   │
-│  - Tool execution (view, edit, bash)                         │
-│  - Memory integration                                        │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
+│  - Observational memory (observer + reflector)               │
+└──────────┬───────────────────────────────┬───────────────────┘
+           │                               │
+           ▼                               ▼
+┌────────────────────────┐   ┌─────────────────────────────────┐
+│      Mastra Agent      │   │          MCP Manager             │
+│  - Dynamic model       │   │  - Server lifecycle              │
+│  - Tool execution      │   │  - Tool namespacing              │
+│  - Subagent spawning   │   │  - Per-project/global config     │
+│  - Memory integration  │   │                                  │
+└──────────┬─────────────┘   └─────────────────────────────────┘
+           │
+           ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                      LibSQL Storage                          │
 │  - Thread persistence                                        │
@@ -87,9 +128,7 @@ OAuth credentials are stored alongside the database in `auth.json`.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The Electron main process instantiates the Harness and communicates with the React renderer over IPC. Changes to tools, modes, or providers are picked up automatically.
-
-See [src/electron/README.md](src/electron/README.md) for detailed architecture notes.
+The Electron main process instantiates the Harness and communicates with the React renderer over IPC. Each worktree gets an isolated session with its own state, MCP connections, and permission grants.
 
 ## Development
 
@@ -97,7 +136,7 @@ See [src/electron/README.md](src/electron/README.md) for detailed architecture n
 pnpm dev          # run with hot-reload
 pnpm build        # production build
 pnpm typecheck    # type check
-pnpm test         # run tests
+pnpm test         # run tests (vitest)
 pnpm format       # format with prettier
 ```
 
