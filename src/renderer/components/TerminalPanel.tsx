@@ -301,6 +301,25 @@ export function TerminalPanel({ height, projectPath }: TerminalPanelProps) {
 		}
 	}, [])
 
+	if (!projectPath) {
+		return (
+			<div
+				style={{
+					height,
+					flexShrink: 0,
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					background: "#09090b",
+					color: "var(--dim)",
+					fontSize: 12,
+				}}
+			>
+				Select a worktree
+			</div>
+		)
+	}
+
 	return (
 		<div
 			style={{
