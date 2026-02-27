@@ -21,12 +21,12 @@ Run multiple coding agents simultaneously, each in an isolated Git worktree.
 
 Built-in code review for agent changes without leaving the app.
 
-- [-] **Integrated diff viewer** — Side-by-side and inline diff views with syntax highlighting for agent changes vs main branch _(inline single-file diff exists for working-tree changes; no side-by-side, no branch comparison)_
+- [x] **Integrated diff viewer** — Side-by-side and inline diff views with syntax highlighting for agent changes vs main branch _(inline and side-by-side modes with toggle in DiffEditor; working-tree changes against HEAD)_
 - [ ] **Turn-by-turn checkpoints** — View changes per agent turn and revert to any previous checkpoint (like Conductor's checkpoint system)
 - [ ] **Direct file editing in diff view** — Edit agent changes inline before merging
 - [ ] **One-click merge** — Merge agent branch back to main from the UI
-- [ ] **File staging & commit from UI** — Stage/unstage individual files, write commit messages, and commit directly from the diff viewer (like Superset's integrated git workflow)
-- [ ] **Push/pull from UI** — Sync with remote without dropping to terminal
+- [x] **File staging & commit from UI** — Stage/unstage individual files, write commit messages, and commit directly from the diff viewer (like Superset's integrated git workflow) _(GitPanel with per-file stage/unstage, commit message textarea, and commit button; IPC handlers `gitStage`, `gitUnstage`, `gitCommit`)_
+- [x] **Push/pull from UI** — Sync with remote without dropping to terminal _(push/pull buttons in GitPanel with loading states, ahead/behind indicators, and automatic refresh)_
 - [ ] **Create PR from UI** — Open a GitHub pull request directly from the diff viewer
 - [ ] **Focus mode** — Isolated single-file review with previous/next navigation, section jumping (against base, commits, staged, unstaged), and per-section file counts
 
@@ -156,4 +156,4 @@ Fast navigation and layout management.
 - [ ] **Quick file opener** — `⌘P` to fuzzy-search and open any file in the workspace
 - [ ] **Split pane layouts** — Split panes right (`⌘D`) and down (`⌘⇧D`), auto-arrange (`⌘E`), close active pane (`⌘W`)
 - [ ] **Workspace switcher** — `⌘1-9` to jump to workspaces, `⌘⌥↑/↓` for previous/next workspace
-- [ ] **Sync status display** — Show `↑N` / `↓N` indicators in sidebar for unpushed/behind commits per workspace
+- [-] **Sync status display** — Show `↑N` / `↓N` indicators in sidebar for unpushed/behind commits per workspace _(ahead/behind counts displayed on push/pull buttons in GitPanel; not yet shown in sidebar)_
