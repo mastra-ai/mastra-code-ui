@@ -885,11 +885,15 @@ export function App() {
 				currentModeId: string
 				threads: ThreadInfo[]
 			}
-			if (session) {
-				setModeId(session.currentModeId)
-				setCurrentThreadId(session.currentThreadId)
-				setThreads(session.threads)
-			}
+            if (session) {
+                setModeId(session.currentModeId)
+                setCurrentThreadId(session.currentThreadId)
+                setThreads(session.threads)
+                if (session.currentThreadId) {
+                    setOpenThreadTabs([session.currentThreadId])
+                    setActiveTab(`thread:${session.currentThreadId}`)
+                }
+            }
 
 			const state = (await window.api.invoke({ type: "getState" })) as {
 				currentModelId?: string
