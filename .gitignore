@@ -4,3 +4,4 @@ data/
 .test-tmp/
 om-debug.log
 dist/
+release/

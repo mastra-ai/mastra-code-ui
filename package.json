@@ -7,6 +7,7 @@
 	"scripts": {
 		"dev": "electron-vite dev",
 		"build": "electron-vite build",
+		"package": "electron-vite build && electron-builder --mac",
 		"preview": "electron-vite preview",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
@@ -49,6 +50,30 @@
 	"lint-staged": {
 		"*.{ts,js,json,md}": "prettier --write"
 	},
+	"build": {
+		"appId": "com.mastra.code",
+		"productName": "Mastra Code",
+		"directories": {
+			"output": "release"
+		},
+		"mac": {
+			"target": "dmg",
+			"category": "public.app-category.developer-tools"
+		},
+		"files": [
+			"dist/**/*"
+		],
+		"extraResources": [
+			{
+				"from": "node_modules/node-pty",
+				"to": "node_modules/node-pty"
+			},
+			{
+				"from": "node_modules/@ast-grep/napi",
+				"to": "node_modules/@ast-grep/napi"
+			}
+		]
+	},
 	"pnpm": {
 		"onlyBuiltDependencies": [
 			"electron",
@@ -65,6 +90,7 @@
 		"@types/react-syntax-highlighter": "^15.5.13",
 		"@vitejs/plugin-react": "^5.1.4",
 		"electron": "^40.4.1",
+		"electron-builder": "^26.8.1",
 		"electron-vite": "^5.0.0",
 		"husky": "^9.1.7",
 		"lint-staged": "^16.2.7",
