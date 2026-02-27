@@ -1,6 +1,12 @@
 import { z } from "zod/v3"
 import { execa, ExecaError } from "execa"
-import stripAnsi from "strip-ansi"
+import stripAnsiModule from "strip-ansi"
+// strip-ansi is ESM-only; bundlers may wrap the default export
+const stripAnsi = (
+	typeof stripAnsiModule === "function"
+		? stripAnsiModule
+		: (stripAnsiModule as any).default
+) as (s: string) => string
 import { truncateStringForTokenEstimate } from "../utils/token-estimator"
 import treeKill from "tree-kill"
 import type { TerminalManager } from "../acp/terminal-manager.js"
