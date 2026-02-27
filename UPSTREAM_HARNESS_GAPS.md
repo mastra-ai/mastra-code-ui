@@ -189,6 +189,36 @@ Tool return types are now consistent.
 
 ---
 
+## 17. `getTokenUsage()` Returns Zeros — AI SDK v6 Field Name Mismatch — OPEN
+
+**File:** `node_modules/@mastra/core/dist/harness/index.js` (line 1614–1626)
+
+The harness's `step-finish` handler reads `usage.promptTokens` and `usage.completionTokens`,
+but AI SDK v6 (`ai@6.x`) provides `usage.inputTokens` and `usage.outputTokens`. The old
+field names are `undefined`, so `?? 0` kicks in and tokens are always 0. The `usage_update`
+event fires (the `usage` object is truthy) but with `{ promptTokens: 0, completionTokens: 0, totalTokens: 0 }`.
+
+The TUI never hits this because it doesn't display per-message token counts — it only shows
+OM progress from `om_status` events.
+
+**Workaround:** None yet. `getTokenUsage()` and `usage_update` events return zeros.
+
+**Ideal fix:**
+
+```ts
+// In step-finish handler, read both old and new field names:
+const promptTokens = usage.promptTokens ?? usage.inputTokens ?? 0
+const completionTokens = usage.completionTokens ?? usage.outputTokens ?? 0
+```
+
+Or use the AI SDK's `totalTokens` field which IS present and correct:
+
+```ts
+const totalTokens = usage.totalTokens ?? promptTokens + completionTokens
+```
+
+---
+
 ## Summary
 
 | Status   | Items                            | Notes                                                       |
@@ -198,3 +228,4 @@ Tool return types are now consistent.
 | OPEN     | 1                                | `deleteThread` still missing                                |
 | OPEN     | 9, 10, 11                        | Config extensibility (hookManager, mcpManager, getToolsets) |
 | OPEN     | 14                               | Auth integration (intentionally external)                   |
+| OPEN     | 17                               | `getTokenUsage()` returns zeros (AI SDK v6 field names)     |
