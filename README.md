@@ -31,6 +31,7 @@ pnpm install
 pnpm dev       # launch with hot-reload
 pnpm build     # production build
 pnpm preview   # preview production build
+pnpm package   # build DMGs for macOS (arm64 + x64)
 ```
 
 On first launch, use the login flow to authenticate with your AI providers.
@@ -48,7 +49,12 @@ This means conversations are shared across clones, worktrees, and SSH/HTTPS URLs
 
 ### Database
 
-The LibSQL database defaults to `~/.mastracode/mastra.db`. Override with:
+The LibSQL database is stored in the platform-specific application data directory:
+
+- **Dev** (`pnpm dev`): `~/Library/Application Support/mastra-code-dev/mastra.db`
+- **Production** (packaged app): `~/Library/Application Support/mastra-code/mastra.db`
+
+Override with:
 
 - `MASTRA_DB_PATH` environment variable
 - `MASTRA_DB_URL` + `MASTRA_DB_AUTH_TOKEN` for remote databases
@@ -135,6 +141,7 @@ The Electron main process instantiates the Harness and communicates with the Rea
 ```bash
 pnpm dev          # run with hot-reload
 pnpm build        # production build
+pnpm package      # build DMGs (arm64 + x64)
 pnpm typecheck    # type check
 pnpm test         # run tests (vitest)
 pnpm format       # format with prettier

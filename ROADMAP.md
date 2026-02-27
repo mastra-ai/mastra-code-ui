@@ -88,7 +88,7 @@ Structured task tracking and context sharing across agents.
 
 - [ ] **Linux support**
 - [ ] **Windows support**
-- [ ] **Electron Builder packaging** — Use `electron-builder` to produce platform-specific installers (`.dmg` for macOS, `.exe`/NSIS for Windows, `.AppImage`/`.deb` for Linux) with code signing and notarization
+- [-] **Electron Builder packaging** — Use `electron-builder` to produce platform-specific installers (`.dmg` for macOS, `.exe`/NSIS for Windows, `.AppImage`/`.deb` for Linux) with code signing and notarization _(macOS DMGs for arm64 and x64 via `pnpm package`; custom icon; pnpm native binding workaround for @ast-grep/napi; separate dev/prod data directories; Windows and Linux installers not yet implemented; code signing and notarization not yet configured)_
 - [ ] **Auto-updates** — Integrate `electron-updater` for in-app update mechanism (check for updates on launch, download in background, prompt user to restart); host releases on GitHub Releases or a custom update server
 - [ ] **Workspace sharing** — Export/import workspace configs (scripts, MCP servers, slash commands) via a shared config file
 
