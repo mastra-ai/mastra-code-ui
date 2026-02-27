@@ -1356,6 +1356,35 @@ export function App() {
 		await loadLinkedIssues()
 	}, [loadLinkedIssues, enrichedProjects])
 
+	const handleDeleteWorktree = useCallback(async (worktreePath: string) => {
+		// Find a sibling worktree or parent repo to switch to before deleting
+		const isCurrentProject = projectInfoRef.current?.rootPath === worktreePath
+		let switchTo: string | null = null
+		if (isCurrentProject) {
+			for (const p of enrichedProjects) {
+				// Find the parent group that contains this worktree
+				const parentPath = p.mainRepoPath || p.rootPath
+				const siblings = p.worktrees?.filter((wt) => wt.path !== worktreePath) ?? []
+				const isChild = p.worktrees?.some((wt) => wt.path === worktreePath)
+				if (isChild) {
+					switchTo = siblings.length > 0 ? siblings[0].path : parentPath
+					break
+				}
+			}
+		}
+
+		const result = (await window.api.invoke({
+			type: "deleteWorktree",
+			worktreePath,
+		})) as { success: boolean; error?: string }
+		if (result.success) {
+			if (switchTo) {
+				await window.api.invoke({ type: "switchProject", path: switchTo })
+			}
+			await loadEnrichedProjects()
+		}
+	}, [enrichedProjects])
+
 	const handleCreateWorktree = useCallback(async (repoPath: string) => {
 		const result = (await window.api.invoke({
 			type: "createWorktree",
@@ -1363,6 +1392,7 @@ export function App() {
 		})) as { success: boolean; path?: string; error?: string }
 		if (result.success && result.path) {
 			await window.api.invoke({ type: "switchProject", path: result.path })
+			await loadEnrichedProjects()
 		}
 	}, [])
 
@@ -1400,6 +1430,7 @@ export function App() {
 				onOpenFolder={handleOpenFolder}
 				onRemoveProject={handleRemoveProject}
 				onCreateWorktree={handleCreateWorktree}
+				onDeleteWorktree={handleDeleteWorktree}
 				onOpenSettings={() => setActiveTab("settings")}
 				onOpenTasks={() => setActiveTab("tasks")}
 				isSettingsActive={activeTab === "settings"}

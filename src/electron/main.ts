@@ -32,6 +32,7 @@ import { createAnthropic } from "@ai-sdk/anthropic"
 
 import { Harness } from "@mastra/core/harness"
 import type { HarnessRequestContext } from "@mastra/core/harness"
+import { Mastra } from "@mastra/core/mastra"
 import {
 	opencodeClaudeMaxProvider,
 	setAuthStorage,
@@ -567,6 +568,16 @@ async function createHarness(projectPath: string) {
 		},
 	})
 
+	// Register a Mastra instance with storage so workflow snapshots can be
+	// persisted during tool-approval suspension and loaded on resume.
+	// Without this, approveToolCall → resumeStream fails with "No snapshot found"
+	// and the conversation hangs because the error is silently swallowed.
+	const mastra = new Mastra({
+		storage,
+		logger: false,
+	})
+	codeAgent.__registerMastra(mastra)
+
 	codeAgent.__setLogger(noopLogger)
 
 	const anthropic = createAnthropic({})
@@ -655,7 +666,11 @@ async function createHarness(projectPath: string) {
 		}
 	})
 
-	// Default to YOLO mode (auto-approve all tools)
+	// Default to YOLO mode (auto-approve all tools).
+	// Setting state.yolo = true ensures requireToolApproval is false at the
+	// AI SDK level, so the agent never suspends for tool approval at all.
+	// The per-category policies are a secondary layer for when YOLO is disabled.
+	_harness.setState({ yolo: true })
 	for (const [category, policy] of Object.entries(YOLO_POLICIES)) {
 		_harness.setPermissionForCategory({
 			category: category as ToolCategory,
@@ -731,6 +746,45 @@ async function deleteThread(h: Harness<any>, threadId: string): Promise<void> {
 // =============================================================================
 function registerIpcHandlers() {
 	ipcMain.handle("harness:command", async (_event, command) => {
+		// Commands that don't need an active session
+		if (command.type === "deleteWorktree") {
+			const { execSync } = require("child_process")
+			const wtPath = command.worktreePath as string
+			console.log("[deleteWorktree] Deleting worktree at:", wtPath)
+
+			// Clean up the session if one exists
+			cleanupSession(wtPath)
+
+			// If this is the active session, we can't stay here
+			if (activeSessionPath === wtPath) {
+				const remaining = [...sessions.keys()].filter((p) => p !== wtPath)
+				const fallback = remaining[0] || process.cwd()
+				activeSessionPath = fallback
+			}
+
+			try {
+				const gitCommonDir = execSync("git rev-parse --git-common-dir", {
+					cwd: wtPath,
+					encoding: "utf-8",
+					stdio: ["pipe", "pipe", "pipe"],
+				}).trim()
+				const mainRepo = path.resolve(wtPath, gitCommonDir, "..")
+
+				execSync(`git worktree remove "${wtPath}" --force`, {
+					cwd: mainRepo,
+					encoding: "utf-8",
+					stdio: ["pipe", "pipe", "pipe"],
+				})
+
+				removeRecentProject(wtPath)
+				return { success: true }
+			} catch (e: any) {
+				const msg = e.stderr?.trim() || e.message || "Failed to delete worktree"
+				console.error("[deleteWorktree] Error:", msg)
+				return { success: false, error: msg }
+			}
+		}
+
 		const s = getActiveSession()
 		const h = s.harness
 		const resolveModel = s.resolveModel

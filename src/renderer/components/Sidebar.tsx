@@ -25,6 +25,7 @@ interface SidebarProps {
 	onOpenFolder: () => void
 	onRemoveProject: (path: string) => void
 	onCreateWorktree: (repoPath: string) => void
+	onDeleteWorktree: (worktreePath: string) => void
 	onOpenSettings: () => void
 	onOpenTasks: () => void
 	isSettingsActive: boolean
@@ -57,6 +58,7 @@ export function Sidebar({
 	onOpenFolder,
 	onRemoveProject,
 	onCreateWorktree,
+	onDeleteWorktree,
 	onOpenSettings,
 	onOpenTasks,
 	isSettingsActive,
@@ -150,6 +152,7 @@ export function Sidebar({
 					onOpenFolder={onOpenFolder}
 					onRemoveProject={onRemoveProject}
 					onCreateWorktree={onCreateWorktree}
+				onDeleteWorktree={onDeleteWorktree}
 				/>
 			</div>
 

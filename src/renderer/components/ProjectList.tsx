@@ -28,6 +28,7 @@ interface ProjectListProps {
 	onOpenFolder: () => void
 	onRemoveProject: (path: string) => void
 	onCreateWorktree: (repoPath: string) => void
+	onDeleteWorktree: (worktreePath: string) => void
 }
 
 // Stable color palette for worktree branches — visually distinct
@@ -156,10 +157,13 @@ export function ProjectList({
 	onOpenFolder,
 	onRemoveProject,
 	onCreateWorktree,
+	onDeleteWorktree,
 }: ProjectListProps) {
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 	const [hoveredProject, setHoveredProject] = useState<string | null>(null)
+	const [hoveredWorktree, setHoveredWorktree] = useState<string | null>(null)
 	const [confirmRemovePath, setConfirmRemovePath] = useState<string | null>(null)
+	const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState<{ path: string; branch: string } | null>(null)
 	const [filterText, setFilterText] = useState("")
 	const [groupByStatus, setGroupByStatus] = useState(false)
 	const [collapsedStatuses, setCollapsedStatuses] = useState<Set<string>>(new Set())
@@ -834,66 +838,96 @@ export function ProjectList({
 										const wtStatus = worktreeStatuses.get(wt.rootPath)
 
 										return (
-											<button
+											<div
 												key={wt.rootPath}
-												onClick={() =>
-													onSwitchProject(wt.rootPath)
-												}
-												style={{
-													display: "flex",
-													alignItems: "center",
-													width: "100%",
-													padding: "10px 14px 10px 28px",
-													textAlign: "left",
-													cursor: "pointer",
-													borderRadius: 0,
-													borderLeft: wtIsActive
-														? `3px solid ${wtColor}`
-														: "3px solid transparent",
-													background: wtIsActive
-														? "var(--selected-bg)"
-														: "transparent",
-													gap: 8,
-												}}
+												style={{ display: "flex", alignItems: "center" }}
+												onMouseEnter={() => setHoveredWorktree(wt.rootPath)}
+												onMouseLeave={() => setHoveredWorktree(null)}
 											>
-												<WorktreeIndicator
-													color={wtColor}
-													isSpinning={wtIsSpinning}
-													isGlowing={wtIsGlowing}
-												/>
-												<span
+												<button
+													onClick={() =>
+														onSwitchProject(wt.rootPath)
+													}
 													style={{
-														fontSize: 12,
-														color: "var(--text)",
-														whiteSpace: "nowrap",
-														overflow: "hidden",
-														textOverflow: "ellipsis",
-														fontWeight: 500,
+														display: "flex",
+														alignItems: "center",
 														flex: 1,
 														minWidth: 0,
+														padding: "10px 14px 10px 28px",
+														textAlign: "left",
+														cursor: "pointer",
+														borderRadius: 0,
+														borderLeft: wtIsActive
+															? `3px solid ${wtColor}`
+															: "3px solid transparent",
+														background: wtIsActive
+															? "var(--selected-bg)"
+															: "transparent",
+														gap: 8,
 													}}
 												>
-													{wt.gitBranch || wt.name}
-												</span>
-												{linkedIssues?.[wt.rootPath] && (
-												<span
-													style={{
-														fontSize: 9,
-														color: "#5E6AD2",
-														background: "#5E6AD218",
-														padding: "1px 6px",
-														borderRadius: 3,
-														border: "1px solid #5E6AD233",
-														fontFamily: "monospace",
-														fontWeight: 500,
-														flexShrink: 0,
-													}}
-												>
-													{linkedIssues[wt.rootPath].issueIdentifier}
-												</span>
-											)}
-											{wtStatus && <StatusBadge status={wtStatus} />}
-											</button>
+													<WorktreeIndicator
+														color={wtColor}
+														isSpinning={wtIsSpinning}
+														isGlowing={wtIsGlowing}
+													/>
+													<span
+														style={{
+															fontSize: 12,
+															color: "var(--text)",
+															whiteSpace: "nowrap",
+															overflow: "hidden",
+															textOverflow: "ellipsis",
+															fontWeight: 500,
+															flex: 1,
+															minWidth: 0,
+														}}
+													>
+														{wt.gitBranch || wt.name}
+													</span>
+													{linkedIssues?.[wt.rootPath] && (
+													<span
+														style={{
+															fontSize: 9,
+															color: "#5E6AD2",
+															background: "#5E6AD218",
+															padding: "1px 6px",
+															borderRadius: 3,
+															border: "1px solid #5E6AD233",
+															fontFamily: "monospace",
+															fontWeight: 500,
+															flexShrink: 0,
+														}}
+													>
+														{linkedIssues[wt.rootPath].issueIdentifier}
+													</span>
+												)}
+												{wtStatus && <StatusBadge status={wtStatus} />}
+												</button>
+												{hoveredWorktree === wt.rootPath && (
+													<button
+														onClick={(e) => {
+															e.stopPropagation()
+															setConfirmDeleteWorktree({ path: wt.rootPath, branch: wt.gitBranch || wt.name })
+														}}
+														title="Delete worktree"
+														style={{
+															flexShrink: 0,
+															padding: "4px 10px",
+															fontSize: 14,
+															color: "var(--muted)",
+															background: "transparent",
+															cursor: "pointer",
+															lineHeight: 1,
+															opacity: 0.6,
+														}}
+														onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = "1"; (e.target as HTMLElement).style.color = "var(--error)" }}
+														onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = "0.6"; (e.target as HTMLElement).style.color = "var(--muted)" }}
+													>
+														&#x2715;
+													</button>
+												)}
+											</div>
 										)
 									})}
 
@@ -930,6 +964,74 @@ export function ProjectList({
 						)
 					})}
 				</>
+			)}
+
+			{/* Delete worktree confirmation modal */}
+			{confirmDeleteWorktree && (
+				<div
+					style={{
+						position: "fixed",
+						inset: 0,
+						background: "rgba(0,0,0,0.5)",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						zIndex: 9999,
+					}}
+					onClick={() => setConfirmDeleteWorktree(null)}
+				>
+					<div
+						onClick={(e) => e.stopPropagation()}
+						style={{
+							background: "var(--bg-surface)",
+							border: "1px solid var(--border-muted)",
+							borderRadius: 8,
+							padding: "20px 24px",
+							maxWidth: 320,
+							width: "90%",
+						}}
+					>
+						<div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
+							Delete worktree?
+						</div>
+						<div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
+							The worktree "{confirmDeleteWorktree.branch}" and its files on disk will be permanently removed.
+						</div>
+						<div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+							<button
+								onClick={() => setConfirmDeleteWorktree(null)}
+								style={{
+									padding: "6px 14px",
+									fontSize: 12,
+									borderRadius: 4,
+									background: "var(--bg)",
+									color: "var(--text)",
+									cursor: "pointer",
+									border: "1px solid var(--border-muted)",
+								}}
+							>
+								Cancel
+							</button>
+							<button
+								onClick={() => {
+									onDeleteWorktree(confirmDeleteWorktree.path)
+									setConfirmDeleteWorktree(null)
+								}}
+								style={{
+									padding: "6px 14px",
+									fontSize: 12,
+									borderRadius: 4,
+									background: "var(--error)",
+									color: "#fff",
+									cursor: "pointer",
+									border: "none",
+								}}
+							>
+								Delete
+							</button>
+						</div>
+					</div>
+				</div>
 			)}
 
 			{/* Remove confirmation modal */}
