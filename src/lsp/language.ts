@@ -1,7 +1,7 @@
 /**
  * Maps file extensions to LSP language identifiers
  */
-export const LANGUAGE_EXTENSIONS: Record<string, string> = {
+const LANGUAGE_EXTENSIONS: Record<string, string> = {
 	// TypeScript/JavaScript
 	".ts": "typescript",
 	".tsx": "typescriptreact",

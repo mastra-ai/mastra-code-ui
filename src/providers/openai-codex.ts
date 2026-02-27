@@ -22,7 +22,7 @@ let authStorageInstance: AuthStorage | null = null
 /**
  * Get or create the shared AuthStorage instance
  */
-export function getAuthStorage(): AuthStorage {
+function getAuthStorage(): AuthStorage {
 	if (!authStorageInstance) {
 		authStorageInstance = new AuthStorage()
 	}

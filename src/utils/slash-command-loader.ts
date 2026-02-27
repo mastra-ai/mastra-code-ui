@@ -22,7 +22,7 @@ export interface SlashCommandMetadata {
  * Parse a command file and extract metadata and template
  * Supports both frontmatter-based and plain markdown files
  */
-export async function parseCommandFile(
+async function parseCommandFile(
 	filePath: string,
 	baseDir?: string,
 ): Promise<SlashCommandMetadata | null> {
@@ -85,7 +85,7 @@ export async function parseCommandFile(
  * Extract command name from file path
  * Converts path like "git/commit.md" to "git:commit"
  */
-export function extractCommandName(filePath: string, baseDir: string): string {
+function extractCommandName(filePath: string, baseDir: string): string {
 	const relativePath = path.relative(baseDir, filePath)
 	const dirName = path.dirname(relativePath)
 	const baseName = path.basename(relativePath, ".md")
@@ -102,7 +102,7 @@ export function extractCommandName(filePath: string, baseDir: string): string {
 /**
  * Recursively scan a directory for command files
  */
-export async function scanCommandDirectory(
+async function scanCommandDirectory(
 	dirPath: string,
 ): Promise<SlashCommandMetadata[]> {
 	const commands: SlashCommandMetadata[] = []
@@ -202,39 +202,6 @@ export async function loadCustomCommands(
 /**
  * Get the commands directory path for a project
  */
-export function getProjectCommandsDir(projectDir: string): string {
+function getProjectCommandsDir(projectDir: string): string {
 	return path.join(projectDir, ".mastracode", "commands")
-}
-
-/**
- * Initialize a commands directory with an example command
- */
-export async function initCommandsDirectory(projectDir: string): Promise<void> {
-	const commandsDir = getProjectCommandsDir(projectDir)
-
-	try {
-		await fs.mkdir(commandsDir, { recursive: true })
-
-		// Create an example command
-		const examplePath = path.join(commandsDir, "example.md")
-		const exampleContent = `---
-name: example
-description: An example slash command
----
-
-This is an example slash command template.
-You can use variables like \$ARGUMENTS or \$1, \$2 for positional args.
-You can also include file content with @filename.
-Shell commands with !command will be executed and output included.
-`
-
-		try {
-			await fs.access(examplePath)
-			// File already exists, don't overwrite
-		} catch {
-			await fs.writeFile(examplePath, exampleContent, "utf-8")
-		}
-	} catch (error) {
-		console.error("Error initializing commands directory:", error)
-	}
 }

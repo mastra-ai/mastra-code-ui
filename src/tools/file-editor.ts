@@ -58,7 +58,7 @@ interface InsertArgs {
 	new_str: string
 }
 
-export class FileEditor {
+class FileEditor {
 	private execAsync: typeof realExecAsync
 
 	constructor() {

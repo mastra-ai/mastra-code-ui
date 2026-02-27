@@ -125,6 +125,20 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 					return state
 				}
 			}
+			// Skip if we already have a message with this ID (the harness emits
+			// message_start on every text-start chunk, so multi-step agentic
+			// turns fire it multiple times for the same message)
+			if (state.messages.some((m) => m.id === action.message.id)) {
+				return {
+					...state,
+					// Still update the message content (it may have new content blocks)
+					messages: state.messages.map((m) =>
+						m.id === action.message.id ? action.message : m,
+					),
+					streamingMessageId:
+						action.message.role === "assistant" ? action.message.id : null,
+				}
+			}
 			return {
 				...state,
 				messages: [...state.messages, action.message],

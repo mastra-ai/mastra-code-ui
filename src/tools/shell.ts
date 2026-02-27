@@ -18,31 +18,26 @@ import { isPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 // Global registry for terminal managers (used in ACP mode)
 let globalTerminalManager: TerminalManager | null = null
 
-export function setGlobalTerminalManager(manager: TerminalManager | null) {
+function setGlobalTerminalManager(manager: TerminalManager | null) {
 	globalTerminalManager = manager
 }
 
-export function getGlobalTerminalManager(): TerminalManager | null {
+function getGlobalTerminalManager(): TerminalManager | null {
 	return globalTerminalManager
 }
 
 // Global registry for pending terminal IDs (keyed by confirmationId)
 const pendingTerminalIds = new Map<string, string>()
 
-export function setPendingTerminalId(
-	confirmationId: string,
-	terminalId: string,
-) {
+function setPendingTerminalId(confirmationId: string, terminalId: string) {
 	pendingTerminalIds.set(confirmationId, terminalId)
 }
 
-export function getPendingTerminalId(
-	confirmationId: string,
-): string | undefined {
+function getPendingTerminalId(confirmationId: string): string | undefined {
 	return pendingTerminalIds.get(confirmationId)
 }
 
-export function clearPendingTerminalId(confirmationId: string) {
+function clearPendingTerminalId(confirmationId: string) {
 	pendingTerminalIds.delete(confirmationId)
 }
 
@@ -609,8 +604,3 @@ Usage notes:
 		},
 	})
 }
-
-// Default export for backward compatibility
-export const executeCommandTool = createExecuteCommandTool()
-
-export default executeCommandTool

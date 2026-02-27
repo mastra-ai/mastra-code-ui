@@ -5,7 +5,7 @@ import { execa, type Subprocess } from "execa"
 import { EventEmitter } from "events"
 import { randomUUID } from "crypto"
 
-export interface TerminalSession {
+interface TerminalSession {
 	terminalId: string
 	process: Subprocess
 	command: string
@@ -19,7 +19,7 @@ export interface TerminalSession {
 	createdAt: Date
 }
 
-export interface TerminalOutput {
+interface TerminalOutput {
 	terminalId: string
 	output: string
 	isComplete: boolean
