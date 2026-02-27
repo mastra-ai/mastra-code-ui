@@ -113,38 +113,3 @@ async function replaceFileReferences(
 
 	return result
 }
-
-/**
- * Format a command for display in help/autocomplete
- */
-export function formatCommandForDisplay(command: SlashCommandMetadata): string {
-	const parts = [command.name]
-
-	if (command.description) {
-		parts.push(`- ${command.description}`)
-	}
-
-	return parts.join(" ")
-}
-
-/**
- * Group commands by namespace for display
- */
-export function groupCommandsByNamespace(
-	commands: SlashCommandMetadata[],
-): Map<string, SlashCommandMetadata[]> {
-	const groups = new Map<string, SlashCommandMetadata[]>()
-
-	for (const command of commands) {
-		const namespace =
-			command.namespace || command.name.split(":")[0] || "general"
-
-		if (!groups.has(namespace)) {
-			groups.set(namespace, [])
-		}
-
-		groups.get(namespace)!.push(command)
-	}
-
-	return groups
-}

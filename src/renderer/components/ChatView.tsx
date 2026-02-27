@@ -102,57 +102,58 @@ export function ChatView({
 		isAutoScroll.current = scrollHeight - scrollTop - clientHeight < 100
 	}
 
-	// Helper to extract text from message content
-	function getMessageText(msg: Message): string {
-		return (
-			msg.content
-				?.filter((c) => c.type === "text" || c.type === "thinking")
-				.map((c) => {
-					const block = c as unknown as Record<string, unknown>
-					return (block.text ?? block.thinking ?? "") as string
-				})
-				.join("") ?? ""
-		)
-	}
-
-	// Build a flat list of renderable items from messages
+	// Build a flat list of renderable items from messages, preserving the
+	// natural interleaved order of text blocks and tool calls within each
+	// assistant message.  The harness accumulates the entire agentic turn into
+	// a single message (text → tool_call → tool_result → text → …), so we
+	// walk the content array in order and emit items as we encounter them.
 	const items: Array<{
 		type: "user" | "assistant" | "tool" | "subagent"
 		key: string
 		data: unknown
 	}> = []
 
-	let lastAssistantText = ""
-
 	for (const msg of messages) {
 		if (msg.role === "user") {
 			items.push({ type: "user", key: `msg-${msg.id}`, data: msg })
-			lastAssistantText = ""
 		} else if (msg.role === "assistant") {
-			// Deduplicate: skip text if identical to previous assistant message
-			const currentText = getMessageText(msg)
-			const isNewText = currentText && currentText !== lastAssistantText
+			// Walk content blocks in order and group consecutive text/thinking
+			// blocks into a single assistant item, emitting tool items inline.
+			let pendingTextBlocks: typeof msg.content = []
+			let textGroupIndex = 0
+			const isStreaming = msg.id === streamingMessageId
 
-			if (isNewText) {
-				const textContent = msg.content?.filter(
-					(c) => c.type === "text" || c.type === "thinking",
-				)
-				if (textContent && textContent.length > 0) {
+			const flushText = (isTrailing: boolean) => {
+				if (pendingTextBlocks.length === 0) return
+				const hasContent = pendingTextBlocks.some((c) => {
+					const block = c as unknown as Record<string, unknown>
+					const text = (block.text ?? block.thinking ?? "") as string
+					return text.length > 0
+				})
+				if (hasContent) {
 					items.push({
 						type: "assistant",
-						key: `msg-${msg.id}`,
-						data: { ...msg, isStreaming: msg.id === streamingMessageId },
+						key: `msg-${msg.id}-text-${textGroupIndex}`,
+						data: {
+							...msg,
+							content: pendingTextBlocks,
+							// Only show streaming cursor on the trailing (last) text group
+							isStreaming: isStreaming && isTrailing,
+						},
 					})
 				}
-			}
-			if (currentText) {
-				lastAssistantText = currentText
+				textGroupIndex++
+				pendingTextBlocks = []
 			}
 
-			// Always extract tool calls (even if text was deduplicated)
 			if (msg.content) {
 				for (const c of msg.content) {
-					if (c.type === "tool_call") {
+					if (c.type === "text" || c.type === "thinking") {
+						pendingTextBlocks.push(c)
+					} else if (c.type === "tool_call") {
+						// Flush any accumulated text before this tool call
+						flushText(false)
+
 						const toolId = c.id as string
 						const toolState = tools.get(toolId)
 						const subagentState = subagents.get(toolId)
@@ -176,8 +177,11 @@ export function ChatView({
 							})
 						}
 					}
+					// tool_result blocks are skipped — tool state is tracked separately
 				}
 			}
+			// Flush any trailing text (e.g. the final summary after tool calls)
+			flushText(true)
 		}
 	}
 

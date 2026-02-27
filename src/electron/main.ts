@@ -1801,13 +1801,17 @@ function registerIpcHandlers() {
 						gitBranch: cachedState?.gitBranch,
 						isWorktree: true,
 					}
+					const currentThreadId = sessions
+						.get(newPath)!
+						.harness.getCurrentThreadId()
 					// Notify renderer immediately
 					mainWindow?.webContents.send("harness:event", {
 						type: "project_changed",
 						project: fastProject,
+						currentThreadId,
 					})
 					saveRecentProject(newPath, fastProject.name)
-					return { project: fastProject }
+					return { project: fastProject, currentThreadId }
 				}
 
 				// Slow path: first visit — create harness

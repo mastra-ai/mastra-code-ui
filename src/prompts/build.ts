@@ -28,7 +28,7 @@ Implement the approved plan above. Follow the steps in order and verify each ste
 	return buildModePrompt
 }
 
-export const buildModePrompt = `
+const buildModePrompt = `
 # Build Mode
 
 You are in BUILD mode. You have full access to all tools and can read, write, edit, and execute commands.

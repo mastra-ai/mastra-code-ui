@@ -14,7 +14,7 @@ import { z } from "zod/v3"
 import { getSubagentDefinition, getSubagentIds } from "../agents/index.js"
 import type { HarnessEvent, HarnessRequestContext } from "@mastra/core/harness"
 
-export interface SubagentToolDeps {
+interface SubagentToolDeps {
 	/**
 	 * The full tool registry from the parent agent.
 	 * The subagent will receive a subset based on its allowedTools.
@@ -342,35 +342,4 @@ function buildSubagentMeta(
 		.map((tc) => `${tc.name}:${tc.isError ? "err" : "ok"}`)
 		.join(",")
 	return `\n<subagent-meta modelId="${modelId}" durationMs="${durationMs}" tools="${tools}" />`
-}
-
-/**
- * Parse subagent metadata from a tool result string.
- * Returns the metadata and the cleaned result text (without the tag).
- */
-export function parseSubagentMeta(content: string): {
-	text: string
-	modelId?: string
-	durationMs?: number
-	toolCalls?: Array<{ name: string; isError: boolean }>
-} {
-	const match = content.match(
-		/\n<subagent-meta modelId="([^"]*)" durationMs="(\d+)" tools="([^"]*)" \/>$/,
-	)
-	if (!match) return { text: content }
-
-	const text = content.slice(0, match.index!)
-	const modelId = match[1]
-	const durationMs = parseInt(match[2], 10)
-	const toolCalls = match[3]
-		? match[3]
-				.split(",")
-				.filter(Boolean)
-				.map((entry) => {
-					const [name, status] = entry.split(":")
-					return { name, isError: status === "err" }
-				})
-		: []
-
-	return { text, modelId, durationMs, toolCalls }
 }

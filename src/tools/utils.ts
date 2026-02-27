@@ -127,11 +127,6 @@ export async function validatePath(
 		}
 	}
 }
-export function truncateText(text: string, maxLength = 1000): string {
-	if (text.length <= maxLength) return text
-	return text.slice(0, maxLength) + "... (truncated)"
-}
-
 /**
  * Check whether `targetPath` falls inside `projectRoot` or any of the
  * additional `allowedPaths`.  All arguments are expected to be absolute.

@@ -164,7 +164,7 @@ function saveLastSyncTime(date: Date): void {
 /**
  * Sync gateways and update the global cache
  */
-export async function syncGateways(force = false): Promise<void> {
+async function syncGateways(force = false): Promise<void> {
 	if (isSyncing && !force) {
 		return
 	}
@@ -237,14 +237,4 @@ export function startGatewaySync(intervalMs = DEFAULT_SYNC_INTERVAL_MS): void {
 
 	// Don't prevent process exit
 	syncInterval.unref()
-}
-
-/**
- * Stop periodic gateway sync
- */
-export function stopGatewaySync(): void {
-	if (syncInterval) {
-		clearInterval(syncInterval)
-		syncInterval = null
-	}
 }

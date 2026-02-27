@@ -15,7 +15,7 @@ import { isBlockingEvent } from "./types.js"
 
 const DEFAULT_TIMEOUT = 10_000
 
-export async function executeHook(
+async function executeHook(
 	hook: HookDefinition,
 	stdinPayload: HookStdin,
 ): Promise<HookResult> {
@@ -101,7 +101,7 @@ export async function executeHook(
 	})
 }
 
-export function matchesHook(
+function matchesHook(
 	hook: HookDefinition,
 	context: { tool_name?: string },
 ): boolean {

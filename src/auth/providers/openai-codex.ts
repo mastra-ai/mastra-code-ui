@@ -342,7 +342,7 @@ function getAccountId(accessToken: string): string | null {
  *                                    Useful for showing paste input immediately alongside browser flow.
  * @param options.originator - OAuth originator parameter (defaults to "pi")
  */
-export async function loginOpenAICodex(options: {
+async function loginOpenAICodex(options: {
 	onAuth: (info: { url: string; instructions?: string }) => void
 	onPrompt: (prompt: OAuthPrompt) => Promise<string>
 	onProgress?: (message: string) => void
@@ -457,7 +457,7 @@ export async function loginOpenAICodex(options: {
 /**
  * Refresh OpenAI Codex OAuth token
  */
-export async function refreshOpenAICodexToken(
+async function refreshOpenAICodexToken(
 	refreshToken: string,
 ): Promise<OAuthCredentials> {
 	const result = await refreshAccessToken(refreshToken)

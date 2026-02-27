@@ -26,7 +26,7 @@ import type {
  * Best/default models for each OAuth provider.
  * Used when auto-selecting a model after login.
  */
-export const PROVIDER_DEFAULT_MODELS: Record<OAuthProviderId, string> = {
+const PROVIDER_DEFAULT_MODELS: Record<OAuthProviderId, string> = {
 	anthropic: "anthropic/claude-opus-4-6",
 	"openai-codex": "openai/gpt-5.3-codex",
 }
@@ -43,7 +43,7 @@ const oauthProviderRegistry = new Map<string, OAuthProviderInterface>([
 /**
  * Get an OAuth provider by ID
  */
-export function getOAuthProvider(
+function getOAuthProvider(
 	id: OAuthProviderId,
 ): OAuthProviderInterface | undefined {
 	return oauthProviderRegistry.get(id)
@@ -52,7 +52,7 @@ export function getOAuthProvider(
 /**
  * Get all registered OAuth providers
  */
-export function getOAuthProviders(): OAuthProviderInterface[] {
+function getOAuthProviders(): OAuthProviderInterface[] {
 	return Array.from(oauthProviderRegistry.values())
 }
 

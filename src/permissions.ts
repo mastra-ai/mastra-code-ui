@@ -76,23 +76,13 @@ export function getToolCategory(toolName: string): ToolCategory | null {
 	if (ALWAYS_ALLOW_TOOLS.has(toolName)) return null
 	return TOOL_CATEGORY_MAP[toolName] ?? "mcp"
 }
-
-/**
- * Get the list of known tools for a given category.
- */
-export function getToolsForCategory(category: ToolCategory): string[] {
-	return Object.entries(TOOL_CATEGORY_MAP)
-		.filter(([, cat]) => cat === category)
-		.map(([tool]) => tool)
-}
-
 // ---------------------------------------------------------------------------
 // Policies
 // ---------------------------------------------------------------------------
 
 export type PermissionPolicy = "allow" | "ask" | "deny"
 
-export interface PermissionRules {
+interface PermissionRules {
 	/** Policy per category. Missing categories default to their DEFAULT_POLICIES value. */
 	categories: Partial<Record<ToolCategory, PermissionPolicy>>
 	/** Per-tool overrides. Tool name → policy. Takes precedence over category. */
@@ -113,11 +103,4 @@ export const YOLO_POLICIES: Record<ToolCategory, PermissionPolicy> = {
 	edit: "allow",
 	execute: "allow",
 	mcp: "allow",
-}
-
-export function createDefaultRules(): PermissionRules {
-	return {
-		categories: { ...DEFAULT_POLICIES },
-		tools: {},
-	}
 }

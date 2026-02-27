@@ -10,7 +10,7 @@ import { createHash } from "node:crypto"
 import path from "node:path"
 import fs from "node:fs"
 import os from "node:os"
-export interface ProjectInfo {
+interface ProjectInfo {
 	/** Unique resource ID for this project (used for thread grouping) */
 	resourceId: string
 	/** Human-readable project name */
@@ -198,7 +198,7 @@ export function getDatabasePath(): string {
  * Storage configuration for LibSQLStore.
  * Either a local file URL or a remote Turso URL with auth token.
  */
-export interface StorageConfig {
+interface StorageConfig {
 	url: string
 	authToken?: string
 	isRemote: boolean
@@ -213,7 +213,7 @@ export interface StorageConfig {
  *   3. Global config: ~/.mastracode/database.json
  *   4. Local file database (default)
  */
-export function getStorageConfig(projectDir?: string): StorageConfig {
+function getStorageConfig(projectDir?: string): StorageConfig {
 	// 1. Environment variables
 	if (process.env.MASTRA_DB_URL) {
 		return {
@@ -275,7 +275,7 @@ function loadDatabaseConfig(filePath: string): StorageConfig | null {
  *   2. git config user.email (from project dir or global)
  *   3. OS username as fallback
  */
-export function getUserId(projectDir?: string): string {
+function getUserId(projectDir?: string): string {
 	// 1. Environment variable override
 	if (process.env.MASTRA_USER_ID) {
 		return process.env.MASTRA_USER_ID
@@ -295,7 +295,7 @@ export function getUserId(projectDir?: string): string {
 /**
  * Observational memory scope: "thread" (per-conversation) or "resource" (shared across threads).
  */
-export type OmScope = "thread" | "resource"
+type OmScope = "thread" | "resource"
 
 /**
  * Get the configured observational memory scope.
@@ -306,7 +306,7 @@ export type OmScope = "thread" | "resource"
  *   3. Global config: ~/.mastracode/database.json → omScope
  *   4. Default: "thread"
  */
-export function getOmScope(projectDir?: string): OmScope {
+function getOmScope(projectDir?: string): OmScope {
 	// 1. Environment variable
 	const envScope = process.env.MASTRA_OM_SCOPE
 	if (envScope === "thread" || envScope === "resource") {
@@ -357,7 +357,7 @@ function loadOmScopeFromConfig(filePath: string): OmScope | null {
  *   3. Global config: ~/.mastracode/database.json → resourceId
  *   4. null (use auto-detected value)
  */
-export function getResourceIdOverride(projectDir?: string): string | null {
+function getResourceIdOverride(projectDir?: string): string | null {
 	// 1. Environment variable
 	if (process.env.MASTRA_RESOURCE_ID) {
 		return process.env.MASTRA_RESOURCE_ID

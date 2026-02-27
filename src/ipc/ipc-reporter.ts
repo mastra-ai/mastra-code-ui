@@ -1,13 +1,13 @@
 // Stub IPC reporter for TUI mode - just logs to console or no-ops
 
-export type IPCMessageType =
+type IPCMessageType =
 	| "shell-output"
 	| "token-limits"
 	| "agent-event"
 	| "tool-call"
 	| "tool-result"
 
-export interface IPCMessage {
+interface IPCMessage {
 	type: IPCMessageType
 	data: unknown
 	timestamp: number

@@ -22,7 +22,7 @@ const SCOPES = "org:create_api_key user:profile user:inference"
 /**
  * Login with Anthropic OAuth (device code flow)
  */
-export async function loginAnthropic(
+async function loginAnthropic(
 	onAuthUrl: (url: string) => void,
 	onPromptCode: () => Promise<string>,
 ): Promise<OAuthCredentials> {
@@ -91,7 +91,7 @@ export async function loginAnthropic(
 /**
  * Refresh Anthropic OAuth token
  */
-export async function refreshAnthropicToken(
+async function refreshAnthropicToken(
 	refreshToken: string,
 ): Promise<OAuthCredentials> {
 	const response = await fetch(TOKEN_URL, {

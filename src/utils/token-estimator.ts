@@ -9,10 +9,6 @@ function sanitizeInput(text: string | object) {
 		.replaceAll(`<|endoftext|>`, ``)
 		.replaceAll(`<|endofprompt|>`, ``)
 }
-export function tokenEstimate(text: string | object): number {
-	return enc.encode(sanitizeInput(text), `all`).length
-}
-
 export function truncateStringForTokenEstimate(
 	text: string,
 	desiredTokenCount: number,

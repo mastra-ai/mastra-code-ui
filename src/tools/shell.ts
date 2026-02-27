@@ -1,6 +1,12 @@
 import { z } from "zod/v3"
 import { execa, ExecaError } from "execa"
-import stripAnsi from "strip-ansi"
+import stripAnsiModule from "strip-ansi"
+// strip-ansi is ESM-only; bundlers may wrap the default export
+const stripAnsi = (
+	typeof stripAnsiModule === "function"
+		? stripAnsiModule
+		: (stripAnsiModule as any).default
+) as (s: string) => string
 import { truncateStringForTokenEstimate } from "../utils/token-estimator"
 import treeKill from "tree-kill"
 import type { TerminalManager } from "../acp/terminal-manager.js"
@@ -12,31 +18,26 @@ import { isPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 // Global registry for terminal managers (used in ACP mode)
 let globalTerminalManager: TerminalManager | null = null
 
-export function setGlobalTerminalManager(manager: TerminalManager | null) {
+function setGlobalTerminalManager(manager: TerminalManager | null) {
 	globalTerminalManager = manager
 }
 
-export function getGlobalTerminalManager(): TerminalManager | null {
+function getGlobalTerminalManager(): TerminalManager | null {
 	return globalTerminalManager
 }
 
 // Global registry for pending terminal IDs (keyed by confirmationId)
 const pendingTerminalIds = new Map<string, string>()
 
-export function setPendingTerminalId(
-	confirmationId: string,
-	terminalId: string,
-) {
+function setPendingTerminalId(confirmationId: string, terminalId: string) {
 	pendingTerminalIds.set(confirmationId, terminalId)
 }
 
-export function getPendingTerminalId(
-	confirmationId: string,
-): string | undefined {
+function getPendingTerminalId(confirmationId: string): string | undefined {
 	return pendingTerminalIds.get(confirmationId)
 }
 
-export function clearPendingTerminalId(confirmationId: string) {
+function clearPendingTerminalId(confirmationId: string) {
 	pendingTerminalIds.delete(confirmationId)
 }
 
@@ -603,8 +604,3 @@ Usage notes:
 		},
 	})
 }
-
-// Default export for backward compatibility
-export const executeCommandTool = createExecuteCommandTool()
-
-export default executeCommandTool

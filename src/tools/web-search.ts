@@ -20,7 +20,7 @@ function getTavilyClient() {
  * Used by main.ts to decide whether to include Tavily tools or fall back
  * to Anthropic's native web search.
  */
-export function hasTavilyKey(): boolean {
+function hasTavilyKey(): boolean {
 	return !!process.env.TAVILY_API_KEY
 }
 

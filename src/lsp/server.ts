@@ -24,7 +24,7 @@ export interface LSPServerInfo {
 /**
  * Find the nearest project root directory
  */
-export function findNearestRoot(cwd: string, markers: string[]): string | null {
+function findNearestRoot(cwd: string, markers: string[]): string | null {
 	let current = cwd
 
 	while (current !== "/") {
@@ -45,7 +45,7 @@ export function findNearestRoot(cwd: string, markers: string[]): string | null {
 /**
  * Built-in LSP server definitions
  */
-export const BUILTIN_SERVERS: Record<string, LSPServerInfo> = {
+const BUILTIN_SERVERS: Record<string, LSPServerInfo> = {
 	typescript: {
 		id: "typescript",
 		name: "TypeScript Language Server",

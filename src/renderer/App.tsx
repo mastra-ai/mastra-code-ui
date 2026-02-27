@@ -125,6 +125,20 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 					return state
 				}
 			}
+			// Skip if we already have a message with this ID (the harness emits
+			// message_start on every text-start chunk, so multi-step agentic
+			// turns fire it multiple times for the same message)
+			if (state.messages.some((m) => m.id === action.message.id)) {
+				return {
+					...state,
+					// Still update the message content (it may have new content blocks)
+					messages: state.messages.map((m) =>
+						m.id === action.message.id ? action.message : m,
+					),
+					streamingMessageId:
+						action.message.role === "assistant" ? action.message.id : null,
+				}
+			}
 			return {
 				...state,
 				messages: [...state.messages, action.message],
@@ -536,10 +550,15 @@ export function App() {
 					})
 					break
 				case "message_end":
-					if (isActiveWorktree) dispatch({
-						type: "MESSAGE_END",
-						message: event.message as Message,
-					})
+					if (isActiveWorktree) {
+						dispatch({
+							type: "MESSAGE_END",
+							message: event.message as Message,
+						})
+						window.api.invoke({ type: "getTokenUsage" }).then((usage) => {
+							if (usage) setTokenUsage(usage as TokenUsage)
+						}).catch(() => {})
+					}
 					break
 				case "tool_start":
 					if (isActiveWorktree) dispatch({
@@ -610,6 +629,9 @@ export function App() {
 					setCurrentThreadId(event.threadId as string)
 					loadMessages()
 					loadThreads()
+					window.api.invoke({ type: "getTokenUsage" }).then((usage) => {
+						if (usage) setTokenUsage(usage as TokenUsage)
+					}).catch(() => {})
 					break
 				case "thread_created": {
 					const newThreadId = (event.thread as any)?.id
@@ -624,7 +646,11 @@ export function App() {
 					break
 				}
 				case "usage_update":
-					setTokenUsage(event.usage as TokenUsage)
+					if (isActiveWorktree) {
+						window.api.invoke({ type: "getTokenUsage" }).then((usage) => {
+							if (usage) setTokenUsage(usage as TokenUsage)
+						}).catch(() => {})
+					}
 					break
 				case "task_updated":
 					setTasks(
@@ -749,26 +775,42 @@ export function App() {
 							return next
 						})
 					}
-					const proj = event.project as ProjectInfo
-					setProjectInfo(proj)
-					dispatch({ type: "CLEAR" })
-					setCurrentThreadId(null)
-					setThreads([])
-					setOpenFiles([])
-					setOpenThreadTabs([])
-					setActiveTab("chat")
-					loadPRStatus()
-					// Load threads and auto-open the most recent one
-					loadThreads().then(async (loaded) => {
-						if (loaded && loaded.length > 0) {
-							const recent = loaded[0]
-							await window.api.invoke({ type: "switchThread", threadId: recent.id })
-							setCurrentThreadId(recent.id)
-							setOpenThreadTabs([recent.id])
-							setActiveTab(`thread:${recent.id}`)
-						}
-					})
-					break
+                    const proj = event.project as ProjectInfo
+                    const resumeThreadId = event.currentThreadId as string | undefined
+                    setProjectInfo(proj)
+                    setOpenFiles([])
+                    setTokenUsage({ promptTokens: 0, completionTokens: 0, totalTokens: 0 })
+                    loadPRStatus()
+                    // Fetch token usage from the new harness
+                    window.api.invoke({ type: "getTokenUsage" }).then((usage) => {
+                        if (usage) setTokenUsage(usage as TokenUsage)
+                    }).catch(() => {})
+                    if (resumeThreadId) {
+                        // Fast path: session already had an active thread — restore it
+                        setCurrentThreadId(resumeThreadId)
+                        setOpenThreadTabs([resumeThreadId])
+                        setActiveTab(`thread:${resumeThreadId}`)
+                        loadMessages()
+                        loadThreads()
+                    } else {
+                        // Slow path: new session, clear and load from scratch
+                        dispatch({ type: "CLEAR" })
+                        setCurrentThreadId(null)
+                        setThreads([])
+                        setOpenThreadTabs([])
+                        setActiveTab("chat")
+                        // Load threads and auto-open the most recent one
+                        loadThreads().then(async (loaded) => {
+                            if (loaded && loaded.length > 0) {
+                                const recent = loaded[0]
+                                await window.api.invoke({ type: "switchThread", threadId: recent.id })
+                                setCurrentThreadId(recent.id)
+                                setOpenThreadTabs([recent.id])
+                                setActiveTab(`thread:${recent.id}`)
+                            }
+                        })
+                    }
+                    break
 				}
 			}
 		})
@@ -1209,25 +1251,22 @@ export function App() {
 	}, [])
 
 	// Project handlers
-	const handleSwitchProject = useCallback(async (switchPath: string) => {
-		// Clear unread + active for the project we're switching TO
+    const handleSwitchProject = useCallback(async (switchPath: string) => {
+		// Always clear unread when clicking a worktree
 		setUnreadWorktrees((prev) => {
+			if (!prev.has(switchPath)) return prev
 			const next = new Set(prev)
 			next.delete(switchPath)
 			return next
 		})
+        if (switchPath === projectInfoRef.current?.rootPath) return
+        // Clear active for the project we're switching TO
 		setActiveWorktrees((prev) => {
 			const next = new Set(prev)
 			next.delete(switchPath)
 			return next
 		})
-		// Eagerly clear tabs so stale threads from another branch are never visible
-		dispatch({ type: "CLEAR" })
-		setOpenThreadTabs([])
-		setOpenFiles([])
-		setActiveTab("chat")
-		setThreads([])
-		await window.api.invoke({ type: "switchProject", path: switchPath })
+        await window.api.invoke({ type: "switchProject", path: switchPath })
 	}, [])
 
 	const handleOpenFolder = useCallback(async () => {
@@ -1237,6 +1276,7 @@ export function App() {
 			})) as { path: string } | null
 			if (result?.path) {
 				await window.api.invoke({ type: "switchProject", path: result.path })
+				await loadEnrichedProjects()
 			}
 		} catch {
 			// user cancelled
@@ -1744,6 +1784,17 @@ export function App() {
 					<>
 						{/* Chat view (visible for "chat" tab or thread tabs) */}
 						<div
+							onMouseDown={() => {
+								const p = projectInfoRef.current?.rootPath
+								if (p) {
+									setUnreadWorktrees((prev) => {
+										if (!prev.has(p)) return prev
+										const next = new Set(prev)
+										next.delete(p)
+										return next
+									})
+								}
+							}}
 							style={{
 								flex: 1,
 								display:
