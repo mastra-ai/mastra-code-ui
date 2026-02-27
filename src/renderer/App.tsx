@@ -418,7 +418,7 @@ export function App() {
 	} | null>(null)
 	const [worktreeStatuses, setWorktreeStatuses] = useState<Map<string, "in_progress" | "in_review" | "done" | "archived">>(new Map())
 	const projectInfoRef = useRef<ProjectInfo | null>(null)
-	const notificationPrefRef = useRef<string>("off")
+	const notificationPrefRef = useRef<string>("both")
 
 	// Keep ref in sync for use in event handler closure
 	useEffect(() => {

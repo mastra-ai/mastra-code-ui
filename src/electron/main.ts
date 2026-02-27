@@ -279,7 +279,7 @@ async function createHarness(projectPath: string) {
 		thinkingLevel: z.string().default("off"),
 		yolo: z.boolean().default(false),
 		smartEditing: z.boolean().default(true),
-		notifications: z.enum(["bell", "system", "both", "off"]).default("off"),
+		notifications: z.enum(["bell", "system", "both", "off"]).default("both"),
 		tasks: z
 			.array(
 				z.object({
