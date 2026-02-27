@@ -144,7 +144,7 @@ export function RightSidebar({
 				{/* Tab content */}
 				<div style={{ flex: 1, overflow: "hidden" }}>
 					{activeTab === "files" && (
-						<FileTree projectName={projectName} onFileClick={onFileClick} activeFilePath={activeFilePath} />
+						<FileTree projectName={projectName} projectPath={projectPath} onFileClick={onFileClick} activeFilePath={activeFilePath} />
 					)}
 					{activeTab === "git" && <GitPanel onFileClick={onDiffClick} activeFilePath={activeDiffPath} />}
 					{activeTab === "context" && <ContextPanel onFileClick={onFileClick} />}

@@ -174,7 +174,17 @@ export function getAppDataDir(): string {
 			process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
 	}
 
-	const appDir = path.join(baseDir, "mastra-code")
+	// Separate dev and production data directories
+	let isDev = true
+	try {
+		// electron app module is only available in the main process
+		const { app } = require("electron")
+		isDev = !app.isPackaged
+	} catch {
+		// Not in electron context, assume dev
+	}
+
+	const appDir = path.join(baseDir, isDev ? "mastra-code-dev" : "mastra-code")
 
 	// Ensure directory exists
 	if (!fs.existsSync(appDir)) {

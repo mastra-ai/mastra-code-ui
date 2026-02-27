@@ -57,7 +57,16 @@
 			"output": "release"
 		},
 		"mac": {
-			"target": "dmg",
+			"target": [
+				{
+					"target": "dmg",
+					"arch": "arm64"
+				},
+				{
+					"target": "dmg",
+					"arch": "x64"
+				}
+			],
 			"category": "public.app-category.developer-tools",
 			"icon": "resources/icon.icns"
 		},

@@ -9,6 +9,7 @@ interface FileEntry {
 
 interface FileTreeProps {
 	projectName: string
+	projectPath?: string | null
 	onFileClick?: (filePath: string) => void
 	activeFilePath?: string | null
 }
@@ -287,12 +288,17 @@ function FileNode({
 
 export function FileTree({
 	projectName,
+	projectPath,
 	onFileClick,
 	activeFilePath,
 }: FileTreeProps) {
 	const [rootEntries, setRootEntries] = useState<FileEntry[] | null>(null)
 
 	useEffect(() => {
+		if (!projectPath) {
+			setRootEntries(null)
+			return
+		}
 		async function load() {
 			try {
 				const result = (await window.api.invoke({
@@ -305,7 +311,26 @@ export function FileTree({
 			}
 		}
 		load()
-	}, [projectName])
+	}, [projectName, projectPath])
+
+	if (!projectPath) {
+		return (
+			<div
+				style={{
+					flex: 1,
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					padding: "20px 16px",
+					color: "var(--dim)",
+					fontSize: 12,
+					textAlign: "center",
+				}}
+			>
+				Select a worktree
+			</div>
+		)
+	}
 
 	return (
 		<div
