@@ -26,9 +26,10 @@ import type {
  * Best/default models for each OAuth provider.
  * Used when auto-selecting a model after login.
  */
-const PROVIDER_DEFAULT_MODELS: Record<OAuthProviderId, string> = {
+const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
 	anthropic: "anthropic/claude-opus-4-6",
 	"openai-codex": "openai/gpt-5.3-codex",
+	google: "google/gemini-2.5-flash",
 }
 
 // Provider registry
@@ -135,7 +136,7 @@ export class AuthStorage {
 	 */
 	isLoggedIn(provider: string): boolean {
 		const cred = this.data[provider]
-		return cred?.type === "oauth"
+		return cred?.type === "oauth" || cred?.type === "api_key"
 	}
 
 	/**

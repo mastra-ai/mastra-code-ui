@@ -29,6 +29,7 @@ import { Memory } from "@mastra/memory"
 import { z } from "zod"
 import { generateText } from "ai"
 import { createAnthropic } from "@ai-sdk/anthropic"
+import { createOpenAI } from "@ai-sdk/openai"
 
 import { Harness } from "@mastra/core/harness"
 import type { HarnessRequestContext } from "@mastra/core/harness"
@@ -395,9 +396,26 @@ async function createHarness(projectPath: string) {
 				name: "moonshotai.anthropicv1",
 			})(modelId.substring("moonshotai/".length))
 		} else if (isAnthropicModel) {
+			// API key users get standard Anthropic API; OAuth users get Claude Max
+			const cred = authStorage.get("anthropic")
+			if (cred?.type === "api_key") {
+				return createAnthropic({ apiKey: cred.key })(
+					modelId.substring("anthropic/".length),
+				)
+			}
 			return opencodeClaudeMaxProvider(modelId.substring("anthropic/".length))
-		} else if (isOpenAIModel && authStorage.isLoggedIn("openai-codex")) {
-			return openaiCodexProvider(modelId.substring("openai/".length))
+		} else if (isOpenAIModel) {
+			// API key users get standard OpenAI API; OAuth users get Codex endpoint
+			const cred = authStorage.get("openai-codex")
+			if (cred?.type === "api_key") {
+				return createOpenAI({ apiKey: cred.key })(
+					modelId.substring("openai/".length),
+				)
+			}
+			if (authStorage.isLoggedIn("openai-codex")) {
+				return openaiCodexProvider(modelId.substring("openai/".length))
+			}
+			return new ModelRouterLanguageModel(modelId)
 		} else {
 			return new ModelRouterLanguageModel(modelId)
 		}
@@ -1256,6 +1274,25 @@ function registerIpcHandlers() {
 			case "logout":
 				authStorage.logout(command.providerId)
 				return
+			case "setApiKey": {
+				const pid = command.providerId as string
+				const key = command.apiKey as string
+				if (!pid || !key) {
+					return { success: false, error: "Missing providerId or apiKey" }
+				}
+				authStorage.set(pid, { type: "api_key", key })
+				// Auto-select a default model for this provider
+				const defaultModel = authStorage.getDefaultModelForProvider(pid)
+				if (defaultModel) {
+					await h.switchModel({ modelId: defaultModel })
+				}
+				mainWindow?.webContents.send("harness:event", {
+					type: "login_success",
+					providerId: pid,
+					modelId: h.getFullModelId(),
+				})
+				return { success: true }
+			}
 			case "isRunning":
 				return h.isRunning()
 			case "getCurrentModeId":
@@ -1336,6 +1373,124 @@ function registerIpcHandlers() {
 					return { diff }
 				} catch {
 					return { diff: "" }
+				}
+			}
+
+			case "gitStage": {
+				const { execFileSync: stageExec } = require("child_process")
+				const stageFiles = command.files as string[] | undefined
+				try {
+					if (stageFiles && stageFiles.length > 0) {
+						stageExec("git", ["add", "--", ...stageFiles], {
+							cwd: projectRoot,
+							encoding: "utf-8",
+							maxBuffer: 5 * 1024 * 1024,
+						})
+					} else {
+						stageExec("git", ["add", "-A"], {
+							cwd: projectRoot,
+							encoding: "utf-8",
+							maxBuffer: 5 * 1024 * 1024,
+						})
+					}
+					return { success: true }
+				} catch (e: any) {
+					return { success: false, error: e.message || "Failed to stage" }
+				}
+			}
+			case "gitUnstage": {
+				const { execFileSync: unstageExec } = require("child_process")
+				const unstageFiles = command.files as string[] | undefined
+				try {
+					if (unstageFiles && unstageFiles.length > 0) {
+						unstageExec("git", ["reset", "HEAD", "--", ...unstageFiles], {
+							cwd: projectRoot,
+							encoding: "utf-8",
+							maxBuffer: 5 * 1024 * 1024,
+						})
+					} else {
+						unstageExec("git", ["reset", "HEAD"], {
+							cwd: projectRoot,
+							encoding: "utf-8",
+							maxBuffer: 5 * 1024 * 1024,
+						})
+					}
+					return { success: true }
+				} catch (e: any) {
+					return { success: false, error: e.message || "Failed to unstage" }
+				}
+			}
+			case "gitCommit": {
+				const { execFileSync: commitExec } = require("child_process")
+				const commitMsg = command.message as string
+				if (!commitMsg || !commitMsg.trim()) {
+					return { success: false, error: "Commit message is required" }
+				}
+				try {
+					commitExec("git", ["commit", "-m", commitMsg.trim()], {
+						cwd: projectRoot,
+						encoding: "utf-8",
+						maxBuffer: 5 * 1024 * 1024,
+					})
+					return { success: true }
+				} catch (e: any) {
+					return {
+						success: false,
+						error: e.stderr?.toString() || e.message || "Commit failed",
+					}
+				}
+			}
+			case "gitPush": {
+				const { execSync: pushExec } = require("child_process")
+				try {
+					pushExec("git push", {
+						cwd: projectRoot,
+						encoding: "utf-8",
+						maxBuffer: 5 * 1024 * 1024,
+						timeout: 60000,
+					})
+					return { success: true }
+				} catch (e: any) {
+					return {
+						success: false,
+						error: e.stderr?.toString()?.trim() || e.message || "Push failed",
+					}
+				}
+			}
+			case "gitPull": {
+				const { execSync: pullExec } = require("child_process")
+				try {
+					const pullOutput = pullExec("git pull", {
+						cwd: projectRoot,
+						encoding: "utf-8",
+						maxBuffer: 5 * 1024 * 1024,
+						timeout: 60000,
+					}) as string
+					return { success: true, output: pullOutput.trim() }
+				} catch (e: any) {
+					return {
+						success: false,
+						error: e.stderr?.toString()?.trim() || e.message || "Pull failed",
+					}
+				}
+			}
+			case "gitAheadBehind": {
+				const { execSync: abExec } = require("child_process")
+				try {
+					abExec("git rev-parse --abbrev-ref @{upstream}", {
+						cwd: projectRoot,
+						encoding: "utf-8",
+					})
+					const abOutput = (
+						abExec("git rev-list --left-right --count HEAD...@{upstream}", {
+							cwd: projectRoot,
+							encoding: "utf-8",
+						}) as string
+					).trim()
+					const [ahead, behind] = abOutput.split(/\s+/).map(Number)
+					return { ahead, behind, hasUpstream: true }
+				} catch {
+					return { ahead: 0, behind: 0, hasUpstream: false }
 				}
 			}
 

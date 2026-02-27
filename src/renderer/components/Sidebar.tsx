@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { ProjectList, type EnrichedProject } from "./ProjectList"
 import type { ThreadInfo } from "../types/ipc"
 
@@ -28,6 +28,7 @@ interface SidebarProps {
 	onDeleteWorktree: (worktreePath: string) => void
 	onOpenSettings: () => void
 	onOpenTasks: () => void
+	onOpenAccounts: () => void
 	isSettingsActive: boolean
 	isTasksActive: boolean
 }
@@ -35,6 +36,7 @@ interface SidebarProps {
 const providers = [
 	{ id: "anthropic", label: "Anthropic" },
 	{ id: "openai-codex", label: "OpenAI" },
+	{ id: "google", label: "Google" },
 ]
 
 export function Sidebar({
@@ -61,12 +63,47 @@ export function Sidebar({
 	onDeleteWorktree,
 	onOpenSettings,
 	onOpenTasks,
+	onOpenAccounts,
 	isSettingsActive,
 	isTasksActive,
 }: SidebarProps) {
 	const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null)
 	const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 	const [historyCollapsed, setHistoryCollapsed] = useState(false)
+	const [historyHeight, setHistoryHeight] = useState(160)
+	const isDragging = useRef(false)
+	const dragStartY = useRef(0)
+	const dragStartHeight = useRef(0)
+
+	const handleResizeStart = useCallback((e: React.MouseEvent) => {
+		e.preventDefault()
+		isDragging.current = true
+		dragStartY.current = e.clientY
+		dragStartHeight.current = historyHeight
+		document.body.style.cursor = "ns-resize"
+		document.body.style.userSelect = "none"
+	}, [historyHeight])
+
+	useEffect(() => {
+		const handleMouseMove = (e: MouseEvent) => {
+			if (!isDragging.current) return
+			const delta = dragStartY.current - e.clientY
+			const newHeight = Math.max(60, Math.min(500, dragStartHeight.current + delta))
+			setHistoryHeight(newHeight)
+		}
+		const handleMouseUp = () => {
+			if (!isDragging.current) return
+			isDragging.current = false
+			document.body.style.cursor = ""
+			document.body.style.userSelect = ""
+		}
+		window.addEventListener("mousemove", handleMouseMove)
+		window.addEventListener("mouseup", handleMouseUp)
+		return () => {
+			window.removeEventListener("mousemove", handleMouseMove)
+			window.removeEventListener("mouseup", handleMouseUp)
+		}
+	}, [])
 
 	if (!sidebarVisible) return null
 
@@ -156,11 +193,28 @@ export function Sidebar({
 				/>
 			</div>
 
+			{/* Resize handle */}
+			<div
+				onMouseDown={handleResizeStart}
+				style={{
+					height: 5,
+					flexShrink: 0,
+					cursor: "ns-resize",
+					borderTop: "1px solid var(--border-muted)",
+					background: "transparent",
+					transition: "background 0.15s",
+				}}
+				onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--border-muted)" }}
+				onMouseLeave={(e) => { if (!isDragging.current) (e.currentTarget as HTMLElement).style.background = "transparent" }}
+			/>
+
 			{/* Bottom section: threads + providers — pinned to bottom */}
 			<div
 				style={{
 					flexShrink: 0,
-					borderTop: "1px solid var(--border-muted)",
+					display: "flex",
+					flexDirection: "column",
+					minHeight: 0,
 				}}
 			>
 				{/* Threads header */}
@@ -216,10 +270,10 @@ export function Sidebar({
 					</button>
 				</div>
 
-				{/* Thread list — scrollable, max height */}
+				{/* Thread list — scrollable, resizable height */}
 				{!historyCollapsed && <div
 					style={{
-						maxHeight: 160,
+						height: historyHeight,
 						overflowY: "auto",
 						padding: "2px 0",
 					}}
@@ -316,67 +370,88 @@ export function Sidebar({
 					}}
 				/>
 
-				{/* Provider login status + Settings gear */}
+				{/* Connected providers + Settings gear */}
 				<div
 					style={{
 						padding: "8px 12px",
 						borderTop: "1px solid var(--border-muted)",
 						display: "flex",
-						alignItems: "flex-start",
+						alignItems: "center",
 						gap: 8,
 					}}
 				>
-					<div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
-						{providers.map((p) => {
-							const isLoggedIn = loggedInProviders.has(p.id)
+					{/* Connected provider dots */}
+					<button
+						onClick={onOpenAccounts}
+						title="Manage accounts"
+						style={{
+							flex: 1,
+							display: "flex",
+							alignItems: "center",
+							gap: 6,
+							padding: "4px 0",
+							background: "transparent",
+							border: "none",
+							cursor: "pointer",
+							minWidth: 0,
+						}}
+					>
+						{(() => {
+							const connected = providers.filter((p) => loggedInProviders.has(p.id))
+							if (connected.length === 0) {
+								return (
+									<span style={{ fontSize: 11, color: "var(--dim)" }}>
+										No providers connected
+									</span>
+								)
+							}
 							return (
-								<button
-									key={p.id}
-									onClick={() => {
-										if (!isLoggedIn) onLogin(p.id)
-									}}
-									style={{
-										display: "flex",
-										alignItems: "center",
-										gap: 6,
-										padding: "3px 0",
-										background: "transparent",
-										fontSize: 11,
-										color: isLoggedIn
-											? "var(--success)"
-											: "var(--muted)",
-										cursor: isLoggedIn ? "default" : "pointer",
-										border: "none",
-										textAlign: "left",
-									}}
-								>
+								<>
+									<span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+										{connected.map((p) => (
+											<span
+												key={p.id}
+												title={p.label}
+												style={{
+													width: 7,
+													height: 7,
+													borderRadius: "50%",
+													background: "var(--success)",
+													flexShrink: 0,
+												}}
+											/>
+										))}
+									</span>
 									<span
 										style={{
-											width: 6,
-											height: 6,
-											borderRadius: "50%",
-											background: isLoggedIn
-												? "var(--success)"
-												: "var(--dim)",
-											flexShrink: 0,
-										}}
-									/>
-									{p.label}
-									<span
-										style={{
-											marginLeft: "auto",
-											fontSize: 10,
-											color: isLoggedIn
-												? "var(--success)"
-												: "var(--dim)",
+											fontSize: 11,
+											color: "var(--muted)",
+											overflow: "hidden",
+											textOverflow: "ellipsis",
+											whiteSpace: "nowrap",
 										}}
 									>
-										{isLoggedIn ? "Connected" : "Sign in"}
+										{connected.map((p) => p.label).join(", ")}
 									</span>
-								</button>
+								</>
 							)
-						})}
-					</div>
+						})()}
+						{/* Arrow icon */}
+						<svg
+							width="12"
+							height="12"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="var(--dim)"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							style={{ flexShrink: 0, marginLeft: "auto" }}
+						>
+							<polyline points="9 18 15 12 9 6" />
+						</svg>
+					</button>
+
 					<button
 						onClick={onOpenSettings}
 						title="Settings"
@@ -390,7 +465,6 @@ export function Sidebar({
 							flexShrink: 0,
 							display: "flex",
 							alignItems: "center",
-							marginTop: 2,
 						}}
 					>
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -12,7 +12,7 @@ import { TaskBoard, type LinearIssue, type GitHubIssue, type WorkflowStates } fr
 import { LoginDialog } from "./components/LoginDialog"
 import { WelcomeScreen } from "./components/WelcomeScreen"
 import { RightSidebar, type RightSidebarTab } from "./components/RightSidebar"
-import { FileEditor } from "./components/FileEditor"
+import { FileEditor, type FileEditorHandle } from "./components/FileEditor"
 import { DiffEditor } from "./components/DiffEditor"
 import type { EnrichedProject } from "./components/ProjectList"
 import type {
@@ -401,6 +401,10 @@ export function App() {
 	const [openFiles, setOpenFiles] = useState<string[]>([])
 	const [openThreadTabs, setOpenThreadTabs] = useState<string[]>([]) // thread IDs
 	const [activeTab, setActiveTab] = useState<string>("chat") // "chat", "thread:<id>", file path, "diff:<path>"
+	const [settingsSection, setSettingsSection] = useState<string | undefined>(undefined)
+	const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(new Set()) // file tabs with unsaved changes
+	const [pendingCloseTab, setPendingCloseTab] = useState<string | null>(null) // tab waiting for unsaved-changes confirmation
+	const fileEditorRef = useRef<FileEditorHandle>(null)
 
 	// Project state
 	const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
@@ -1192,8 +1196,36 @@ export function App() {
 		await window.api.invoke({ type: "login", providerId })
 	}, [])
 
+	const handleApiKey = useCallback(async (providerId: string, apiKey: string) => {
+		try {
+			await window.api.invoke({ type: "setApiKey", providerId, apiKey })
+		} catch (err) {
+			console.error("Failed to set API key:", err)
+		}
+	}, [])
+
+	const handleSkipLogin = useCallback(async () => {
+		// Set a gateway model and bypass login
+		await window.api.invoke({
+			type: "switchModel",
+			modelId: "google/gemini-2.5-flash",
+			scope: "global",
+		})
+		setModelId("google/gemini-2.5-flash")
+		setIsAuthenticated(true)
+	}, [])
+
 	const handleLoginSubmitCode = useCallback((code: string) => {
 		window.api.respondToLoginPrompt(code)
+	}, [])
+
+	const handleLogout = useCallback(async (providerId: string) => {
+		await window.api.invoke({ type: "logout", providerId })
+		setLoggedInProviders((prev) => {
+			const next = new Set(prev)
+			next.delete(providerId)
+			return next
+		})
 	}, [])
 
 	const handleLoginCancel = useCallback(() => {
@@ -1205,6 +1237,23 @@ export function App() {
 	}, [])
 
 
+	// Track dirty state per file tab
+	const handleDirtyChange = useCallback((filePath: string, dirty: boolean) => {
+		setDirtyFiles((prev) => {
+			if (dirty && !prev.has(filePath)) {
+				const next = new Set(prev)
+				next.add(filePath)
+				return next
+			}
+			if (!dirty && prev.has(filePath)) {
+				const next = new Set(prev)
+				next.delete(filePath)
+				return next
+			}
+			return prev
+		})
+	}, [])
+
 	// File editor handlers
 	const handleFileClick = useCallback((filePath: string) => {
 		setOpenFiles((prev) =>
@@ -1213,7 +1262,16 @@ export function App() {
 		setActiveTab(filePath)
 	}, [])
 
-	const handleCloseTab = useCallback((tabId: string) => {
+	const forceCloseTab = useCallback((tabId: string) => {
+		// Clear dirty state for file tabs
+		if (!tabId.startsWith("thread:")) {
+			setDirtyFiles((prev) => {
+				if (!prev.has(tabId)) return prev
+				const next = new Set(prev)
+				next.delete(tabId)
+				return next
+			})
+		}
 		if (tabId.startsWith("thread:")) {
 			const threadId = tabId.slice(7)
 			setOpenThreadTabs((prev) => {
@@ -1244,6 +1302,15 @@ export function App() {
 			})
 		}
 	}, [])
+
+	const handleCloseTab = useCallback((tabId: string) => {
+		// Check for unsaved changes in file editor tabs (not diff or thread tabs)
+		if (!tabId.startsWith("thread:") && !tabId.startsWith("diff:") && dirtyFiles.has(tabId)) {
+			setPendingCloseTab(tabId)
+			return
+		}
+		forceCloseTab(tabId)
+	}, [dirtyFiles, forceCloseTab])
 
 	// Diff handler: opens a diff tab (prefixed with "diff:")
 	const handleDiffClick = useCallback((filePath: string) => {
@@ -1476,6 +1543,10 @@ export function App() {
 				onCreateWorktree={handleCreateWorktree}
 				onDeleteWorktree={handleDeleteWorktree}
 				onOpenSettings={() => setActiveTab("settings")}
+				onOpenAccounts={() => {
+					setActiveTab("settings")
+					setSettingsSection("accounts")
+				}}
 				onOpenTasks={() => setActiveTab("tasks")}
 				isSettingsActive={activeTab === "settings"}
 				isTasksActive={activeTab === "tasks"}
@@ -1517,9 +1588,9 @@ export function App() {
 								padding: "0 16px",
 								fontSize: 11,
 								fontWeight: 500,
-								color: "var(--text)",
-								background: "var(--bg)",
-								borderBottom: "2px solid var(--accent)",
+								color: activeTab === "chat" || activeTab.startsWith("thread:") ? "var(--text)" : "var(--muted)",
+								background: activeTab === "chat" || activeTab.startsWith("thread:") ? "var(--bg)" : "transparent",
+								borderBottom: activeTab === "chat" || activeTab.startsWith("thread:") ? "2px solid var(--accent)" : "2px solid transparent",
 								cursor: "pointer",
 							}}
 						>
@@ -1591,6 +1662,7 @@ export function App() {
 						const fileName =
 							filePath.split("/").pop() || filePath
 						const isActive = activeTab === tabId
+						const isDirtyTab = dirtyFiles.has(tabId)
 						return (
 							<div
 								key={tabId}
@@ -1635,6 +1707,17 @@ export function App() {
 										</span>
 									)}
 									{fileName}
+									{isDirtyTab && (
+										<span
+											style={{
+												width: 6,
+												height: 6,
+												borderRadius: "50%",
+												background: "var(--text)",
+												flexShrink: 0,
+											}}
+										/>
+									)}
 								</button>
 								<button
 									className="titlebar-no-drag"
@@ -1783,7 +1866,7 @@ export function App() {
 				</div>
 
 				{isAuthenticated === false ? (
-					<WelcomeScreen onLogin={handleLogin} />
+					<WelcomeScreen onLogin={handleLogin} onApiKey={handleApiKey} onSkip={handleSkipLogin} />
 				) : (
 					<>
 						{/* Chat view (visible for "chat" tab or thread tabs) */}
@@ -1827,7 +1910,17 @@ export function App() {
 						</div>
 
 						{/* Settings page */}
-						{activeTab === "settings" && <Settings onClose={() => setActiveTab("chat")} />}
+						{activeTab === "settings" && (
+							<Settings
+								onClose={() => setActiveTab("chat")}
+								loggedInProviders={loggedInProviders}
+								onLogin={handleLogin}
+								onApiKey={handleApiKey}
+								onLogout={handleLogout}
+								initialSection={settingsSection}
+								onSectionChange={(s) => setSettingsSection(s)}
+							/>
+						)}
 
 						{/* Task board */}
 						{activeTab === "tasks" && <TaskBoard agentTasks={tasks} onClose={() => setActiveTab("chat")} onStartWork={handleStartWorkOnIssue} onStartWorkGithub={handleStartWorkOnGithubIssue} linkedIssues={linkedIssues} onSwitchToWorktree={handleSwitchProject} />}
@@ -1844,10 +1937,12 @@ export function App() {
 								/>
 							) : (
 								<FileEditor
+									ref={fileEditorRef}
 									filePath={activeTab}
 									onClose={() =>
 										handleCloseTab(activeTab)
 									}
+									onDirtyChange={(dirty) => handleDirtyChange(activeTab, dirty)}
 								/>
 							))}
 
@@ -1919,6 +2014,99 @@ export function App() {
 				/>
 			)}
 
+
+			{pendingCloseTab && (
+				<div
+					style={{
+						position: "fixed",
+						inset: 0,
+						zIndex: 9999,
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						background: "rgba(0, 0, 0, 0.5)",
+					}}
+					onClick={() => setPendingCloseTab(null)}
+				>
+					<div
+						onClick={(e) => e.stopPropagation()}
+						style={{
+							background: "var(--bg-surface)",
+							border: "1px solid var(--border)",
+							borderRadius: 8,
+							padding: "20px 24px",
+							maxWidth: 360,
+							width: "100%",
+							display: "flex",
+							flexDirection: "column",
+							gap: 16,
+						}}
+					>
+						<div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+							Unsaved Changes
+						</div>
+						<div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
+							This file has unsaved changes. Do you want to save before closing?
+						</div>
+						<div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+							<button
+								onClick={() => {
+									const tabId = pendingCloseTab
+									setPendingCloseTab(null)
+									forceCloseTab(tabId)
+								}}
+								style={{
+									fontSize: 12,
+									padding: "6px 14px",
+									borderRadius: 4,
+									border: "1px solid var(--border)",
+									background: "transparent",
+									color: "var(--error)",
+									cursor: "pointer",
+									fontWeight: 500,
+								}}
+							>
+								Discard
+							</button>
+							<button
+								onClick={() => setPendingCloseTab(null)}
+								style={{
+									fontSize: 12,
+									padding: "6px 14px",
+									borderRadius: 4,
+									border: "1px solid var(--border)",
+									background: "transparent",
+									color: "var(--muted)",
+									cursor: "pointer",
+									fontWeight: 500,
+								}}
+							>
+								Cancel
+							</button>
+							<button
+								onClick={async () => {
+									const tabId = pendingCloseTab
+									setPendingCloseTab(null)
+									await fileEditorRef.current?.save()
+									forceCloseTab(tabId)
+								}}
+								style={{
+									fontSize: 12,
+									padding: "6px 14px",
+									borderRadius: 4,
+									border: "1px solid var(--border)",
+									background: "var(--accent)",
+									color: "var(--bg)",
+									cursor: "pointer",
+									fontWeight: 500,
+								}}
+							>
+								Save & Close
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 
 			{loginState && (
 				<LoginDialog

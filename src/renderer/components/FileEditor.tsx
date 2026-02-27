@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 
@@ -11,9 +11,14 @@ interface FileContents {
 	lineCount: number
 }
 
+export interface FileEditorHandle {
+	save: () => Promise<void>
+}
+
 interface FileEditorProps {
 	filePath: string | null
 	onClose: () => void
+	onDirtyChange?: (dirty: boolean) => void
 }
 
 const extToLanguage: Record<string, string> = {
@@ -54,7 +59,7 @@ const extToLanguage: Record<string, string> = {
 	env: "bash",
 }
 
-export function FileEditor({ filePath, onClose }: FileEditorProps) {
+export const FileEditor = forwardRef<FileEditorHandle, FileEditorProps>(function FileEditor({ filePath, onClose, onDirtyChange }, ref) {
 	const [file, setFile] = useState<FileContents | null>(null)
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -66,6 +71,10 @@ export function FileEditor({ filePath, onClose }: FileEditorProps) {
 	const lineNumbersRef = useRef<HTMLDivElement>(null)
 
 	const isDirty = content !== savedContent
+
+	useEffect(() => {
+		onDirtyChange?.(isDirty)
+	}, [isDirty, onDirtyChange])
 
 	useEffect(() => {
 		if (!filePath) {
@@ -114,6 +123,8 @@ export function FileEditor({ filePath, onClose }: FileEditorProps) {
 			setSaving(false)
 		}
 	}, [filePath, content, isDirty])
+
+	useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave])
 
 	// Cmd+S to save
 	useEffect(() => {
@@ -344,6 +355,14 @@ export function FileEditor({ filePath, onClose }: FileEditorProps) {
 									tabSize: 4,
 									overflow: "visible",
 								}}
+								codeTagProps={{
+									style: {
+										fontSize: "inherit",
+										fontFamily: "inherit",
+										lineHeight: "inherit",
+										position: "static",
+									},
+								}}
 								showLineNumbers={false}
 								wrapLongLines={false}
 							>
@@ -386,4 +405,4 @@ export function FileEditor({ filePath, onClose }: FileEditorProps) {
 			)}
 		</div>
 	)
-}
+})

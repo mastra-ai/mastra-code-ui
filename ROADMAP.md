@@ -45,10 +45,13 @@ Use more of the published `@mastra/core/harness` capabilities.
 Tracked in [UPSTREAM_HARNESS_GAPS.md](./UPSTREAM_HARNESS_GAPS.md). Key items:
 
 - [ ] `Harness.deleteThread()` — Actually delete threads from storage
-- [ ] Extensible `emitEvent` — Custom event types without `as any` casts
-- [ ] Typed event payloads — `thread_changed`, `thread_created`, `error` fields
-- [ ] `HarnessRequestContext.registerQuestion` / `registerPlanApproval` in published types
-- [ ] `HarnessConfig.hookManager`, `mcpManager`, `getToolsets` support
+- [x] Extensible `emitEvent` — Custom event types without `as any` casts _(resolved in @mastra/core@1.8.0)_
+- [x] Typed event payloads — `thread_changed`, `thread_created`, `error` fields _(resolved in @mastra/core@1.8.0)_
+- [x] `HarnessRequestContext.registerQuestion` / `registerPlanApproval` in published types _(resolved in @mastra/core@1.8.0)_
+- [ ] `HarnessConfig.hookManager` — Pass hook manager through config instead of external wiring
+- [ ] `HarnessConfig.mcpManager` — Pass MCP manager through config instead of ad-hoc tool injection
+- [ ] `HarnessConfig.getToolsets` — Dynamic toolset injection (e.g. Anthropic web search) at stream time
+- [ ] `getTokenUsage()` returns zeros — AI SDK v6 field name mismatch (`inputTokens`/`outputTokens` vs `promptTokens`/`completionTokens`)
 
 ## Task & Context Management
 
