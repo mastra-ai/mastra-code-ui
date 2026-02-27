@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "electron-vite dev",
 		"build": "electron-vite build",
-		"package": "electron-vite build && electron-builder --mac",
+		"package": "electron-vite build && node scripts/copy-native-bindings.js && electron-builder --mac",
 		"preview": "electron-vite preview",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
@@ -58,7 +58,8 @@
 		},
 		"mac": {
 			"target": "dmg",
-			"category": "public.app-category.developer-tools"
+			"category": "public.app-category.developer-tools",
+			"icon": "resources/icon.icns"
 		},
 		"files": [
 			"dist/**/*"
