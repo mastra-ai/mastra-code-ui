@@ -5,3 +5,4 @@ data/
 om-debug.log
 dist/
 release/
+resources/opencode-bundle/
