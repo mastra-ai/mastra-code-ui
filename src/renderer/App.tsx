@@ -1052,7 +1052,7 @@ export function App() {
 			if (loggedIn?.length > 0) {
 				setLoggedInProviders(new Set(loggedIn))
 			}
-			setIsAuthenticated(loggedIn && loggedIn.length > 0)
+			const authenticated = loggedIn && loggedIn.length > 0
 
 			// Load project info
 			try {
@@ -1064,8 +1064,12 @@ export function App() {
 				// ignore
 			}
 
-			// Load enriched projects
+			// Load enriched projects before setting auth state
+			// to avoid flashing the onboarding screen
 			await loadEnrichedProjects()
+
+			// Now set auth — projects are already loaded so no flash
+			setIsAuthenticated(authenticated)
 
 			await loadMessages()
 
