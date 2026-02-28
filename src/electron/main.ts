@@ -2241,6 +2241,40 @@ function registerIpcHandlers() {
 					return { success: false, error: msg }
 				}
 			}
+			case "searchFiles": {
+				const { execSync } =
+					require("child_process") as typeof import("child_process")
+				try {
+					const output = execSync(
+						"git ls-files --cached --others --exclude-standard",
+						{
+							cwd: projectRoot,
+							encoding: "utf-8",
+							maxBuffer: 10 * 1024 * 1024,
+						},
+					) as string
+					return { files: output.split("\n").filter(Boolean) }
+				} catch {
+					try {
+						const output = execSync(
+							'find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*"',
+							{
+								cwd: projectRoot,
+								encoding: "utf-8",
+								maxBuffer: 10 * 1024 * 1024,
+							},
+						) as string
+						return {
+							files: output
+								.split("\n")
+								.filter(Boolean)
+								.map((f) => f.replace(/^\.\//, "")),
+						}
+					} catch {
+						return { files: [] }
+					}
+				}
+			}
 			case "readFileContents": {
 				const filePath = path.resolve(
 					projectRoot,
@@ -3065,6 +3099,20 @@ function createWindow() {
 		if (process.platform === "darwin" && app.dock) {
 			app.dock.setBadge(count > 0 ? String(count) : "")
 		}
+	})
+
+	// Prevent links in the renderer from navigating the main window away from the app.
+	// Instead, open them in the in-app browser tab (or external browser for non-localhost).
+	const rendererOrigin = process.env.ELECTRON_RENDERER_URL || ""
+	mainWindow.webContents.on("will-navigate", (event, url) => {
+		if (rendererOrigin && url.startsWith(rendererOrigin)) return // allow Vite HMR navigations
+		event.preventDefault()
+		mainWindow?.webContents.send("open-url", url)
+	})
+
+	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+		mainWindow?.webContents.send("open-url", url)
+		return { action: "deny" }
 	})
 
 	// Dev or production

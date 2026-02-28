@@ -24,6 +24,7 @@ interface RightSidebarProps {
 	activeFilePath?: string | null
 	activeDiffPath?: string | null
 	loading?: boolean
+	onOpenBrowser?: (url: string) => void
 }
 
 export function RightSidebar({
@@ -37,6 +38,7 @@ export function RightSidebar({
 	activeFilePath,
 	activeDiffPath,
 	loading,
+	onOpenBrowser,
 }: RightSidebarProps) {
 	const [terminalHeight, setTerminalHeight] = useState(350)
 	const [width, setWidth] = useState(380)
@@ -192,7 +194,7 @@ export function RightSidebar({
 
 					{/* Terminal pinned to bottom */}
 					<ResizeHandle onResize={handleTerminalResize} />
-					<TerminalPanel height={terminalHeight} projectPath={projectPath} />
+					<TerminalPanel height={terminalHeight} projectPath={projectPath} onOpenBrowser={onOpenBrowser} />
 				</div>
 			</div>
 		</div>

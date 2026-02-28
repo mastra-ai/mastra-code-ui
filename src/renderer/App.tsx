@@ -1,4 +1,4 @@
-import { useState, useCallback, useReducer, useEffect, useRef } from "react"
+import { useState, useCallback, useReducer, useEffect, useRef, useMemo } from "react"
 import { Sidebar } from "./components/Sidebar"
 import { ChatView } from "./components/ChatView"
 import { StatusBar } from "./components/StatusBar"
@@ -15,6 +15,9 @@ import { RightSidebar, type RightSidebarTab } from "./components/RightSidebar"
 import { FileEditor, type FileEditorHandle } from "./components/FileEditor"
 import { DiffEditor } from "./components/DiffEditor"
 import { AgentDashboard } from "./components/AgentDashboard"
+import { CommandPalette, type CommandItem } from "./components/CommandPalette"
+import { QuickFileOpen } from "./components/QuickFileOpen"
+import { BrowserView } from "./components/BrowserView"
 import type { EnrichedProject } from "./components/ProjectList"
 import type {
 	HarnessEventPayload,
@@ -414,6 +417,10 @@ export function App() {
 	const [pendingCloseTab, setPendingCloseTab] = useState<string | null>(null) // tab waiting for unsaved-changes confirmation
 	const fileEditorRef = useRef<FileEditorHandle>(null)
 
+	// Command palette & quick file open state
+	const [showCommandPalette, setShowCommandPalette] = useState(false)
+	const [showQuickFileOpen, setShowQuickFileOpen] = useState(false)
+
 	// Clone repo modal state
 	const [showCloneModal, setShowCloneModal] = useState(false)
 	const [cloneUrl, setCloneUrl] = useState("")
@@ -779,6 +786,8 @@ export function App() {
 						setRightSidebarTab("git")
 					} else if (action === "open_project")
 						handleOpenFolder()
+					else if (action === "command_palette")
+						setShowCommandPalette((v) => !v)
 					break
 				}
 				case "login_auth":
@@ -885,13 +894,27 @@ export function App() {
 		// Load initial state
 		initializeApp()
 
-		return unsubscribe
+		// Listen for URLs intercepted by the main process (clicked links in chat, etc.)
+		const unsubscribeUrl = window.api.onOpenUrl((url: string) => {
+			handleBrowserOpenRef.current(url)
+		})
+
+		return () => {
+			unsubscribe()
+			unsubscribeUrl()
+		}
 	}, [])
 
 	// Keyboard shortcuts
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			const isMod = e.metaKey || e.ctrlKey
+			// Cmd+K toggle command palette
+			if (isMod && e.key === "k") {
+				e.preventDefault()
+				setShowCommandPalette((v) => !v)
+				return
+			}
 			// Cmd+` toggle right sidebar (terminal is pinned there)
 			if (isMod && e.key === "`") {
 				e.preventDefault()
@@ -928,10 +951,35 @@ export function App() {
 				e.preventDefault()
 				handleCloseTab(activeTab)
 			}
+			// Cmd+P quick file opener
+			if (isMod && e.key === "p") {
+				e.preventDefault()
+				setShowQuickFileOpen((v) => !v)
+			}
+			// Cmd+1 through Cmd+9 workspace switcher
+			if (isMod && !e.shiftKey && !e.altKey && e.key >= "1" && e.key <= "9") {
+				e.preventDefault()
+				const index = parseInt(e.key) - 1
+				if (index < enrichedProjects.length) {
+					handleSwitchProject(enrichedProjects[index].rootPath)
+				}
+			}
+			// Cmd+Alt+Up/Down workspace cycling
+			if (isMod && e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+				e.preventDefault()
+				if (enrichedProjects.length > 1 && projectInfo?.rootPath) {
+					const currentIdx = enrichedProjects.findIndex((p) => p.rootPath === projectInfo.rootPath)
+					if (currentIdx !== -1) {
+						const delta = e.key === "ArrowDown" ? 1 : -1
+						const nextIdx = (currentIdx + delta + enrichedProjects.length) % enrichedProjects.length
+						handleSwitchProject(enrichedProjects[nextIdx].rootPath)
+					}
+				}
+			}
 		}
 		window.addEventListener("keydown", handleKeyDown)
 		return () => window.removeEventListener("keydown", handleKeyDown)
-	}, [activeTab])
+	}, [activeTab, enrichedProjects, projectInfo])
 
 	// Sync harness thread when active tab changes to a thread tab
 	useEffect(() => {
@@ -1004,7 +1052,7 @@ export function App() {
 			if (loggedIn?.length > 0) {
 				setLoggedInProviders(new Set(loggedIn))
 			}
-			setIsAuthenticated(loggedIn && loggedIn.length > 0)
+			const authenticated = loggedIn && loggedIn.length > 0
 
 			// Load project info
 			try {
@@ -1016,8 +1064,12 @@ export function App() {
 				// ignore
 			}
 
-			// Load enriched projects
+			// Load enriched projects before setting auth state
+			// to avoid flashing the onboarding screen
 			await loadEnrichedProjects()
+
+			// Now set auth — projects are already loaded so no flash
+			setIsAuthenticated(authenticated)
 
 			await loadMessages()
 
@@ -1398,6 +1450,22 @@ export function App() {
 		setActiveTab(tabId)
 	}, [])
 
+	// Browser handler: opens a browser tab (prefixed with "browser:")
+	const handleBrowserOpenRef = useRef<(url: string) => void>(() => {})
+	const handleBrowserOpen = useCallback((url: string) => {
+		const tabId = "browser:" + url
+		// If there's already a browser tab open, reuse it
+		setOpenFiles((prev) => {
+			const existingBrowser = prev.find((f) => f.startsWith("browser:"))
+			if (existingBrowser) {
+				return prev.map((f) => (f === existingBrowser ? tabId : f))
+			}
+			return [...prev, tabId]
+		})
+		setActiveTab(tabId)
+	}, [])
+	handleBrowserOpenRef.current = handleBrowserOpen
+
 	// Project handlers
     const handleSwitchProject = useCallback(async (switchPath: string) => {
 		// Always clear unread when clicking a worktree
@@ -1654,6 +1722,66 @@ export function App() {
 		await window.api.invoke({ type: "switchMode", modeId: newMode })
 	}, [modeId])
 
+	// Command palette items
+	const commandPaletteItems = useMemo((): CommandItem[] => {
+		const close = () => setShowCommandPalette(false)
+		const items: CommandItem[] = []
+
+		// Navigation
+		items.push({ id: "settings", label: "Open Settings", group: "Navigation", shortcut: "\u2318,", action: () => { setActiveTab("settings"); close() } })
+		items.push({ id: "tasks", label: "Open Task Board", group: "Navigation", action: () => { setActiveTab("tasks"); close() } })
+		items.push({ id: "agents", label: "Open Agent Dashboard", group: "Navigation", action: () => { setActiveTab("agents"); close() } })
+		items.push({ id: "focus-git", label: "Focus Git Panel", group: "Navigation", shortcut: "\u2318\u21e7G", action: () => { setRightSidebarVisible(true); setRightSidebarTab("git"); close() } })
+		items.push({ id: "focus-files", label: "Focus File Tree", group: "Navigation", action: () => { setRightSidebarVisible(true); setRightSidebarTab("files"); close() } })
+		items.push({ id: "focus-context", label: "Focus Context Panel", group: "Navigation", action: () => { setRightSidebarVisible(true); setRightSidebarTab("context"); close() } })
+
+		// Actions
+		items.push({ id: "search-files", label: "Search Files", group: "Actions", shortcut: "\u2318P", action: () => { setShowQuickFileOpen(true); close() } })
+		items.push({ id: "new-thread", label: "New Thread", group: "Actions", action: () => { handleNewThread(); close() } })
+		items.push({ id: "switch-model", label: "Switch Model", group: "Actions", action: () => { setShowModelSelector(true); close() } })
+		items.push({ id: "open-folder", label: "Open Folder", group: "Actions", shortcut: "\u2318O", action: () => { handleOpenFolder(); close() } })
+		items.push({ id: "clone-repo", label: "Clone from URL", group: "Actions", action: () => { handleShowCloneModal(); close() } })
+		items.push({ id: "toggle-left-sidebar", label: "Toggle Left Sidebar", group: "Actions", shortcut: "\u2318B", action: () => { setSidebarVisible((v) => !v); close() } })
+		items.push({ id: "toggle-right-sidebar", label: "Toggle Right Sidebar", group: "Actions", shortcut: "\u2318`", action: () => { setRightSidebarVisible((v) => !v); close() } })
+		items.push({ id: "open-browser", label: "Open Browser", group: "Actions", action: () => { handleBrowserOpen("about:blank"); close() } })
+		items.push({ id: "toggle-thinking", label: thinkingLevel === "off" ? "Enable Thinking" : "Disable Thinking", group: "Actions", action: () => { handleToggleThinking(); close() } })
+		items.push({ id: "toggle-planning", label: modeId === "plan" ? "Switch to Build Mode" : "Switch to Plan Mode", group: "Actions", action: () => { handleTogglePlanning(); close() } })
+
+		// Open tabs
+		for (const threadId of openThreadTabs) {
+			const thread = threads.find((t) => t.id === threadId)
+			items.push({
+				id: `tab-thread-${threadId}`,
+				label: thread?.title || "New Thread",
+				group: "Open Tabs",
+				action: () => { setActiveTab(`thread:${threadId}`); close() },
+			})
+		}
+		for (const fileTab of openFiles) {
+			const name = fileTab.split("/").pop() || fileTab
+			items.push({
+				id: `tab-file-${fileTab}`,
+				label: name,
+				description: fileTab,
+				group: "Open Tabs",
+				action: () => { setActiveTab(fileTab); close() },
+			})
+		}
+
+		// Workspaces
+		for (const project of enrichedProjects) {
+			items.push({
+				id: `project-${project.rootPath}`,
+				label: project.name,
+				description: project.gitBranch || "",
+				group: "Workspaces",
+				action: () => { handleSwitchProject(project.rootPath); close() },
+			})
+		}
+
+		return items
+	}, [openThreadTabs, openFiles, threads, enrichedProjects, modeId, thinkingLevel])
+
 	return (
 		<div
 			style={{
@@ -1800,14 +1928,18 @@ export function App() {
 						})
 					)}
 
-					{/* Open file/diff tabs */}
+					{/* Open file/diff/browser tabs */}
 					{openFiles.map((tabId) => {
 						const isDiff = tabId.startsWith("diff:")
+						const isBrowser = tabId.startsWith("browser:")
 						const filePath = isDiff
 							? tabId.slice(5)
-							: tabId
-						const fileName =
-							filePath.split("/").pop() || filePath
+							: isBrowser
+								? tabId.slice(8)
+								: tabId
+						const fileName = isBrowser
+							? (() => { try { return new URL(filePath).host || "Browser" } catch { return "Browser" } })()
+							: filePath.split("/").pop() || filePath
 						const isActive = activeTab === tabId
 						const isDirtyTab = dirtyFiles.has(tabId)
 						return (
@@ -1852,6 +1984,13 @@ export function App() {
 										>
 											M
 										</span>
+									)}
+									{isBrowser && (
+										<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+											<circle cx="12" cy="12" r="10" />
+											<line x1="2" y1="12" x2="22" y2="12" />
+											<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+										</svg>
 									)}
 									{fileName}
 									{isDirtyTab && (
@@ -2192,9 +2331,24 @@ export function App() {
 							/>
 						)}
 
-						{/* File or diff editor (when a file/diff tab is active) */}
+						{/* File, diff, or browser editor (when a file/diff/browser tab is active) */}
 						{activeTab !== "chat" && activeTab !== "settings" && activeTab !== "tasks" && activeTab !== "agents" && !activeTab.startsWith("thread:") &&
-							(activeTab.startsWith("diff:") ? (
+							(activeTab.startsWith("browser:") ? (
+								<BrowserView
+									url={activeTab.slice(8)}
+									onNavigate={(newUrl) => {
+										const oldTab = activeTab
+										const newTab = `browser:${newUrl}`
+										if (oldTab !== newTab) {
+											setOpenFiles((prev) =>
+												prev.map((f) => (f === oldTab ? newTab : f)),
+											)
+											setActiveTab(newTab)
+										}
+									}}
+									onClose={() => handleCloseTab(activeTab)}
+								/>
+							) : activeTab.startsWith("diff:") ? (
 								<DiffEditor
 									filePath={activeTab.slice(5)}
 									onClose={() =>
@@ -2251,6 +2405,7 @@ export function App() {
 				activeFilePath={openFiles.includes(activeTab) ? activeTab : null}
 				activeDiffPath={activeTab.startsWith("diff:") ? activeTab.slice(5) : null}
 				loading={projectSwitching}
+				onOpenBrowser={handleBrowserOpen}
 			/>
 
 			{/* Modal dialogs */}
@@ -2425,6 +2580,22 @@ export function App() {
 				/>
 			)}
 
+			{showCommandPalette && (
+				<CommandPalette
+					commands={commandPaletteItems}
+					onClose={() => setShowCommandPalette(false)}
+				/>
+			)}
+
+			{showQuickFileOpen && (
+				<QuickFileOpen
+					onSelect={(filePath) => {
+						handleFileClick(filePath)
+						setShowQuickFileOpen(false)
+					}}
+					onClose={() => setShowQuickFileOpen(false)}
+				/>
+			)}
 
 			{pendingCloseTab && (
 				<div
