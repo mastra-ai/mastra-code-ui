@@ -189,7 +189,7 @@ Tool return types are now consistent.
 
 ---
 
-## 17. `getTokenUsage()` Returns Zeros — AI SDK v6 Field Name Mismatch — OPEN
+## 17. `getTokenUsage()` Returns Zeros — AI SDK v6 Field Name Mismatch — FIXED (unreleased)
 
 **File:** `node_modules/@mastra/core/dist/harness/index.js` (line 1614–1626)
 
@@ -201,7 +201,12 @@ event fires (the `usage` object is truthy) but with `{ promptTokens: 0, completi
 The TUI never hits this because it doesn't display per-message token counts — it only shows
 OM progress from `om_status` events.
 
-**Workaround:** None yet. `getTokenUsage()` and `usage_update` events return zeros.
+**Status:** A PR has been merged upstream to fix this, but the fix has not been included in a
+published release yet. Still broken in `@mastra/core@1.8.0`. Update to the next release when
+available.
+
+**Workaround:** None in stable. The `0.0.0-harness-token-count-*` prerelease contained the
+fix but is not suitable for long-term use.
 
 **Ideal fix:**
 
@@ -228,4 +233,4 @@ const totalTokens = usage.totalTokens ?? promptTokens + completionTokens
 | OPEN     | 1                                | `deleteThread` still missing                                |
 | OPEN     | 9, 10, 11                        | Config extensibility (hookManager, mcpManager, getToolsets) |
 | OPEN     | 14                               | Auth integration (intentionally external)                   |
-| OPEN     | 17                               | `getTokenUsage()` returns zeros (AI SDK v6 field names)     |
+| FIXED\*  | 17                               | PR merged but not yet released; broken in 1.8.0             |
