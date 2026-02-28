@@ -51,7 +51,7 @@ Tracked in [UPSTREAM_HARNESS_GAPS.md](./UPSTREAM_HARNESS_GAPS.md). Key items:
 - [ ] `HarnessConfig.hookManager` — Pass hook manager through config instead of external wiring
 - [ ] `HarnessConfig.mcpManager` — Pass MCP manager through config instead of ad-hoc tool injection
 - [ ] `HarnessConfig.getToolsets` — Dynamic toolset injection (e.g. Anthropic web search) at stream time
-- [ ] `getTokenUsage()` returns zeros — AI SDK v6 field name mismatch (`inputTokens`/`outputTokens` vs `promptTokens`/`completionTokens`)
+- [-] `getTokenUsage()` returns zeros — AI SDK v6 field name mismatch; PR merged upstream but not yet released
 
 ## Task & Context Management
 
