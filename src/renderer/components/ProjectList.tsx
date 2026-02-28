@@ -26,9 +26,11 @@ interface ProjectListProps {
 	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string; provider?: string }>
 	onSwitchProject: (path: string) => void
 	onOpenFolder: () => void
+	onCloneRepo: () => void
 	onRemoveProject: (path: string) => void
 	onCreateWorktree: (repoPath: string) => void
 	onDeleteWorktree: (worktreePath: string) => void
+	onSyncWorktree: (worktreePath: string) => Promise<void>
 }
 
 // Stable color palette for worktree branches — visually distinct
@@ -155,17 +157,21 @@ export function ProjectList({
 	linkedIssues,
 	onSwitchProject,
 	onOpenFolder,
+	onCloneRepo,
 	onRemoveProject,
 	onCreateWorktree,
 	onDeleteWorktree,
+	onSyncWorktree,
 }: ProjectListProps) {
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 	const [hoveredProject, setHoveredProject] = useState<string | null>(null)
 	const [hoveredWorktree, setHoveredWorktree] = useState<string | null>(null)
 	const [confirmRemovePath, setConfirmRemovePath] = useState<string | null>(null)
+	const [syncingWorktree, setSyncingWorktree] = useState<string | null>(null)
 	const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState<{ path: string; branch: string } | null>(null)
 	const [filterText, setFilterText] = useState("")
 	const [groupByStatus, setGroupByStatus] = useState(false)
+	const [addMenuOpen, setAddMenuOpen] = useState(false)
 	const [collapsedStatuses, setCollapsedStatuses] = useState<Set<string>>(new Set())
 	// Multi-select filters: null = all selected (default), Set = only these are selected
 	const [selectedRepos, setSelectedRepos] = useState<Set<string> | null>(null)
@@ -478,22 +484,92 @@ export function ProjectList({
 							Status
 						</button>
 					</div>
-					<button
-						onClick={onOpenFolder}
-						title="Add Workspace"
-						style={{
-							padding: "5px 10px",
-							background: "transparent",
-							color: "var(--muted)",
-							borderRadius: 5,
-							fontSize: 14,
-							cursor: "pointer",
-							border: "1px solid var(--border)",
-							lineHeight: 1,
-						}}
-					>
-						+
-					</button>
+					<div style={{ position: "relative" }}>
+						<button
+							onClick={() => setAddMenuOpen((v) => !v)}
+							onBlur={() => setTimeout(() => setAddMenuOpen(false), 150)}
+							title="Add Workspace"
+							style={{
+								padding: "5px 10px",
+								background: addMenuOpen ? "var(--bg-elevated)" : "transparent",
+								color: "var(--muted)",
+								borderRadius: 5,
+								fontSize: 14,
+								cursor: "pointer",
+								border: "1px solid var(--border)",
+								lineHeight: 1,
+							}}
+						>
+							+
+						</button>
+						{addMenuOpen && (
+							<div
+								style={{
+									position: "absolute",
+									top: "100%",
+									right: 0,
+									marginTop: 4,
+									background: "var(--bg-elevated)",
+									border: "1px solid var(--border)",
+									borderRadius: 6,
+									padding: 4,
+									zIndex: 100,
+									minWidth: 160,
+									boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+								}}
+							>
+								<button
+									onMouseDown={(e) => { e.preventDefault(); onOpenFolder(); setAddMenuOpen(false) }}
+									style={{
+										display: "flex",
+										alignItems: "center",
+										gap: 8,
+										width: "100%",
+										padding: "7px 10px",
+										background: "transparent",
+										color: "var(--text)",
+										border: "none",
+										borderRadius: 4,
+										fontSize: 12,
+										cursor: "pointer",
+										textAlign: "left",
+									}}
+									onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-surface)" }}
+									onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+								>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+										<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+									</svg>
+									Open Folder
+								</button>
+								<button
+									onMouseDown={(e) => { e.preventDefault(); onCloneRepo(); setAddMenuOpen(false) }}
+									style={{
+										display: "flex",
+										alignItems: "center",
+										gap: 8,
+										width: "100%",
+										padding: "7px 10px",
+										background: "transparent",
+										color: "var(--text)",
+										border: "none",
+										borderRadius: 4,
+										fontSize: 12,
+										cursor: "pointer",
+										textAlign: "left",
+									}}
+									onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-surface)" }}
+									onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+								>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+										<circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" />
+										<path d="M13 6h3a2 2 0 012 2v7" /><line x1="6" y1="9" x2="6" y2="21" />
+									</svg>
+									Clone from URL
+								</button>
+							</div>
+						)}
+					</div>
 				</div>
 
 				{/* Multi-select filter chips */}
@@ -904,7 +980,52 @@ export function ProjectList({
 												)}
 												{wtStatus && <StatusBadge status={wtStatus} />}
 												</button>
-												{hoveredWorktree === wt.rootPath && (
+												{syncingWorktree === wt.rootPath && (
+													<span
+														style={{
+															flexShrink: 0,
+															padding: "4px 8px",
+															display: "flex",
+															alignItems: "center",
+															color: "var(--muted)",
+														}}
+													>
+														<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "wt-spin 1s linear infinite" }}>
+															<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+														</svg>
+													</span>
+												)}
+												{hoveredWorktree === wt.rootPath && syncingWorktree !== wt.rootPath && (
+													<button
+														onClick={async (e) => {
+															e.stopPropagation()
+															setSyncingWorktree(wt.rootPath)
+															await onSyncWorktree(wt.rootPath)
+															setSyncingWorktree(null)
+														}}
+														title="Sync with main"
+														style={{
+															flexShrink: 0,
+															padding: "4px 8px",
+															fontSize: 14,
+															color: "var(--muted)",
+															background: "transparent",
+															cursor: "pointer",
+															lineHeight: 1,
+															opacity: 0.6,
+														}}
+														onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = "1"; (e.target as HTMLElement).style.color = "var(--text)" }}
+														onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = "0.6"; (e.target as HTMLElement).style.color = "var(--muted)" }}
+													>
+														<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+															<polyline points="23 4 23 10 17 10" />
+															<polyline points="1 20 1 14 7 14" />
+															<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+															<path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+														</svg>
+													</button>
+												)}
+												{hoveredWorktree === wt.rootPath && syncingWorktree !== wt.rootPath && (
 													<button
 														onClick={(e) => {
 															e.stopPropagation()
@@ -913,7 +1034,7 @@ export function ProjectList({
 														title="Delete worktree"
 														style={{
 															flexShrink: 0,
-															padding: "4px 10px",
+															padding: "4px 8px",
 															fontSize: 14,
 															color: "var(--muted)",
 															background: "transparent",

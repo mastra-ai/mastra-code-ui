@@ -14,6 +14,7 @@ import { WelcomeScreen } from "./components/WelcomeScreen"
 import { RightSidebar, type RightSidebarTab } from "./components/RightSidebar"
 import { FileEditor, type FileEditorHandle } from "./components/FileEditor"
 import { DiffEditor } from "./components/DiffEditor"
+import { AgentDashboard } from "./components/AgentDashboard"
 import type { EnrichedProject } from "./components/ProjectList"
 import type {
 	HarnessEventPayload,
@@ -406,6 +407,12 @@ export function App() {
 	const [pendingCloseTab, setPendingCloseTab] = useState<string | null>(null) // tab waiting for unsaved-changes confirmation
 	const fileEditorRef = useRef<FileEditorHandle>(null)
 
+	// Clone repo modal state
+	const [showCloneModal, setShowCloneModal] = useState(false)
+	const [cloneUrl, setCloneUrl] = useState("")
+	const [cloneDest, setCloneDest] = useState("")
+	const [cloning, setCloning] = useState(false)
+
 	// Project state
 	const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null)
 	const [enrichedProjects, setEnrichedProjects] = useState<EnrichedProject[]>([])
@@ -746,6 +753,7 @@ export function App() {
 					break
 				case "login_success": {
 					const pid = (event.providerId as string) ?? ""
+					console.log("[AUTH] login_success event, providerId:", pid, "modelId:", event.modelId)
 					setLoginState((prev) => ({
 						providerId: pid || prev?.providerId || "",
 						stage: "success",
@@ -755,6 +763,7 @@ export function App() {
 					setLoggedInProviders((prev) => {
 						const next = new Set(prev)
 						next.add(pid)
+						console.log("[AUTH] loggedInProviders updated:", [...next])
 						return next
 					})
 					break
@@ -921,13 +930,12 @@ export function App() {
 			const loggedIn = (await window.api.invoke({
 				type: "getLoggedInProviders",
 			})) as string[]
+			console.log("[AUTH] getLoggedInProviders result:", loggedIn)
+			console.log("[AUTH] state?.currentModelId:", state?.currentModelId)
 			if (loggedIn?.length > 0) {
 				setLoggedInProviders(new Set(loggedIn))
 			}
-			setIsAuthenticated(
-				(loggedIn && loggedIn.length > 0) ||
-					!!state?.currentModelId,
-			)
+			setIsAuthenticated(loggedIn && loggedIn.length > 0)
 
 			// Load project info
 			try {
@@ -1354,6 +1362,54 @@ export function App() {
 		}
 	}, [])
 
+	const handleShowCloneModal = useCallback(async () => {
+		setShowCloneModal(true)
+		setCloneUrl("")
+		try {
+			const st = (await window.api.invoke({ type: "getState" })) as { defaultClonePath?: string }
+			setCloneDest(st?.defaultClonePath || "")
+		} catch {
+			setCloneDest("")
+		}
+	}, [])
+
+	const handleBrowseCloneDest = useCallback(async () => {
+		try {
+			const result = (await window.api.invoke({
+				type: "browseFolder",
+				title: "Choose clone destination",
+				defaultPath: cloneDest || undefined,
+			})) as { path?: string; cancelled?: boolean }
+			if (result?.path) setCloneDest(result.path)
+		} catch {
+			// user cancelled
+		}
+	}, [cloneDest])
+
+	const handleCloneSubmit = useCallback(async () => {
+		if (!cloneUrl.trim() || !cloneDest.trim() || cloning) return
+		setCloning(true)
+		try {
+			const result = (await window.api.invoke({
+				type: "cloneRepository",
+				url: cloneUrl.trim(),
+				dest: cloneDest.trim(),
+			})) as { path?: string; cancelled?: boolean }
+			if (result?.path) {
+				await window.api.invoke({ type: "switchProject", path: result.path })
+				await loadEnrichedProjects()
+			}
+			setShowCloneModal(false)
+			setCloneUrl("")
+			setCloneDest("")
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			console.error("[CLONE]", msg)
+		} finally {
+			setCloning(false)
+		}
+	}, [cloneUrl, cloneDest, cloning])
+
 	const handleRemoveProject = useCallback(async (projectPath: string) => {
 		await window.api.invoke({ type: "removeRecentProject", path: projectPath })
 		loadEnrichedProjects()
@@ -1507,6 +1563,16 @@ export function App() {
 		}
 	}, [])
 
+	const handleSyncWorktree = useCallback(async (worktreePath: string) => {
+		const result = (await window.api.invoke({
+			type: "gitSyncWithMain",
+			worktreePath,
+		})) as { success: boolean; output?: string; branch?: string; error?: string }
+		if (!result.success) {
+			console.error("Sync failed:", result.error)
+		}
+	}, [])
+
 	const handleOpenModelSelector = useCallback(() => {
 		setShowModelSelector(true)
 	}, [])
@@ -1539,17 +1605,22 @@ export function App() {
 				onLogin={handleLogin}
 				onSwitchProject={handleSwitchProject}
 				onOpenFolder={handleOpenFolder}
+				onCloneRepo={handleShowCloneModal}
 				onRemoveProject={handleRemoveProject}
 				onCreateWorktree={handleCreateWorktree}
 				onDeleteWorktree={handleDeleteWorktree}
+				onSyncWorktree={handleSyncWorktree}
 				onOpenSettings={() => setActiveTab("settings")}
 				onOpenAccounts={() => {
 					setActiveTab("settings")
 					setSettingsSection("accounts")
 				}}
 				onOpenTasks={() => setActiveTab("tasks")}
+				onOpenAgents={() => setActiveTab("agents")}
 				isSettingsActive={activeTab === "settings"}
 				isTasksActive={activeTab === "tasks"}
+				isAgentsActive={activeTab === "agents"}
+				activeAgentCount={activeWorktrees.size}
 			/>
 
 			{/* Center panel */}
@@ -1865,8 +1936,120 @@ export function App() {
 					</button>
 				</div>
 
-				{isAuthenticated === false ? (
+				{isAuthenticated === null ? (
+					/* Loading state while checking auth */
+					<div
+						style={{
+							flex: 1,
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<div
+							style={{
+								width: 24,
+								height: 24,
+								border: "2px solid var(--border)",
+								borderTopColor: "var(--accent)",
+								borderRadius: "50%",
+								animation: "spin 0.8s linear infinite",
+							}}
+						/>
+						<style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+					</div>
+				) : isAuthenticated === false ? (
 					<WelcomeScreen onLogin={handleLogin} onApiKey={handleApiKey} onSkip={handleSkipLogin} />
+				) : enrichedProjects.length === 0 && (activeTab === "chat" || activeTab.startsWith("thread:")) ? (
+					/* Onboarding: no projects yet */
+					<div
+						style={{
+							flex: 1,
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
+							justifyContent: "center",
+							padding: 40,
+							gap: 24,
+						}}
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 220 32" style={{ height: 28, color: "var(--text)" }}>
+							<path fill="currentColor" d="M5 17.3a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9m5.9-11.6a4.5 4.5 0 0 1 4.4 5.4c-.3 1.4-.6 3 .2 4.2l1.3 1.9.3.2.3-.2 1.3-1.9c.8-1.2.5-2.7.2-4.1a4.5 4.5 0 1 1 8.8.1c-.3 1.3-.6 2.7 0 3.9l1.3 2v.1a4.5 4.5 0 1 1-4.3 3.4c.3-1.3.6-2.7 0-3.9l-1.2-2h-.2L22 16.5c-.8 1.2-.5 2.8-.2 4.2a4.5 4.5 0 1 1-8.8.3q.5-2-.4-3.8l-.9-1.3q-.9-1.2-2.4-1.6a4.5 4.5 0 0 1 1.6-8.7M56.6 22v-6.9q0-1-.7-1.7t-1.7-.7q-1.3 0-2.1 1T51 16v6h-2.8V10.6h2.9v2.2q.6-1 1.6-1.8 1-.6 2.5-.7 1.2 0 2.3.7t1.5 1.8q.6-1.2 1.7-1.8a5 5 0 0 1 2.5-.7q2 0 3.1 1.2 1.3 1.2 1.3 3.2V22h-3v-6.6q0-1.4-.6-2t-1.7-.7q-1.2 0-2.1.9t-.9 2.3V22zm18.6.3q-1.5 0-3-.7a6 6 0 0 1-2-2.2q-.7-1.5-.7-3 0-1.8.7-3.2a6 6 0 0 1 5-3q1.4 0 2.6.7t1.8 1.6v-1.9h3V22h-3v-2q-.6 1.2-1.8 1.8-1.2.5-2.6.5M76 20q1.6 0 2.6-1t1-2.7-1-2.7-2.6-1-2.6 1-1 2.7 1 2.7 2.6 1m14 2.3a7 7 0 0 1-4.1-1q-1.5-1.2-1.6-3L87 18q0 1 .8 1.6t2.2.7a3 3 0 0 0 1.7-.5q.7-.4.7-1a1 1 0 0 0-.6-1l-1.4-.6-3.8-.9q-.8-.3-1.4-.9t-.6-1.7q0-1.6 1.4-2.6t3.8-1 3.6 1a3 3 0 0 1 1.6 2.5l-2.8.1q0-.6-.6-1.2t-1.8-.5q-1 0-1.7.4t-.6 1 .6 1l1.5.4 3.7.9q.8.3 1.5 1 .5.6.5 1.7 0 1.8-1.4 2.8-1.5 1-4 1m12.6 0q-1.9 0-3-1a4 4 0 0 1-1.2-2.8v-5.7h-2.5v-2.2h2.5V7.2h2.9v3.4h3.7v2.2h-3.7V18q0 1 .4 1.4.5.5 1.3.5l1-.2.9-.6.4 2.4q-.3.3-1.1.5-.7.2-1.6.2m4.3-.3V10.6h2.9V13q.5-1.2 1.5-2a4 4 0 0 1 4.2-.4l-.3 2.8-.9-.4-1-.2-1 .2q-.7.2-1.2.6t-1 1.2q-.3.7-.3 2V22zm14.7.3q-1.6 0-3-.7a6 6 0 0 1-2-2.2q-.8-1.5-.8-3 0-1.8.7-3.2a6 6 0 0 1 5-3q1.5 0 2.6.7t1.9 1.6v-1.9h2.9V22h-3v-2q-.6 1.2-1.8 1.8-1.1.5-2.5.5m.7-2.3q1.6 0 2.6-1t1-2.7-1-2.7-2.6-1-2.6 1-1 2.7 1 2.7 2.6 1"/>
+							<text x="130" y="22" fill="#00FF41" fontFamily="'Lucida Console', 'Courier New', monospace" fontSize="24" fontWeight="700" letterSpacing="1">code</text>
+						</svg>
+
+						<div style={{ textAlign: "center", maxWidth: 420 }}>
+							<div style={{ fontSize: 20, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
+								Open a project to get started
+							</div>
+							<div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6 }}>
+								Point Mastra Code at a repository or folder to start coding with AI.
+							</div>
+						</div>
+
+						<div style={{ display: "flex", gap: 12 }}>
+							<button
+								onClick={handleOpenFolder}
+								style={{
+									display: "flex",
+									alignItems: "center",
+									gap: 10,
+									padding: "12px 28px",
+									background: "var(--accent)",
+									color: "#fff",
+									borderRadius: 8,
+									cursor: "pointer",
+									fontWeight: 600,
+									fontSize: 14,
+									border: "none",
+									transition: "opacity 0.15s",
+								}}
+								onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85" }}
+								onMouseLeave={(e) => { e.currentTarget.style.opacity = "1" }}
+							>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+									<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+								</svg>
+								Open Folder
+							</button>
+							<button
+								onClick={handleShowCloneModal}
+								style={{
+									display: "flex",
+									alignItems: "center",
+									gap: 10,
+									padding: "12px 28px",
+									background: "transparent",
+									color: "var(--text)",
+									borderRadius: 8,
+									cursor: "pointer",
+									fontWeight: 600,
+									fontSize: 14,
+									border: "1px solid var(--border)",
+									transition: "opacity 0.15s",
+								}}
+								onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85" }}
+								onMouseLeave={(e) => { e.currentTarget.style.opacity = "1" }}
+							>
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+									<circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" />
+									<path d="M13 6h3a2 2 0 012 2v7" /><line x1="6" y1="9" x2="6" y2="21" />
+								</svg>
+								Clone from URL
+							</button>
+						</div>
+
+						<div style={{ fontSize: 11, color: "var(--dim)" }}>
+							or press <kbd style={{
+								padding: "2px 6px",
+								background: "var(--bg-elevated)",
+								border: "1px solid var(--border)",
+								borderRadius: 4,
+								fontSize: 11,
+								fontFamily: "inherit",
+							}}>&#8984;O</kbd> anytime
+						</div>
+					</div>
 				) : (
 					<>
 						{/* Chat view (visible for "chat" tab or thread tabs) */}
@@ -1925,8 +2108,16 @@ export function App() {
 						{/* Task board */}
 						{activeTab === "tasks" && <TaskBoard agentTasks={tasks} onClose={() => setActiveTab("chat")} onStartWork={handleStartWorkOnIssue} onStartWorkGithub={handleStartWorkOnGithubIssue} linkedIssues={linkedIssues} onSwitchToWorktree={handleSwitchProject} />}
 
+						{/* Agent dashboard */}
+						{activeTab === "agents" && (
+							<AgentDashboard
+								onClose={() => setActiveTab("chat")}
+								onSwitchToAgent={handleSwitchProject}
+							/>
+						)}
+
 						{/* File or diff editor (when a file/diff tab is active) */}
-						{activeTab !== "chat" && activeTab !== "settings" && activeTab !== "tasks" && !activeTab.startsWith("thread:") &&
+						{activeTab !== "chat" && activeTab !== "settings" && activeTab !== "tasks" && activeTab !== "agents" && !activeTab.startsWith("thread:") &&
 							(activeTab.startsWith("diff:") ? (
 								<DiffEditor
 									filePath={activeTab.slice(5)}
@@ -1961,9 +2152,9 @@ export function App() {
 				/>
 			</div>
 
-			{/* Right sidebar: Files + Git + Terminal */}
+			{/* Right sidebar: Files + Git + Terminal — hidden when no projects */}
 			<RightSidebar
-				visible={rightSidebarVisible}
+				visible={rightSidebarVisible && enrichedProjects.length > 0}
 				activeTab={rightSidebarTab}
 				onTabChange={setRightSidebarTab}
 				projectName={projectInfo?.name ?? ""}
@@ -2004,6 +2195,138 @@ export function App() {
 					plan={pendingPlan.plan}
 					onRespond={handlePlanResponse}
 				/>
+			)}
+
+			{/* Clone from URL modal */}
+			{showCloneModal && (
+				<div
+					style={{
+						position: "fixed",
+						inset: 0,
+						background: "rgba(0,0,0,0.5)",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						zIndex: 1000,
+					}}
+					onClick={(e) => { if (e.target === e.currentTarget && !cloning) { setShowCloneModal(false) } }}
+				>
+					<div
+						style={{
+							background: "var(--bg-surface)",
+							border: "1px solid var(--border)",
+							borderRadius: 12,
+							padding: 24,
+							width: 480,
+							maxWidth: "90vw",
+							display: "flex",
+							flexDirection: "column",
+							gap: 16,
+						}}
+					>
+						<div style={{ fontSize: 16, fontWeight: 600, color: "var(--text)" }}>
+							Clone from URL
+						</div>
+
+						<div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+							<label style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>Git URL</label>
+							<input
+								type="text"
+								value={cloneUrl}
+								onChange={(e) => setCloneUrl(e.target.value)}
+								placeholder="https://github.com/user/repo.git"
+								autoFocus
+								disabled={cloning}
+								style={{
+									padding: "10px 12px",
+									background: "var(--bg-elevated)",
+									border: "1px solid var(--border)",
+									borderRadius: 8,
+									color: "var(--text)",
+									fontSize: 13,
+									fontFamily: "inherit",
+									outline: "none",
+								}}
+							/>
+						</div>
+
+						<div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+							<label style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>Clone location</label>
+							<div style={{ display: "flex", gap: 8 }}>
+								<input
+									type="text"
+									value={cloneDest}
+									onChange={(e) => setCloneDest(e.target.value)}
+									placeholder="/path/to/directory"
+									disabled={cloning}
+									style={{
+										flex: 1,
+										padding: "10px 12px",
+										background: "var(--bg-elevated)",
+										border: "1px solid var(--border)",
+										borderRadius: 8,
+										color: "var(--text)",
+										fontSize: 13,
+										fontFamily: "inherit",
+										outline: "none",
+									}}
+								/>
+								<button
+									onClick={handleBrowseCloneDest}
+									disabled={cloning}
+									style={{
+										padding: "10px 16px",
+										background: "var(--bg-elevated)",
+										color: "var(--text)",
+										border: "1px solid var(--border)",
+										borderRadius: 8,
+										cursor: "pointer",
+										fontSize: 13,
+										fontWeight: 500,
+										whiteSpace: "nowrap",
+									}}
+								>
+									Browse...
+								</button>
+							</div>
+						</div>
+
+						<div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+							<button
+								onClick={() => { setShowCloneModal(false); setCloneUrl(""); setCloneDest("") }}
+								disabled={cloning}
+								style={{
+									padding: "8px 16px",
+									background: "transparent",
+									color: "var(--muted)",
+									border: "1px solid var(--border)",
+									borderRadius: 8,
+									cursor: "pointer",
+									fontSize: 13,
+								}}
+							>
+								Cancel
+							</button>
+							<button
+								onClick={handleCloneSubmit}
+								disabled={!cloneUrl.trim() || !cloneDest.trim() || cloning}
+								style={{
+									padding: "8px 20px",
+									background: cloneUrl.trim() && cloneDest.trim() ? "var(--accent)" : "var(--bg-elevated)",
+									color: cloneUrl.trim() && cloneDest.trim() ? "#fff" : "var(--dim)",
+									border: "none",
+									borderRadius: 8,
+									cursor: cloneUrl.trim() && cloneDest.trim() && !cloning ? "pointer" : "default",
+									fontSize: 13,
+									fontWeight: 600,
+									opacity: cloning ? 0.6 : 1,
+								}}
+							>
+								{cloning ? "Cloning..." : "Clone repository"}
+							</button>
+						</div>
+					</div>
+				</div>
 			)}
 
 			{showModelSelector && (

@@ -12,10 +12,10 @@ Legend: `[x]` done, `[-]` partial, `[ ]` not started
 Run multiple coding agents simultaneously, each in an isolated Git worktree.
 
 - [-] **Git worktree isolation** — Create a new worktree + branch per agent task so parallel agents never conflict with each other or the main working tree _(worktrees created with issue-based branch names from Linear; linked issues auto-transition to "In Progress" on start and "Done" on agent completion; linked worktree badges in TaskBoard and ProjectList)_
-- [ ] **Agent dashboard** — Bird's-eye view of all running agents: status, current task, branch, token usage
+- [x] **Agent dashboard** — Bird's-eye view of all running agents: status, current task, branch, token usage _(AgentDashboard component with summary bar, per-agent cards showing status/branch/task/tokens/cost/duration/model, 3s polling, click-to-switch; "Agents" nav button in sidebar with active count badge; `getAgentDashboardData` IPC handler aggregating all sessions)_
 - [ ] **Wire subagents through Harness config** — Use `HarnessConfig.subagents` and the built-in subagent tool instead of manual tool creation
 - [x] **Agent notifications** — Desktop notifications when an agent finishes, errors, or needs approval _(desktop `Notification` API, dock badge, in-app bell, and sound all implemented; configurable via Settings)_
-- [ ] **Agent cost tracking** — Per-agent token usage and cost breakdown across parallel sessions
+- [-] **Agent cost tracking** — Per-agent token usage and cost breakdown across parallel sessions _(cost estimation with static model pricing table, per-agent and global totals displayed in Agent Dashboard; token values depend on upstream `getTokenUsage()` fix landing)_
 
 ## Diff Viewer & Code Review
 

@@ -13,6 +13,7 @@ interface SettingsState {
 	observationThreshold: number
 	reflectionThreshold: number
 	prInstructions: string
+	defaultClonePath: string
 }
 
 interface PermissionCategory {
@@ -810,6 +811,56 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 												)}
 											</div>
 										)}
+										<SectionHeader title="Workspaces" />
+										<SettingRow
+											label="Default clone location"
+											description="Where repositories are cloned to by default"
+										>
+											<div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+												<input
+													type="text"
+													value={state.defaultClonePath}
+													onChange={(e) => update("defaultClonePath", e.target.value)}
+													style={{
+														width: 220,
+														padding: "6px 10px",
+														background: "var(--bg-elevated)",
+														border: "1px solid var(--border)",
+														borderRadius: 6,
+														color: "var(--text)",
+														fontSize: 12,
+														fontFamily: "inherit",
+														outline: "none",
+													}}
+												/>
+												<button
+													onClick={async () => {
+														try {
+															const result = (await window.api.invoke({
+																type: "browseFolder",
+																title: "Choose default clone location",
+																defaultPath: state.defaultClonePath || undefined,
+															})) as { path?: string; cancelled?: boolean }
+															if (result?.path) update("defaultClonePath", result.path)
+														} catch {
+															// cancelled
+														}
+													}}
+													style={{
+														padding: "6px 12px",
+														background: "var(--bg-elevated)",
+														color: "var(--text)",
+														border: "1px solid var(--border)",
+														borderRadius: 6,
+														cursor: "pointer",
+														fontSize: 12,
+														whiteSpace: "nowrap",
+													}}
+												>
+													Browse...
+												</button>
+											</div>
+										</SettingRow>
 									</>
 								)}
 

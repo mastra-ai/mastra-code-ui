@@ -103,6 +103,41 @@ function getActiveSession(): WorktreeSession {
 	return sessions.get(activeSessionPath)!
 }
 
+// Per-session agent timing and token tracking for the Agent Dashboard
+interface AgentTiming {
+	startedAt: number | null
+	totalDurationMs: number
+	currentModelId: string | null
+}
+const sessionTimings = new Map<string, AgentTiming>()
+
+// Model pricing per million tokens (approximate)
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+	"anthropic/claude-opus-4-6": { input: 15, output: 75 },
+	"anthropic/claude-sonnet-4-6": { input: 3, output: 15 },
+	"anthropic/claude-sonnet-4-5": { input: 3, output: 15 },
+	"anthropic/claude-haiku-4-5": { input: 0.8, output: 4 },
+	"openai/gpt-5.2-codex": { input: 2, output: 8 },
+	"openai/o3": { input: 10, output: 40 },
+	"google/gemini-2.5-flash": { input: 0.15, output: 0.6 },
+	"google/gemini-2.5-pro": { input: 1.25, output: 10 },
+}
+
+function estimateTokenCost(
+	modelId: string | null,
+	promptTokens: number,
+	completionTokens: number,
+): number {
+	if (!modelId) return 0
+	// Try exact match first, then try with common prefixes
+	const pricing = MODEL_PRICING[modelId]
+	if (!pricing) return 0
+	return (
+		(promptTokens / 1_000_000) * pricing.input +
+		(completionTokens / 1_000_000) * pricing.output
+	)
+}
+
 // Cached editor for "open in editor" feature
 let detectedEditor: { cmd: string; gotoFlag: string } | null | undefined =
 	undefined
@@ -304,6 +339,9 @@ async function createHarness(projectPath: string) {
 		linkedGithubIssueTitle: z.string().default(""),
 		prInstructions: z.string().default(""),
 		sandboxAllowedPaths: z.array(z.string()).default([]),
+		defaultClonePath: z
+			.string()
+			.default(path.join(os.homedir(), "mastra-code", "workspaces")),
 		activePlan: z
 			.object({
 				title: z.string(),
@@ -1154,6 +1192,133 @@ function registerIpcHandlers() {
 				return await h.listThreads()
 			case "getTokenUsage":
 				return h.getTokenUsage()
+			case "getAgentDashboardData": {
+				const agents: Array<{
+					worktreePath: string
+					projectName: string
+					gitBranch: string
+					isActive: boolean
+					currentTask: string | null
+					linkedIssue: {
+						id: string
+						identifier: string
+						provider: string
+					} | null
+					tokenUsage: {
+						promptTokens: number
+						completionTokens: number
+						totalTokens: number
+					}
+					estimatedCost: number
+					modelId: string | null
+					startedAt: number | null
+					totalDurationMs: number
+					isCurrentSession: boolean
+				}> = []
+
+				for (const [wtPath, session] of sessions.entries()) {
+					try {
+						const state = session.harness.getState?.() as
+							| Record<string, unknown>
+							| undefined
+						const timing = sessionTimings.get(wtPath) ?? {
+							startedAt: null,
+							totalDurationMs: 0,
+							currentModelId: null,
+						}
+						const tokens = session.harness.getTokenUsage?.() ?? {
+							promptTokens: 0,
+							completionTokens: 0,
+							totalTokens: 0,
+						}
+						const isRunning = timing.startedAt !== null
+
+						// Get current task
+						const tasks =
+							(state?.tasks as
+								| Array<{
+										content: string
+										status: string
+										activeForm: string
+								  }>
+								| undefined) ?? []
+						const activeTask = tasks.find((t) => t.status === "in_progress")
+
+						// Get linked issue
+						let linkedIssue = null
+						const linearIssueId = (state?.linkedLinearIssueId as string) ?? ""
+						const linearIdentifier =
+							(state?.linkedLinearIssueIdentifier as string) ?? ""
+						if (linearIssueId && linearIdentifier) {
+							linkedIssue = {
+								id: linearIssueId,
+								identifier: linearIdentifier,
+								provider: "linear",
+							}
+						}
+						const ghIssue = (state?.linkedGithubIssueNumber as number) ?? 0
+						if (ghIssue > 0 && !linkedIssue) {
+							linkedIssue = {
+								id: `gh-${ghIssue}`,
+								identifier: `#${ghIssue}`,
+								provider: "github",
+							}
+						}
+
+						// Model ID
+						const modelId =
+							timing.currentModelId ?? (state?.currentModelId as string) ?? null
+
+						agents.push({
+							worktreePath: wtPath,
+							projectName:
+								(state?.projectName as string) ??
+								require("path").basename(wtPath),
+							gitBranch: (state?.gitBranch as string) ?? "",
+							isActive: isRunning,
+							currentTask:
+								activeTask?.activeForm ?? activeTask?.content ?? null,
+							linkedIssue,
+							tokenUsage: tokens,
+							estimatedCost: estimateTokenCost(
+								modelId,
+								tokens.promptTokens,
+								tokens.completionTokens,
+							),
+							modelId,
+							startedAt: timing.startedAt,
+							totalDurationMs:
+								timing.totalDurationMs +
+								(timing.startedAt ? Date.now() - timing.startedAt : 0),
+							isCurrentSession: wtPath === activeSessionPath,
+						})
+					} catch {
+						// Skip sessions that fail
+					}
+				}
+
+				// Global totals
+				let totalPrompt = 0
+				let totalCompletion = 0
+				let totalCost = 0
+				for (const agent of agents) {
+					totalPrompt += agent.tokenUsage.promptTokens
+					totalCompletion += agent.tokenUsage.completionTokens
+					totalCost += agent.estimatedCost
+				}
+
+				return {
+					agents,
+					totals: {
+						promptTokens: totalPrompt,
+						completionTokens: totalCompletion,
+						totalTokens: totalPrompt + totalCompletion,
+						estimatedCost: totalCost,
+						activeCount: agents.filter((a) => a.isActive).length,
+						totalCount: agents.length,
+					},
+				}
+			}
 			case "login": {
 				// Auth is managed externally via AuthStorage, not on the Harness.
 				const loginAbort = new AbortController()
@@ -1491,6 +1656,76 @@ function registerIpcHandlers() {
 					return { ahead, behind, hasUpstream: true }
 				} catch {
 					return { ahead: 0, behind: 0, hasUpstream: false }
+				}
+			}
+			case "gitSyncWithMain": {
+				const { execSync: syncExec } = require("child_process")
+				const worktreePath = command.worktreePath as string
+				try {
+					// Find the main repo path via git-common-dir
+					const commonDir = (
+						syncExec("git rev-parse --git-common-dir", {
+							cwd: worktreePath,
+							encoding: "utf-8",
+							stdio: ["pipe", "pipe", "pipe"],
+						}) as string
+					).trim()
+					const mainRepo = require("path").dirname(
+						require("path").resolve(worktreePath, commonDir),
+					)
+
+					// Determine the default branch (main or master)
+					let defaultBranch = "main"
+					try {
+						const symbolicRef = (
+							syncExec("git symbolic-ref refs/remotes/origin/HEAD", {
+								cwd: mainRepo,
+								encoding: "utf-8",
+								stdio: ["pipe", "pipe", "pipe"],
+							}) as string
+						).trim()
+						defaultBranch = symbolicRef.replace("refs/remotes/origin/", "")
+					} catch {
+						// Fallback: check if main or master exists
+						try {
+							syncExec("git rev-parse --verify refs/heads/main", {
+								cwd: mainRepo,
+								encoding: "utf-8",
+								stdio: ["pipe", "pipe", "pipe"],
+							})
+							defaultBranch = "main"
+						} catch {
+							defaultBranch = "master"
+						}
+					}
+
+					// Fetch latest from remote in the main repo
+					syncExec("git fetch origin", {
+						cwd: mainRepo,
+						encoding: "utf-8",
+						timeout: 60000,
+						stdio: ["pipe", "pipe", "pipe"],
+					})
+
+					// Merge origin/defaultBranch into the worktree
+					const mergeOutput = (
+						syncExec(`git merge origin/${defaultBranch}`, {
+							cwd: worktreePath,
+							encoding: "utf-8",
+							timeout: 60000,
+							stdio: ["pipe", "pipe", "pipe"],
+						}) as string
+					).trim()
+
+					return { success: true, output: mergeOutput, branch: defaultBranch }
+				} catch (e: any) {
+					return {
+						success: false,
+						error:
+							e.stderr?.toString()?.trim() ||
+							e.message ||
+							"Sync with main failed",
+					}
 				}
 			}
 
@@ -1937,6 +2172,48 @@ function registerIpcHandlers() {
 				})
 				if (result.canceled || !result.filePaths[0]) return { cancelled: true }
 				return { path: result.filePaths[0] }
+			}
+			case "browseFolder": {
+				const browseResult = await dialog.showOpenDialog(mainWindow!, {
+					properties: ["openDirectory", "createDirectory"],
+					title: (command.title as string) || "Choose folder",
+					defaultPath: command.defaultPath as string | undefined,
+				})
+				if (browseResult.canceled || !browseResult.filePaths[0])
+					return { cancelled: true }
+				return { path: browseResult.filePaths[0] }
+			}
+			case "cloneRepository": {
+				const gitUrl = command.url as string
+				const destDir = command.dest as string
+				if (!gitUrl) throw new Error("No URL provided")
+				if (!destDir) throw new Error("No destination provided")
+
+				// Derive repo name from URL (e.g. "https://github.com/org/repo.git" → "repo")
+				const repoName =
+					gitUrl
+						.replace(/\.git$/, "")
+						.split("/")
+						.pop()
+						?.replace(/[^a-zA-Z0-9._-]/g, "") || "repo"
+				const clonePath = path.join(destDir, repoName)
+
+				const { execSync: execClone } =
+					require("child_process") as typeof import("child_process")
+				try {
+					execClone(
+						`git clone ${JSON.stringify(gitUrl)} ${JSON.stringify(clonePath)}`,
+						{
+							stdio: "pipe",
+							timeout: 120_000,
+						},
+					)
+				} catch (err: unknown) {
+					const msg = err instanceof Error ? err.message : String(err)
+					throw new Error(`Clone failed: ${msg}`)
+				}
+
+				return { path: clonePath }
 			}
 			case "switchProject": {
 				const newPath = command.path as string
@@ -2526,6 +2803,31 @@ function bridgeAllEvents(window: BrowserWindow) {
 			// Tag with worktree path so the renderer can route events
 			serialized.worktreePath = sessionPath
 
+			// Track agent timing for the Agent Dashboard
+			if (event.type === "agent_start") {
+				const timing = sessionTimings.get(sessionPath) ?? {
+					startedAt: null,
+					totalDurationMs: 0,
+					currentModelId: null,
+				}
+				timing.startedAt = Date.now()
+				sessionTimings.set(sessionPath, timing)
+			} else if (event.type === "agent_end") {
+				const timing = sessionTimings.get(sessionPath)
+				if (timing?.startedAt) {
+					timing.totalDurationMs += Date.now() - timing.startedAt
+					timing.startedAt = null
+				}
+			} else if (event.type === "model_changed") {
+				const timing = sessionTimings.get(sessionPath) ?? {
+					startedAt: null,
+					totalDurationMs: 0,
+					currentModelId: null,
+				}
+				timing.currentModelId = event.modelId as string
+				sessionTimings.set(sessionPath, timing)
+			}
+
 			// Attach category info to tool approval events for the UI
 			if (event.type === "tool_approval_required") {
 				const category = getToolCategory(event.toolName)
@@ -2609,6 +2911,7 @@ function cleanupSession(sessionPath: string) {
 	session.ptySessions.clear()
 	session.mcpManager.disconnect().catch(() => {})
 	sessions.delete(sessionPath)
+	sessionTimings.delete(sessionPath)
 }
 
 // =============================================================================

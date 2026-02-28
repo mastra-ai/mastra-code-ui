@@ -23,14 +23,19 @@ interface SidebarProps {
 	onLogin: (providerId: string) => void
 	onSwitchProject: (path: string) => void
 	onOpenFolder: () => void
+	onCloneRepo: () => void
 	onRemoveProject: (path: string) => void
 	onCreateWorktree: (repoPath: string) => void
 	onDeleteWorktree: (worktreePath: string) => void
+	onSyncWorktree: (worktreePath: string) => Promise<void>
 	onOpenSettings: () => void
 	onOpenTasks: () => void
+	onOpenAgents: () => void
 	onOpenAccounts: () => void
 	isSettingsActive: boolean
 	isTasksActive: boolean
+	isAgentsActive: boolean
+	activeAgentCount: number
 }
 
 const providers = [
@@ -58,14 +63,19 @@ export function Sidebar({
 	onLogin,
 	onSwitchProject,
 	onOpenFolder,
+	onCloneRepo,
 	onRemoveProject,
 	onCreateWorktree,
 	onDeleteWorktree,
+	onSyncWorktree,
 	onOpenSettings,
 	onOpenTasks,
+	onOpenAgents,
 	onOpenAccounts,
 	isSettingsActive,
 	isTasksActive,
+	isAgentsActive,
+	activeAgentCount,
 }: SidebarProps) {
 	const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null)
 	const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -170,6 +180,54 @@ export function Sidebar({
 				</span>
 			</button>
 
+			{/* Agents — agent dashboard navigation */}
+			<button
+				onClick={onOpenAgents}
+				style={{
+					display: "flex",
+					alignItems: "center",
+					gap: 8,
+					width: "100%",
+					padding: "10px 14px",
+					background: isAgentsActive ? "var(--selected-bg)" : "transparent",
+					borderLeft: isAgentsActive
+						? "3px solid var(--accent)"
+						: "3px solid transparent",
+					borderTop: "none",
+					borderRight: "none",
+					borderBottom: "1px solid var(--border-muted)",
+					cursor: "pointer",
+					flexShrink: 0,
+					textAlign: "left" as const,
+				}}
+			>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+					<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+				</svg>
+				<span style={{
+					fontSize: 13,
+					fontWeight: 600,
+					color: isAgentsActive ? "var(--text)" : "var(--muted)",
+				}}>
+					Agents
+				</span>
+				{activeAgentCount > 0 && (
+					<span style={{
+						marginLeft: "auto",
+						fontSize: 9,
+						fontWeight: 600,
+						color: "#d97706",
+						background: "#d9770618",
+						padding: "1px 6px",
+						borderRadius: 3,
+						minWidth: 16,
+						textAlign: "center" as const,
+					}}>
+						{activeAgentCount}
+					</span>
+				)}
+			</button>
+
 			{/* Project list — primary feature, takes available space */}
 			<div
 				style={{
@@ -187,9 +245,11 @@ export function Sidebar({
 					linkedIssues={linkedIssues}
 					onSwitchProject={onSwitchProject}
 					onOpenFolder={onOpenFolder}
+					onCloneRepo={onCloneRepo}
 					onRemoveProject={onRemoveProject}
 					onCreateWorktree={onCreateWorktree}
 				onDeleteWorktree={onDeleteWorktree}
+				onSyncWorktree={onSyncWorktree}
 				/>
 			</div>
 
