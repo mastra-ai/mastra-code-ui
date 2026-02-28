@@ -30,7 +30,6 @@ interface ProjectListProps {
 	onRemoveProject: (path: string) => void
 	onCreateWorktree: (repoPath: string) => void
 	onDeleteWorktree: (worktreePath: string) => void
-	onSyncWorktree: (worktreePath: string) => Promise<void>
 }
 
 // Stable color palette for worktree branches — visually distinct
@@ -161,13 +160,11 @@ export function ProjectList({
 	onRemoveProject,
 	onCreateWorktree,
 	onDeleteWorktree,
-	onSyncWorktree,
 }: ProjectListProps) {
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 	const [hoveredProject, setHoveredProject] = useState<string | null>(null)
 	const [hoveredWorktree, setHoveredWorktree] = useState<string | null>(null)
 	const [confirmRemovePath, setConfirmRemovePath] = useState<string | null>(null)
-	const [syncingWorktree, setSyncingWorktree] = useState<string | null>(null)
 	const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState<{ path: string; branch: string } | null>(null)
 	const [filterText, setFilterText] = useState("")
 	const [groupByStatus, setGroupByStatus] = useState(false)
@@ -806,11 +803,13 @@ export function ProjectList({
 							<div
 								key={root.rootPath}
 								style={{ marginBottom: 4 }}
-								onMouseEnter={() => setHoveredProject(root.rootPath)}
-								onMouseLeave={() => setHoveredProject(null)}
 							>
 								{/* Root project (repo) */}
-								<div style={{ display: "flex", alignItems: "center" }}>
+								<div
+									style={{ display: "flex", alignItems: "center" }}
+									onMouseEnter={() => setHoveredProject(root.rootPath)}
+									onMouseLeave={() => setHoveredProject(null)}
+								>
 									<button
 										onClick={() => {
 											if (hasWorktrees) {
@@ -980,52 +979,7 @@ export function ProjectList({
 												)}
 												{wtStatus && <StatusBadge status={wtStatus} />}
 												</button>
-												{syncingWorktree === wt.rootPath && (
-													<span
-														style={{
-															flexShrink: 0,
-															padding: "4px 8px",
-															display: "flex",
-															alignItems: "center",
-															color: "var(--muted)",
-														}}
-													>
-														<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "wt-spin 1s linear infinite" }}>
-															<path d="M21 12a9 9 0 1 1-6.219-8.56" />
-														</svg>
-													</span>
-												)}
-												{hoveredWorktree === wt.rootPath && syncingWorktree !== wt.rootPath && (
-													<button
-														onClick={async (e) => {
-															e.stopPropagation()
-															setSyncingWorktree(wt.rootPath)
-															await onSyncWorktree(wt.rootPath)
-															setSyncingWorktree(null)
-														}}
-														title="Sync with main"
-														style={{
-															flexShrink: 0,
-															padding: "4px 8px",
-															fontSize: 14,
-															color: "var(--muted)",
-															background: "transparent",
-															cursor: "pointer",
-															lineHeight: 1,
-															opacity: 0.6,
-														}}
-														onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = "1"; (e.target as HTMLElement).style.color = "var(--text)" }}
-														onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = "0.6"; (e.target as HTMLElement).style.color = "var(--muted)" }}
-													>
-														<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-															<polyline points="23 4 23 10 17 10" />
-															<polyline points="1 20 1 14 7 14" />
-															<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
-															<path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
-														</svg>
-													</button>
-												)}
-												{hoveredWorktree === wt.rootPath && syncingWorktree !== wt.rootPath && (
+												{hoveredWorktree === wt.rootPath && (
 													<button
 														onClick={(e) => {
 															e.stopPropagation()

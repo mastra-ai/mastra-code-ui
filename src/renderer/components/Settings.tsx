@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
+import { ModelPickerInline, type ModelInfo } from "./ModelSelector"
 
 type NotificationMode = "off" | "bell" | "system" | "both"
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high"
@@ -229,7 +230,7 @@ const accountProviders = [
 
 export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogout, initialSection, onSectionChange }: SettingsProps) {
 	const [state, setState] = useState<SettingsState | null>(null)
-	const [models, setModels] = useState<Array<{ id: string; name?: string }>>([])
+	const [models, setModels] = useState<ModelInfo[]>([])
 	const [activeSection, setActiveSectionRaw] = useState(initialSection || "general")
 	const setActiveSection = useCallback((s: string) => {
 		setActiveSectionRaw(s)
@@ -266,8 +267,9 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 				observationThreshold: (st?.observationThreshold as number) ?? 30000,
 				reflectionThreshold: (st?.reflectionThreshold as number) ?? 40000,
 				prInstructions: (st?.prInstructions as string) ?? "",
+				defaultClonePath: (st?.defaultClonePath as string) ?? "",
 			})
-			if (Array.isArray(m)) setModels(m as Array<{ id: string; name?: string }>)
+			if (Array.isArray(m)) setModels(m as ModelInfo[])
 		}
 		load()
 	}, [])
@@ -437,10 +439,7 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 		{ id: "memory", label: "Memory" },
 	]
 
-	const modelOptions = models.map((m) => ({
-		value: m.id,
-		label: m.name || m.id,
-	}))
+	const modelsLoaded = models.length > 0
 
 	return (
 		<div
@@ -1337,47 +1336,27 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 											label="Observer model"
 											description="Model used to analyze conversation and extract observations"
 										>
-											{modelOptions.length > 0 ? (
-												<Select
-													value={state.observerModelId}
-													options={modelOptions}
-													onChange={(v) =>
-														update("observerModelId", v)
-													}
-												/>
-											) : (
-												<span
-													style={{
-														fontSize: 11,
-														color: "var(--muted)",
-													}}
-												>
-													{state.observerModelId}
-												</span>
-											)}
+											<ModelPickerInline
+												currentModelId={state.observerModelId}
+												models={models}
+												loading={!modelsLoaded}
+												onSelect={(v) =>
+													update("observerModelId", v)
+												}
+											/>
 										</SettingRow>
 										<SettingRow
 											label="Reflector model"
 											description="Model used to synthesize observations into memory"
 										>
-											{modelOptions.length > 0 ? (
-												<Select
-													value={state.reflectorModelId}
-													options={modelOptions}
-													onChange={(v) =>
-														update("reflectorModelId", v)
-													}
-												/>
-											) : (
-												<span
-													style={{
-														fontSize: 11,
-														color: "var(--muted)",
-													}}
-												>
-													{state.reflectorModelId}
-												</span>
-											)}
+											<ModelPickerInline
+												currentModelId={state.reflectorModelId}
+												models={models}
+												loading={!modelsLoaded}
+												onSelect={(v) =>
+													update("reflectorModelId", v)
+												}
+											/>
 										</SettingRow>
 
 										<SectionHeader title="Thresholds" />

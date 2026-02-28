@@ -44,6 +44,8 @@
 	--mode-build: #7f45e0;
 	--mode-plan: #2563eb;
 	--mode-fast: #059669;
+	--mode-observe: #fdac53;
+	--mode-reflect: #ff69cc;
 
 	/* Diff */
 	--diff-add: #22c55e;

@@ -23,6 +23,7 @@ interface RightSidebarProps {
 	onDiffClick: (filePath: string) => void
 	activeFilePath?: string | null
 	activeDiffPath?: string | null
+	loading?: boolean
 }
 
 export function RightSidebar({
@@ -35,6 +36,7 @@ export function RightSidebar({
 	onDiffClick,
 	activeFilePath,
 	activeDiffPath,
+	loading,
 }: RightSidebarProps) {
 	const [terminalHeight, setTerminalHeight] = useState(350)
 	const [width, setWidth] = useState(380)
@@ -141,18 +143,57 @@ export function RightSidebar({
 					))}
 				</div>
 
-				{/* Tab content */}
-				<div style={{ flex: 1, overflow: "hidden" }}>
-					{activeTab === "files" && (
-						<FileTree projectName={projectName} projectPath={projectPath} onFileClick={onFileClick} activeFilePath={activeFilePath} />
+				{/* Tab content + Terminal with loading overlay */}
+				<div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+					{/* Loading overlay */}
+					{loading && (
+						<div
+							style={{
+								position: "absolute",
+								inset: 0,
+								zIndex: 10,
+								background: "var(--bg-surface)",
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								flexDirection: "column",
+								gap: 12,
+							}}
+						>
+							<div
+								style={{
+									width: 24,
+									height: 24,
+									border: "2px solid var(--border-muted)",
+									borderTopColor: "var(--accent)",
+									borderRadius: "50%",
+									animation: "sidebar-spin 0.8s linear infinite",
+								}}
+							/>
+							<span style={{ fontSize: 12, color: "var(--muted)" }}>
+								Switching project...
+							</span>
+							<style>{`
+								@keyframes sidebar-spin {
+									to { transform: rotate(360deg); }
+								}
+							`}</style>
+						</div>
 					)}
-					{activeTab === "git" && <GitPanel onFileClick={onDiffClick} activeFilePath={activeDiffPath} />}
-					{activeTab === "context" && <ContextPanel onFileClick={onFileClick} />}
-				</div>
 
-				{/* Terminal pinned to bottom */}
-				<ResizeHandle onResize={handleTerminalResize} />
-				<TerminalPanel height={terminalHeight} projectPath={projectPath} />
+					{/* Tab content */}
+					<div style={{ flex: 1, overflow: "hidden" }}>
+						{activeTab === "files" && (
+							<FileTree projectName={projectName} projectPath={projectPath} onFileClick={onFileClick} activeFilePath={activeFilePath} />
+						)}
+						{activeTab === "git" && <GitPanel onFileClick={onDiffClick} activeFilePath={activeDiffPath} />}
+						{activeTab === "context" && <ContextPanel onFileClick={onFileClick} />}
+					</div>
+
+					{/* Terminal pinned to bottom */}
+					<ResizeHandle onResize={handleTerminalResize} />
+					<TerminalPanel height={terminalHeight} projectPath={projectPath} />
+				</div>
 			</div>
 		</div>
 	)

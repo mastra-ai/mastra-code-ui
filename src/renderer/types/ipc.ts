@@ -77,6 +77,36 @@ export interface TokenUsage {
 	totalTokens: number
 }
 
+export type OMStatus = "idle" | "observing" | "reflecting"
+export type OMBufferedStatus = "idle" | "running" | "complete"
+
+export interface OMProgressState {
+	status: OMStatus
+	pendingTokens: number
+	threshold: number
+	thresholdPercent: number
+	observationTokens: number
+	reflectionThreshold: number
+	reflectionThresholdPercent: number
+	buffered: {
+		observations: {
+			status: OMBufferedStatus
+			chunks: number
+			messageTokens: number
+			projectedMessageRemoval: number
+			observationTokens: number
+		}
+		reflection: {
+			status: OMBufferedStatus
+			inputObservationTokens: number
+			observationTokens: number
+		}
+	}
+	generationCount: number
+	stepNumber: number
+	preReflectionTokens: number
+}
+
 export interface MessageContent {
 	type: "text" | "thinking" | "tool_call" | "tool_result" | "image"
 	[key: string]: unknown

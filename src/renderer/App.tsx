@@ -21,6 +21,7 @@ import type {
 	Message,
 	TokenUsage,
 	ThreadInfo,
+	OMProgressState,
 } from "./types/ipc"
 
 // Chat state reducer
@@ -377,11 +378,17 @@ function playCompletionSound() {
 export function App() {
 	const [chat, dispatch] = useReducer(chatReducer, initialChatState)
 	const [modeId, setModeId] = useState("build")
+	const [thinkingLevel, setThinkingLevel] = useState("off")
 	const [modelId, setModelId] = useState("")
 	const [tokenUsage, setTokenUsage] = useState<TokenUsage>({
 		promptTokens: 0,
 		completionTokens: 0,
 		totalTokens: 0,
+	})
+	const [omProgress, setOMProgress] = useState<OMProgressState | null>(null)
+	const [omModelIds, setOMModelIds] = useState<{ observer: string; reflector: string }>({
+		observer: "google/gemini-2.5-flash",
+		reflector: "google/gemini-2.5-flash",
 	})
 	const [threads, setThreads] = useState<ThreadInfo[]>([])
 	const [currentThreadId, setCurrentThreadId] = useState<string | null>(null)
@@ -418,6 +425,7 @@ export function App() {
 	const [enrichedProjects, setEnrichedProjects] = useState<EnrichedProject[]>([])
 	const [unreadWorktrees, setUnreadWorktrees] = useState<Set<string>>(new Set())
 	const [activeWorktrees, setActiveWorktrees] = useState<Set<string>>(new Set())
+	const [projectSwitching, setProjectSwitching] = useState(false)
 	const [prStatus, setPrStatus] = useState<{
 		exists: boolean
 		number?: number
@@ -643,6 +651,9 @@ export function App() {
 					window.api.invoke({ type: "getTokenUsage" }).then((usage) => {
 						if (usage) setTokenUsage(usage as TokenUsage)
 					}).catch(() => {})
+					window.api.invoke({ type: "getOMProgress" }).then((progress) => {
+						setOMProgress((progress as OMProgressState) ?? null)
+					}).catch(() => {})
 					break
 				case "thread_created": {
 					const newThreadId = (event.thread as any)?.id
@@ -661,6 +672,35 @@ export function App() {
 						window.api.invoke({ type: "getTokenUsage" }).then((usage) => {
 							if (usage) setTokenUsage(usage as TokenUsage)
 						}).catch(() => {})
+					}
+					break
+				case "om_status":
+				case "om_observation_start":
+				case "om_observation_end":
+				case "om_observation_failed":
+				case "om_reflection_start":
+				case "om_reflection_end":
+				case "om_reflection_failed":
+				case "om_buffering_start":
+				case "om_buffering_end":
+				case "om_buffering_failed":
+				case "om_activation":
+					if (isActiveWorktree) {
+						window.api.invoke({ type: "getOMProgress" }).then((progress) => {
+							setOMProgress((progress as OMProgressState) ?? null)
+						}).catch(() => {})
+					}
+					break
+				case "om_model_changed":
+					if (isActiveWorktree) {
+						const role = event.role as string
+						const mid = event.modelId as string
+						if (role && mid) {
+							setOMModelIds((prev) => ({
+								...prev,
+								[role === "observer" ? "observer" : "reflector"]: mid,
+							}))
+						}
 					}
 					break
 				case "task_updated":
@@ -709,7 +749,20 @@ export function App() {
 					break
 				case "error": {
 					const err = event.error as { message?: string }
-					console.error("Harness error:", err?.message ?? event.error)
+					const errorText = err?.message ?? String(event.error ?? "Unknown error")
+					console.error("Harness error:", errorText)
+					dispatch({
+						type: "MESSAGE_START",
+						message: {
+							id: `error-${Date.now()}`,
+							role: "assistant",
+							content: [{ type: "text", text: errorText }],
+							createdAt: new Date().toISOString(),
+							stopReason: "error",
+							errorMessage: errorText,
+						},
+					})
+					dispatch({ type: "AGENT_END" })
 					break
 				}
 				case "shortcut": {
@@ -790,6 +843,7 @@ export function App() {
 					}
                     const proj = event.project as ProjectInfo
                     const resumeThreadId = event.currentThreadId as string | undefined
+                    setProjectSwitching(false)
                     setProjectInfo(proj)
                     setOpenFiles([])
                     setTokenUsage({ promptTokens: 0, completionTokens: 0, totalTokens: 0 })
@@ -911,6 +965,9 @@ export function App() {
 			const state = (await window.api.invoke({ type: "getState" })) as {
 				currentModelId?: string
 				notifications?: string
+				observerModelId?: string
+				reflectorModelId?: string
+				thinkingLevel?: string
 				tasks?: Array<{
 					content: string
 					status: "pending" | "in_progress" | "completed"
@@ -918,13 +975,25 @@ export function App() {
 				}>
 			}
 			if (state?.currentModelId) setModelId(state.currentModelId)
+			if (state?.thinkingLevel) setThinkingLevel(state.thinkingLevel)
 			if (state?.tasks) setTasks(state.tasks)
 			if (state?.notifications) notificationPrefRef.current = state.notifications
+			if (state?.observerModelId || state?.reflectorModelId) {
+				setOMModelIds({
+					observer: state.observerModelId ?? "google/gemini-2.5-flash",
+					reflector: state.reflectorModelId ?? "google/gemini-2.5-flash",
+				})
+			}
 
 			const usage = (await window.api.invoke({
 				type: "getTokenUsage",
 			})) as TokenUsage
 			if (usage) setTokenUsage(usage)
+
+			// Fetch initial OM progress
+			window.api.invoke({ type: "getOMProgress" }).then((progress) => {
+				setOMProgress((progress as OMProgressState) ?? null)
+			}).catch(() => {})
 
 			// Check if any provider is authenticated
 			const loggedIn = (await window.api.invoke({
@@ -1345,6 +1414,7 @@ export function App() {
 			next.delete(switchPath)
 			return next
 		})
+        setProjectSwitching(true)
         await window.api.invoke({ type: "switchProject", path: switchPath })
 	}, [])
 
@@ -1354,6 +1424,7 @@ export function App() {
 				type: "openFolderDialog",
 			})) as { path: string } | null
 			if (result?.path) {
+				setProjectSwitching(true)
 				await window.api.invoke({ type: "switchProject", path: result.path })
 				await loadEnrichedProjects()
 			}
@@ -1396,6 +1467,7 @@ export function App() {
 				dest: cloneDest.trim(),
 			})) as { path?: string; cancelled?: boolean }
 			if (result?.path) {
+				setProjectSwitching(true)
 				await window.api.invoke({ type: "switchProject", path: result.path })
 				await loadEnrichedProjects()
 			}
@@ -1455,6 +1527,7 @@ export function App() {
 		setOpenFiles([])
 		setActiveTab("chat")
 		setThreads([])
+		setProjectSwitching(true)
 		await window.api.invoke({ type: "switchProject", path: result.path })
 
 		// Link the Linear issue to this worktree (passes parent credentials)
@@ -1509,6 +1582,7 @@ export function App() {
 		setOpenFiles([])
 		setActiveTab("chat")
 		setThreads([])
+		setProjectSwitching(true)
 		await window.api.invoke({ type: "switchProject", path: result.path })
 
 		await window.api.invoke({
@@ -1546,6 +1620,7 @@ export function App() {
 		})) as { success: boolean; error?: string }
 		if (result.success) {
 			if (switchTo) {
+				setProjectSwitching(true)
 				await window.api.invoke({ type: "switchProject", path: switchTo })
 			}
 			await loadEnrichedProjects()
@@ -1558,24 +1633,26 @@ export function App() {
 			repoPath,
 		})) as { success: boolean; path?: string; error?: string }
 		if (result.success && result.path) {
+			setProjectSwitching(true)
 			await window.api.invoke({ type: "switchProject", path: result.path })
 			await loadEnrichedProjects()
-		}
-	}, [])
-
-	const handleSyncWorktree = useCallback(async (worktreePath: string) => {
-		const result = (await window.api.invoke({
-			type: "gitSyncWithMain",
-			worktreePath,
-		})) as { success: boolean; output?: string; branch?: string; error?: string }
-		if (!result.success) {
-			console.error("Sync failed:", result.error)
 		}
 	}, [])
 
 	const handleOpenModelSelector = useCallback(() => {
 		setShowModelSelector(true)
 	}, [])
+
+	const handleToggleThinking = useCallback(async () => {
+		const newLevel = thinkingLevel === "off" ? "medium" : "off"
+		setThinkingLevel(newLevel)
+		await window.api.invoke({ type: "setThinkingLevel", level: newLevel })
+	}, [thinkingLevel])
+
+	const handleTogglePlanning = useCallback(async () => {
+		const newMode = modeId === "plan" ? "build" : "plan"
+		await window.api.invoke({ type: "switchMode", modeId: newMode })
+	}, [modeId])
 
 	return (
 		<div
@@ -1609,7 +1686,6 @@ export function App() {
 				onRemoveProject={handleRemoveProject}
 				onCreateWorktree={handleCreateWorktree}
 				onDeleteWorktree={handleDeleteWorktree}
-				onSyncWorktree={handleSyncWorktree}
 				onOpenSettings={() => setActiveTab("settings")}
 				onOpenAccounts={() => {
 					setActiveTab("settings")
@@ -2149,6 +2225,17 @@ export function App() {
 					projectName={projectInfo?.name}
 					gitBranch={projectInfo?.gitBranch}
 					onOpenModelSelector={handleOpenModelSelector}
+					omProgress={omProgress}
+					omModelIds={omModelIds}
+					loggedInProviders={loggedInProviders}
+					onOpenOMSettings={() => {
+						setActiveTab("settings")
+						setSettingsSection("memory")
+					}}
+					thinkingEnabled={thinkingLevel !== "off"}
+					onToggleThinking={handleToggleThinking}
+					planningEnabled={modeId === "plan"}
+					onTogglePlanning={handleTogglePlanning}
 				/>
 			</div>
 
@@ -2163,6 +2250,7 @@ export function App() {
 				onDiffClick={handleDiffClick}
 				activeFilePath={openFiles.includes(activeTab) ? activeTab : null}
 				activeDiffPath={activeTab.startsWith("diff:") ? activeTab.slice(5) : null}
+				loading={projectSwitching}
 			/>
 
 			{/* Modal dialogs */}
