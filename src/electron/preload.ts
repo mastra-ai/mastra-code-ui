@@ -31,6 +31,13 @@ const api = {
 		ipcRenderer.send("set-badge-count", count)
 	},
 
+	/** Listen for URLs that should be opened in the app browser */
+	onOpenUrl: (callback: (url: string) => void): (() => void) => {
+		const handler = (_: Electron.IpcRendererEvent, url: string) => callback(url)
+		ipcRenderer.on("open-url", handler)
+		return () => ipcRenderer.removeListener("open-url", handler)
+	},
+
 	platform: process.platform,
 }
 

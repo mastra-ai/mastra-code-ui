@@ -40,13 +40,16 @@ const THEME = {
 interface TerminalPanelProps {
 	height: number
 	projectPath?: string | null
+	onOpenBrowser?: (url: string) => void
 }
 
 let termCounter = 0
 
-export function TerminalPanel({ height, projectPath }: TerminalPanelProps) {
+export function TerminalPanel({ height, projectPath, onOpenBrowser }: TerminalPanelProps) {
 	const containerRef = useRef<HTMLDivElement>(null)
 	const instancesRef = useRef<Map<string, TerminalInstance>>(new Map())
+	const onOpenBrowserRef = useRef(onOpenBrowser)
+	onOpenBrowserRef.current = onOpenBrowser
 	const [tabs, setTabs] = useState<string[]>(() => {
 		const id = `term-${++termCounter}`
 		return [id]
@@ -67,7 +70,13 @@ export function TerminalPanel({ height, projectPath }: TerminalPanelProps) {
 
 		const fitAddon = new FitAddon()
 		term.loadAddon(fitAddon)
-		term.loadAddon(new WebLinksAddon())
+		term.loadAddon(new WebLinksAddon((_event, uri) => {
+			if (/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(uri)) {
+				onOpenBrowserRef.current?.(uri)
+			} else {
+				window.api.invoke({ type: "openExternal", url: uri })
+			}
+		}))
 
 		const instance: TerminalInstance = {
 			id,

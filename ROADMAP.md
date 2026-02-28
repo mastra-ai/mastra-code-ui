@@ -96,17 +96,17 @@ Structured task tracking and context sharing across agents.
 
 Built-in browser pane for previewing running services without leaving the app.
 
-- [ ] **Browser pane** — Embedded browser tab with address bar, back/forward/reload, URL autocomplete from history, and favicon display
-- [ ] **Port detection integration** — When a port is detected in use (e.g. `localhost:3000`), clicking it opens in the in-app browser instead of the system browser
-- [ ] **DevTools pane** — Inspect and debug pages running in the embedded browser
-- [ ] **Browsing history** — Save visited URLs locally for autocomplete suggestions, with option to clear history
+- [x] **Browser pane** — Embedded browser tab with address bar, back/forward/reload, URL autocomplete from history, and favicon display _(BrowserView component with webview tag, address bar with history autocomplete, back/forward/reload/stop controls; opens as `browser:` tab type in center panel; accessible via Cmd+K command palette)_
+- [x] **Port detection integration** — When a port is detected in use (e.g. `localhost:3000`), clicking it opens in the in-app browser instead of the system browser _(WebLinksAddon in TerminalPanel intercepts localhost/127.0.0.1/0.0.0.0 URLs and routes to in-app browser; other URLs open in system browser)_
+- [x] **DevTools pane** — Inspect and debug pages running in the embedded browser _(DevTools toggle button in browser navigation bar, opens/closes webview devtools)_
+- [x] **Browsing history** — Save visited URLs locally for autocomplete suggestions, with option to clear history _(localStorage-backed history with URL/title/timestamp, capped at 200 entries, filtered dropdown in address bar)_
 
 ## Terminal Enhancements
 
 Improvements to the built-in terminal beyond basic tab management.
 
 - [ ] **Right-click context menu** — Copy, paste, split pane, clear, move tab, close tab via context menu
-- [ ] **Clickable output** — URLs in terminal output open in browser; file paths open in editor
+- [-] **Clickable output** — URLs in terminal output open in browser; file paths open in editor _(localhost URLs open in in-app browser, external URLs open in system browser via WebLinksAddon handler; file path clicking not yet implemented)_
 - [ ] **Workspace environment variables** — Expose `ROOT_PATH` and `WORKSPACE_NAME` env vars so scripts and tools can reference workspace context
 - [ ] **Terminal presets** — Save named command configurations with working directory, one or more commands, and launch mode (split pane vs new tab); mark presets as default for auto-apply to new workspaces; quick-add templates for popular AI agents (Claude, Codex, Gemini, OpenCode)
 - [ ] **Session persistence** — Terminal sessions survive app restarts with running processes, output history, and scrollback preserved
@@ -153,7 +153,9 @@ Visual personalization and workflow customization.
 
 Fast navigation and layout management.
 
-- [ ] **Quick file opener** — `⌘P` to fuzzy-search and open any file in the workspace
+- [x] **Command palette** — `⌘K` to open a global command palette with search, grouped commands (Navigation, Actions, Open Tabs, Workspaces), keyboard navigation, and shortcut hints _(CommandPalette component with dynamic command list built from app state; supports all navigation and action commands)_
+
+- [x] **Quick file opener** — `⌘P` to fuzzy-search and open any file in the workspace _(QuickFileOpen component with `searchFiles` IPC handler using `git ls-files`; fuzzy substring matching with filename-priority scoring; max 50 results)_
 - [ ] **Split pane layouts** — Split panes right (`⌘D`) and down (`⌘⇧D`), auto-arrange (`⌘E`), close active pane (`⌘W`)
-- [ ] **Workspace switcher** — `⌘1-9` to jump to workspaces, `⌘⌥↑/↓` for previous/next workspace
+- [x] **Workspace switcher** — `⌘1-9` to jump to workspaces, `⌘⌥↑/↓` for previous/next workspace _(keyboard shortcuts in App.tsx handleKeyDown; Cmd+1-9 jumps to enrichedProjects by index; Cmd+Alt+Up/Down cycles with wrap-around)_
 - [-] **Sync status display** — Show `↑N` / `↓N` indicators in sidebar for unpushed/behind commits per workspace _(ahead/behind counts displayed on push/pull buttons in GitPanel; not yet shown in sidebar)_
