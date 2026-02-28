@@ -75,6 +75,7 @@ body,
 	background: var(--bg);
 	color: var(--text);
 	font-family:
+		"Victor Mono",
 		"SF Mono",
 		"Menlo",
 		"Monaco",

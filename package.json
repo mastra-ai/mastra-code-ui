@@ -7,7 +7,8 @@
 	"scripts": {
 		"dev": "electron-vite dev",
 		"build": "electron-vite build",
-		"package": "electron-vite build && node scripts/copy-native-bindings.js && electron-builder --mac",
+		"build:opencode-bundle": "node scripts/build-opencode-bundle.cjs",
+		"package": "electron-vite build && node scripts/copy-native-bindings.js && pnpm build:opencode-bundle && electron-builder --mac",
 		"preview": "electron-vite preview",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
@@ -81,6 +82,10 @@
 			{
 				"from": "node_modules/@ast-grep/napi",
 				"to": "node_modules/@ast-grep/napi"
+			},
+			{
+				"from": "resources/opencode-bundle",
+				"to": "opencode-bundle"
 			}
 		]
 	},

@@ -79,12 +79,19 @@ export function buildFullPrompt(ctx: PromptContext): string {
 		prSection = `\n# PR Instructions\nWhen creating pull requests, follow these additional instructions from the user:\n${prInstructions.trim()}\n`
 	}
 
+	const locale = (ctx.state?.locale as string | undefined) ?? "ru"
+	const languageSection =
+		locale === "ru"
+			? "\n# Language\nDefault response language is Russian (RU). Keep English only for code, commands, APIs, and identifiers.\n"
+			: "\n# Language\nDefault response language is English.\n"
+
 	return (
 		base +
 		toolsSection +
 		todoSection +
 		instructionsSection +
 		prSection +
+		languageSection +
 		"\n" +
 		modeSpecific
 	)

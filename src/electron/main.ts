@@ -255,6 +255,104 @@ function collectSkillPaths(skillsDirs: string[]): string[] {
 	return paths
 }
 
+function copyDirectoryRecursive(src: string, dst: string): void {
+	if (!fs.existsSync(src)) return
+	const st = fs.statSync(src)
+	if (st.isDirectory()) {
+		if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true })
+		for (const entry of fs.readdirSync(src)) {
+			copyDirectoryRecursive(path.join(src, entry), path.join(dst, entry))
+		}
+		return
+	}
+	const parent = path.dirname(dst)
+	if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true })
+	fs.copyFileSync(src, dst)
+}
+
+function applyExecutableBits(root: string): void {
+	if (!fs.existsSync(root)) return
+	const stack = [root]
+	while (stack.length > 0) {
+		const current = stack.pop()!
+		const st = fs.statSync(current)
+		if (st.isDirectory()) {
+			for (const entry of fs.readdirSync(current)) {
+				stack.push(path.join(current, entry))
+			}
+		} else if (
+			current.endsWith(".sh") ||
+			current.includes("/scripts/") ||
+			current.includes("\\scripts\\")
+		) {
+			try {
+				fs.chmodSync(current, 0o755)
+			} catch {
+				// best effort
+			}
+		}
+	}
+}
+
+function installBundledOpencodeStack(appVersion: string): {
+	installed: boolean
+	reason: string
+	manifestPath?: string
+} {
+	try {
+		const bundleRoot = path.join(process.resourcesPath, "opencode-bundle")
+		const manifestPath = path.join(bundleRoot, "manifest.json")
+		if (!fs.existsSync(manifestPath)) {
+			return { installed: false, reason: "bundle_not_found" }
+		}
+
+		const markerDir = path.join(os.homedir(), ".mastracode")
+		const markerPath = path.join(markerDir, "opencode-bootstrap.json")
+		let marker: { appVersion?: string; installedAt?: string } = {}
+		if (fs.existsSync(markerPath)) {
+			try {
+				marker = JSON.parse(fs.readFileSync(markerPath, "utf-8"))
+			} catch {
+				marker = {}
+			}
+		}
+		if (marker.appVersion === appVersion) {
+			return { installed: false, reason: "already_installed", manifestPath }
+		}
+
+		const targets = [
+			".config/opencode",
+			".codex",
+			".agents",
+			".ai-agent-hub",
+			"repos/pi-skills",
+		]
+		for (const rel of targets) {
+			const src = path.join(bundleRoot, rel)
+			const dst = path.join(os.homedir(), rel)
+			copyDirectoryRecursive(src, dst)
+		}
+
+		applyExecutableBits(path.join(os.homedir(), ".ai-agent-hub", "scripts"))
+		applyExecutableBits(path.join(os.homedir(), ".codex", "skills"))
+
+		if (!fs.existsSync(markerDir)) fs.mkdirSync(markerDir, { recursive: true })
+		fs.writeFileSync(
+			markerPath,
+			JSON.stringify(
+				{ appVersion, installedAt: new Date().toISOString() },
+				null,
+				2,
+			),
+		)
+
+		return { installed: true, reason: "ok", manifestPath }
+	} catch (error) {
+		console.warn("Failed to install bundled opencode stack:", error)
+		return { installed: false, reason: "error" }
+	}
+}
+
 // =============================================================================
 // Create Harness (same logic as src/main.ts)
 // =============================================================================
@@ -267,6 +365,7 @@ async function createHarness(projectPath: string) {
 
 	const DEFAULT_OM_MODEL_ID = "google/gemini-2.5-flash"
 	const stateSchema = z.object({
+		locale: z.enum(["ru", "en"]).default("ru"),
 		projectPath: z.string().optional(),
 		projectName: z.string().optional(),
 		gitBranch: z.string().optional(),
@@ -619,6 +718,7 @@ async function createHarness(projectPath: string) {
 		storage,
 		stateSchema,
 		initialState: {
+			locale: "ru",
 			projectPath: project.rootPath,
 			projectName: project.name,
 			gitBranch: project.gitBranch,
@@ -1148,6 +1248,8 @@ function registerIpcHandlers() {
 				}))
 			case "getState":
 				return h.getState()
+			case "installBundledIntegrations":
+				return installBundledOpencodeStack(app.getVersion())
 			case "getSession":
 				return await h.getSession()
 			case "listThreads":
@@ -2788,6 +2890,14 @@ function setupMenu() {
 // App Lifecycle
 // =============================================================================
 app.whenReady().then(async () => {
+	const bootstrapResult = installBundledOpencodeStack(app.getVersion())
+	if (bootstrapResult.installed) {
+		console.log(
+			"[bootstrap] Installed bundled opencode stack from",
+			bootstrapResult.manifestPath,
+		)
+	}
+
 	// Determine project path
 	const projectPath =
 		process.argv.find(

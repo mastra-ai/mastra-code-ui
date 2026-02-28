@@ -4,6 +4,7 @@ type NotificationMode = "off" | "bell" | "system" | "both"
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high"
 
 interface SettingsState {
+	locale: "ru" | "en"
 	notifications: NotificationMode
 	yolo: boolean
 	smartEditing: boolean
@@ -196,6 +197,11 @@ const thinkingOptions: Array<{ value: string; label: string }> = [
 	{ value: "high", label: "High" },
 ]
 
+const localeOptions: Array<{ value: string; label: string }> = [
+	{ value: "ru", label: "Russian (RU)" },
+	{ value: "en", label: "English (EN)" },
+]
+
 const policyOptions: Array<{ value: string; label: string }> = [
 	{ value: "allow", label: "Allow" },
 	{ value: "ask", label: "Ask" },
@@ -244,6 +250,7 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 	const [mcpLoading, setMcpLoading] = useState(false)
 	const [addingServer, setAddingServer] = useState(false)
 	const [newServer, setNewServer] = useState({ name: "", command: "", args: "", scope: "project" })
+	const [integrationStatus, setIntegrationStatus] = useState<string>("")
 
 	// Load current state
 	useEffect(() => {
@@ -254,6 +261,7 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 			])
 			const st = s as Record<string, unknown>
 			setState({
+				locale: ((st?.locale as "ru" | "en") ?? "ru"),
 				notifications: (st?.notifications as NotificationMode) ?? "off",
 				yolo: (st?.yolo as boolean) ?? false,
 				smartEditing: (st?.smartEditing as boolean) ?? true,
@@ -429,6 +437,7 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 	const sections = [
 		{ id: "accounts", label: "Accounts" },
 		{ id: "general", label: "General" },
+		{ id: "integrations", label: "Integrations" },
 		{ id: "mcp", label: "MCP" },
 		{ id: "models", label: "Models" },
 		{ id: "agent", label: "Agent" },
@@ -718,6 +727,18 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 
 								{activeSection === "general" && (
 									<>
+										<SectionHeader title="Language" />
+										<SettingRow
+											label="Default response language"
+											description="Language used by the assistant in this app"
+										>
+											<Select
+												value={state.locale}
+												options={localeOptions}
+												onChange={(v) => update("locale", v as "ru" | "en")}
+											/>
+										</SettingRow>
+
 										<SectionHeader title="Notifications" />
 										<SettingRow
 											label="Notification mode"
@@ -808,6 +829,66 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 														</button>
 													</div>
 												)}
+											</div>
+										)}
+									</>
+								)}
+
+								{activeSection === "integrations" && (
+									<>
+										<SectionHeader title="OpenCode Stack Bootstrap" />
+										<div
+											style={{
+												padding: "10px 0 14px",
+												fontSize: 12,
+												color: "var(--muted)",
+												lineHeight: 1.5,
+											}}
+										>
+											Install or repair bundled OpenCode/Codex/AI-Hub integrations into your home directory.
+											Designed for fresh macOS setup from this app DMG.
+										</div>
+										<button
+											onClick={async () => {
+												setIntegrationStatus("Installing bundled integrations...")
+												try {
+													const res = await window.api.invoke({
+														type: "installBundledIntegrations",
+													}) as Record<string, unknown>
+													const installed = Boolean(res?.installed)
+													const reason = String(res?.reason ?? "unknown")
+													setIntegrationStatus(
+														installed
+															? "Bundled integrations installed."
+															: `No changes applied (${reason}).`,
+													)
+												} catch (e) {
+													setIntegrationStatus(
+														`Failed: ${e instanceof Error ? e.message : String(e)}`,
+													)
+												}
+											}}
+											style={{
+												padding: "8px 12px",
+												background: "var(--accent)",
+												color: "#fff",
+												borderRadius: 6,
+												fontWeight: 600,
+												fontSize: 12,
+												border: "none",
+											}}
+										>
+											Install / Repair Integrations
+										</button>
+										{integrationStatus && (
+											<div
+												style={{
+													marginTop: 10,
+													fontSize: 11,
+													color: "var(--muted)",
+												}}
+											>
+												{integrationStatus}
 											</div>
 										)}
 									</>
