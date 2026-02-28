@@ -27,7 +27,6 @@ interface SidebarProps {
 	onRemoveProject: (path: string) => void
 	onCreateWorktree: (repoPath: string) => void
 	onDeleteWorktree: (worktreePath: string) => void
-	onSyncWorktree: (worktreePath: string) => Promise<void>
 	onOpenSettings: () => void
 	onOpenTasks: () => void
 	onOpenAgents: () => void
@@ -67,7 +66,6 @@ export function Sidebar({
 	onRemoveProject,
 	onCreateWorktree,
 	onDeleteWorktree,
-	onSyncWorktree,
 	onOpenSettings,
 	onOpenTasks,
 	onOpenAgents,
@@ -249,7 +247,6 @@ export function Sidebar({
 					onRemoveProject={onRemoveProject}
 					onCreateWorktree={onCreateWorktree}
 				onDeleteWorktree={onDeleteWorktree}
-				onSyncWorktree={onSyncWorktree}
 				/>
 			</div>
 

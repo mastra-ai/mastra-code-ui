@@ -708,17 +708,52 @@ async function createHarness(projectPath: string) {
 			if (event.role === "observer") omState.observerModelId = event.modelId
 			if (event.role === "reflector") omState.reflectorModelId = event.modelId
 		} else if (event.type === "thread_changed") {
-			omState.observerModelId =
-				_harness.getObserverModelId() ?? DEFAULT_OM_MODEL_ID
-			omState.reflectorModelId =
-				_harness.getReflectorModelId() ?? DEFAULT_OM_MODEL_ID
+			// Restore OM model IDs from thread metadata since loadThreadMetadata
+			// doesn't restore these fields (only currentModelId/currentModeId).
+			storage
+				.getThreadById({ threadId: event.threadId })
+				.then((thread) => {
+					const meta = thread?.metadata as Record<string, unknown> | undefined
+					if (
+						meta?.observerModelId &&
+						typeof meta.observerModelId === "string"
+					) {
+						omState.observerModelId = meta.observerModelId
+						_harness.setState({
+							observerModelId: meta.observerModelId,
+						})
+					}
+					if (
+						meta?.reflectorModelId &&
+						typeof meta.reflectorModelId === "string"
+					) {
+						omState.reflectorModelId = meta.reflectorModelId
+						_harness.setState({
+							reflectorModelId: meta.reflectorModelId,
+						})
+					}
+				})
+				.catch(() => {
+					// Fall back to reading from (possibly stale) harness state
+					omState.observerModelId =
+						_harness.getObserverModelId() ?? DEFAULT_OM_MODEL_ID
+					omState.reflectorModelId =
+						_harness.getReflectorModelId() ?? DEFAULT_OM_MODEL_ID
+				})
 			omState.obsThreshold =
 				_harness.getState().observationThreshold ?? DEFAULT_OBS_THRESHOLD
 			omState.refThreshold =
 				_harness.getState().reflectionThreshold ?? DEFAULT_REF_THRESHOLD
 			hookManager.setSessionId(event.threadId)
+			// Restore OM progress for the switched-to thread
+			_harness.loadOMProgress?.().catch(() => {})
 		} else if (event.type === "thread_created") {
 			hookManager.setSessionId(event.thread.id)
+			_harness.loadOMProgress?.().catch(() => {})
+		} else if (event.type === "agent_end") {
+			// Recalculate OM progress after each turn so token counts
+			// reflect the messages that were just added/observed/reflected
+			_harness.loadOMProgress?.().catch(() => {})
 		}
 	})
 
@@ -739,6 +774,41 @@ async function createHarness(projectPath: string) {
 		mcpManager: _mcpManager,
 		resolveModel,
 		authStorage,
+	}
+}
+
+/**
+ * Ensure the harness has an authenticated model selected.
+ * If the current model's provider isn't logged in, switch to the first
+ * authenticated provider's default model.
+ */
+async function ensureAuthenticatedModel(
+	h: Harness<any>,
+	authStorage: AuthStorage,
+) {
+	const modelId = h.getCurrentModelId()
+	if (!modelId) return
+	const provider = modelId.split("/")[0]
+	// Map model prefix to authStorage provider ID
+	const authProviderId = provider === "openai" ? "openai-codex" : provider
+	if (authStorage.isLoggedIn(authProviderId)) return
+
+	// Current provider not authenticated — find one that is
+	const providerMapping: Array<{ authId: string; prefix: string }> = [
+		{ authId: "openai-codex", prefix: "openai" },
+		{ authId: "anthropic", prefix: "anthropic" },
+	]
+	for (const { authId, prefix } of providerMapping) {
+		if (authStorage.isLoggedIn(authId)) {
+			const fallback = authStorage.getDefaultModelForProvider(authId)
+			if (fallback) {
+				await h.switchModel({ modelId: fallback })
+				console.log(
+					`[model-auth] Switched from unauthenticated ${provider} to ${fallback}`,
+				)
+				return
+			}
+		}
 	}
 }
 
@@ -857,9 +927,23 @@ function registerIpcHandlers() {
 					content: command.content,
 					...(command.images ? { images: command.images } : {}),
 				})
-					.then(() => {
+					.then(async () => {
 						const threadAfter = h.getCurrentThreadId()
-						if (threadAfter && threadAfter !== threadBefore) {
+						if (!threadAfter) return
+						// Generate a title when a new thread was auto-created, or when
+						// the current thread still has the default untitled name (e.g.
+						// user clicked "New Thread" before sending their first message).
+						let needsTitle = threadAfter !== threadBefore
+						if (!needsTitle) {
+							try {
+								const session = await h.getSession()
+								const thread = session.threads.find((t) => t.id === threadAfter)
+								const title = thread?.title ?? ""
+								needsTitle =
+									!title || title === "New Thread" || title === "Untitled"
+							} catch {}
+						}
+						if (needsTitle) {
 							generateThreadTitle(h, command.content, resolveModel).catch(
 								(err) => console.warn("Title gen catch:", err),
 							)
@@ -966,10 +1050,10 @@ function registerIpcHandlers() {
 				await h.setState({ smartEditing: command.enabled })
 				return
 			case "setObserverModel":
-				await h.setState({ observerModelId: command.modelId })
+				await h.switchObserverModel({ modelId: command.modelId })
 				return
 			case "setReflectorModel":
-				await h.setState({ reflectorModelId: command.modelId })
+				await h.switchReflectorModel({ modelId: command.modelId })
 				return
 			case "setState":
 				await h.setState(command.patch)
@@ -1186,12 +1270,20 @@ function registerIpcHandlers() {
 				}))
 			case "getState":
 				return h.getState()
-			case "getSession":
-				return await h.getSession()
+			case "getSession": {
+				const session = await h.getSession()
+				// Reload OM progress now that thread may be set
+				await h.loadOMProgress?.().catch(() => {})
+				return session
+			}
 			case "listThreads":
 				return await h.listThreads()
 			case "getTokenUsage":
 				return h.getTokenUsage()
+			case "getOMProgress": {
+				const ds = h.getDisplayState()
+				return ds?.omProgress ?? null
+			}
 			case "getAgentDashboardData": {
 				const agents: Array<{
 					worktreePath: string
@@ -1217,6 +1309,11 @@ function registerIpcHandlers() {
 				}> = []
 
 				for (const [wtPath, session] of sessions.entries()) {
+					// Prune stale sessions whose worktree/directory no longer exists
+					if (!fs.existsSync(wtPath)) {
+						cleanupSession(wtPath)
+						continue
+					}
 					try {
 						const state = session.harness.getState?.() as
 							| Record<string, unknown>
@@ -1645,11 +1742,13 @@ function registerIpcHandlers() {
 					abExec("git rev-parse --abbrev-ref @{upstream}", {
 						cwd: projectRoot,
 						encoding: "utf-8",
+						stdio: ["pipe", "pipe", "pipe"],
 					})
 					const abOutput = (
 						abExec("git rev-list --left-right --count HEAD...@{upstream}", {
 							cwd: projectRoot,
 							encoding: "utf-8",
+							stdio: ["pipe", "pipe", "pipe"],
 						}) as string
 					).trim()
 					const [ahead, behind] = abOutput.split(/\s+/).map(Number)
@@ -1885,7 +1984,7 @@ function registerIpcHandlers() {
 					}
 				}
 
-				return enriched.filter((p) => {
+				const result = enriched.filter((p) => {
 					if (!p.exists) return false
 					// If this is a worktree and its parent root is already in the list,
 					// skip it (it'll show nested under the parent)
@@ -1896,6 +1995,20 @@ function registerIpcHandlers() {
 						return false
 					return true
 				})
+
+				// Prune sessions whose paths no longer exist on disk
+				// (e.g. worktree removed externally via CLI or filesystem)
+				const validPaths = new Set(result.map((p) => p.rootPath))
+				for (const p of result) {
+					for (const wt of p.worktrees) validPaths.add(wt.path)
+				}
+				for (const sessionPath of sessions.keys()) {
+					if (!validPaths.has(sessionPath) && !fs.existsSync(sessionPath)) {
+						cleanupSession(sessionPath)
+					}
+				}
+
+				return result
 			}
 			case "removeRecentProject": {
 				removeRecentProject(command.path as string)
@@ -2274,6 +2387,11 @@ function registerIpcHandlers() {
 				if (mainWindow) bridgeAllEvents(mainWindow)
 				// Initialize in background
 				await newSession.harness.init()
+				await ensureAuthenticatedModel(
+					newSession.harness,
+					newSession.authStorage,
+				)
+				await newSession.harness.loadOMProgress?.().catch(() => {})
 				if (newSession.mcpManager.hasServers())
 					await newSession.mcpManager.init()
 
@@ -3122,6 +3240,13 @@ app.whenReady().then(async () => {
 
 	// Initialize harness
 	await initialSession.harness.init()
+	await ensureAuthenticatedModel(
+		initialSession.harness,
+		initialSession.authStorage,
+	)
+
+	// Load OM progress for the current thread
+	await initialSession.harness.loadOMProgress?.().catch(() => {})
 
 	// Init MCP
 	if (initialSession.mcpManager.hasServers()) {

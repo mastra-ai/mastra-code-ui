@@ -26,6 +26,27 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
 		)
 		.join("")
 
+	const isError = message.stopReason === "error"
+
+	if (isError) {
+		return (
+			<div
+				style={{
+					padding: "8px 12px",
+					margin: "8px 0",
+					borderRadius: 6,
+					background: "rgba(239, 68, 68, 0.08)",
+					border: "1px solid rgba(239, 68, 68, 0.25)",
+					color: "#ef4444",
+					fontSize: 13,
+					lineHeight: 1.5,
+				}}
+			>
+				{message.errorMessage || text || "An error occurred"}
+			</div>
+		)
+	}
+
 	return (
 		<div style={{ padding: "8px 0", lineHeight: 1.6 }}>
 			{/* Thinking block with inline preview */}

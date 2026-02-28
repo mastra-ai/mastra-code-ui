@@ -33,6 +33,7 @@ export function GitPanel({ onFileClick, activeFilePath }: GitPanelProps) {
 	const [isCommitting, setIsCommitting] = useState(false)
 	const [isPushing, setIsPushing] = useState(false)
 	const [isPulling, setIsPulling] = useState(false)
+	const [isSyncing, setIsSyncing] = useState(false)
 	const [feedback, setFeedback] = useState<{
 		type: "success" | "error"
 		message: string
@@ -202,6 +203,35 @@ export function GitPanel({ onFileClick, activeFilePath }: GitPanelProps) {
 			showFeedback("error", "Pull failed")
 		} finally {
 			setIsPulling(false)
+		}
+	}, [refresh, showFeedback])
+
+	const handleSyncWithMain = useCallback(async () => {
+		setIsSyncing(true)
+		try {
+			// Use the current project root (harness knows the active session path)
+			const state = (await window.api.invoke({ type: "getState" })) as {
+				projectPath?: string
+			}
+			const worktreePath = state?.projectPath
+			if (!worktreePath) {
+				showFeedback("error", "No project path found")
+				return
+			}
+			const result = (await window.api.invoke({
+				type: "gitSyncWithMain",
+				worktreePath,
+			})) as { success: boolean; output?: string; error?: string }
+			if (result.success) {
+				showFeedback("success", result.output || "Synced with main")
+			} else {
+				showFeedback("error", result.error || "Sync failed")
+			}
+			refresh()
+		} catch {
+			showFeedback("error", "Sync with main failed")
+		} finally {
+			setIsSyncing(false)
 		}
 	}, [refresh, showFeedback])
 
@@ -542,6 +572,33 @@ export function GitPanel({ onFileClick, activeFilePath }: GitPanelProps) {
 								)}
 							</>
 						)}
+					</button>
+				</div>
+			)}
+
+			{/* Sync with main (only for non-main branches) */}
+			{status.branch && status.branch !== "main" && status.branch !== "master" && (
+				<div style={{ padding: "2px 12px 6px" }}>
+					<button
+						onClick={handleSyncWithMain}
+						disabled={isSyncing}
+						style={{
+							width: "100%",
+							padding: "3px 8px",
+							fontSize: 10,
+							color: "var(--text)",
+							background: "transparent",
+							border: "1px solid var(--border)",
+							borderRadius: 4,
+							cursor: isSyncing ? "default" : "pointer",
+							opacity: isSyncing ? 0.6 : 1,
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+							gap: 4,
+						}}
+					>
+						{isSyncing ? "Syncing\u2026" : "\u21BB Sync with main"}
 					</button>
 				</div>
 			)}
