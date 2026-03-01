@@ -1,239 +1,30 @@
-import { useState, useEffect, useCallback } from "react"
-
-interface GitFile {
-	status: string
-	path: string
-	staged: boolean
-	unstaged: boolean
-	untracked: boolean
-}
-
-interface GitStatus {
-	branch: string | null
-	files: GitFile[]
-	clean: boolean
-	error?: string
-}
-
-interface AheadBehind {
-	ahead: number
-	behind: number
-	hasUpstream: boolean
-}
-
-interface GitPanelProps {
-	onFileClick?: (filePath: string) => void
-	activeFilePath?: string | null
-}
+import type { GitPanelProps } from "../types/git"
+import { useGitOperations } from "../hooks/useGitOperations"
+import { FileSection } from "./FileSection"
 
 export function GitPanel({ onFileClick, activeFilePath }: GitPanelProps) {
-	const [status, setStatus] = useState<GitStatus | null>(null)
-	const [aheadBehind, setAheadBehind] = useState<AheadBehind | null>(null)
-	const [commitMessage, setCommitMessage] = useState("")
-	const [isCommitting, setIsCommitting] = useState(false)
-	const [isPushing, setIsPushing] = useState(false)
-	const [isPulling, setIsPulling] = useState(false)
-	const [isSyncing, setIsSyncing] = useState(false)
-	const [feedback, setFeedback] = useState<{
-		type: "success" | "error"
-		message: string
-	} | null>(null)
-
-	const showFeedback = useCallback(
-		(type: "success" | "error", message: string) => {
-			setFeedback({ type, message })
-			setTimeout(() => setFeedback(null), 3000)
-		},
-		[],
-	)
-
-	const refresh = useCallback(async () => {
-		try {
-			const result = (await window.api.invoke({
-				type: "gitStatus",
-			})) as GitStatus
-			setStatus(result)
-		} catch {
-			setStatus({
-				branch: null,
-				files: [],
-				clean: true,
-				error: "Failed to get git status",
-			})
-		}
-		try {
-			const ab = (await window.api.invoke({
-				type: "gitAheadBehind",
-			})) as AheadBehind
-			setAheadBehind(ab)
-		} catch {
-			setAheadBehind(null)
-		}
-	}, [])
-
-	useEffect(() => {
-		refresh()
-		const interval = setInterval(refresh, 3000)
-		const unsubscribe = window.api.onEvent((raw: unknown) => {
-			const event = raw as { type: string }
-			if (event.type === "agent_end") refresh()
-		})
-		return () => {
-			clearInterval(interval)
-			unsubscribe()
-		}
-	}, [refresh])
-
-	// ── Git actions ──────────────────────────────────────────────────
-
-	const handleStage = useCallback(
-		async (files: string[]) => {
-			try {
-				const result = (await window.api.invoke({
-					type: "gitStage",
-					files,
-				})) as { success: boolean; error?: string }
-				if (!result.success)
-					showFeedback("error", result.error || "Stage failed")
-				refresh()
-			} catch {
-				showFeedback("error", "Failed to stage files")
-			}
-		},
-		[refresh, showFeedback],
-	)
-
-	const handleUnstage = useCallback(
-		async (files: string[]) => {
-			try {
-				const result = (await window.api.invoke({
-					type: "gitUnstage",
-					files,
-				})) as { success: boolean; error?: string }
-				if (!result.success)
-					showFeedback("error", result.error || "Unstage failed")
-				refresh()
-			} catch {
-				showFeedback("error", "Failed to unstage files")
-			}
-		},
-		[refresh, showFeedback],
-	)
-
-	const handleStageAll = useCallback(async () => {
-		try {
-			const result = (await window.api.invoke({
-				type: "gitStage",
-			})) as { success: boolean; error?: string }
-			if (!result.success)
-				showFeedback("error", result.error || "Stage all failed")
-			refresh()
-		} catch {
-			showFeedback("error", "Failed to stage all")
-		}
-	}, [refresh, showFeedback])
-
-	const handleUnstageAll = useCallback(async () => {
-		try {
-			const result = (await window.api.invoke({
-				type: "gitUnstage",
-			})) as { success: boolean; error?: string }
-			if (!result.success)
-				showFeedback("error", result.error || "Unstage all failed")
-			refresh()
-		} catch {
-			showFeedback("error", "Failed to unstage all")
-		}
-	}, [refresh, showFeedback])
-
-	const handleCommit = useCallback(async () => {
-		if (!commitMessage.trim()) return
-		setIsCommitting(true)
-		try {
-			const result = (await window.api.invoke({
-				type: "gitCommit",
-				message: commitMessage,
-			})) as { success: boolean; error?: string }
-			if (result.success) {
-				setCommitMessage("")
-				showFeedback("success", "Committed successfully")
-			} else {
-				showFeedback("error", result.error || "Commit failed")
-			}
-			refresh()
-		} catch {
-			showFeedback("error", "Failed to commit")
-		} finally {
-			setIsCommitting(false)
-		}
-	}, [commitMessage, refresh, showFeedback])
-
-	const handlePush = useCallback(async () => {
-		setIsPushing(true)
-		try {
-			const result = (await window.api.invoke({
-				type: "gitPush",
-			})) as { success: boolean; error?: string }
-			if (result.success) {
-				showFeedback("success", "Pushed successfully")
-			} else {
-				showFeedback("error", result.error || "Push failed")
-			}
-			refresh()
-		} catch {
-			showFeedback("error", "Push failed")
-		} finally {
-			setIsPushing(false)
-		}
-	}, [refresh, showFeedback])
-
-	const handlePull = useCallback(async () => {
-		setIsPulling(true)
-		try {
-			const result = (await window.api.invoke({
-				type: "gitPull",
-			})) as { success: boolean; error?: string; output?: string }
-			if (result.success) {
-				showFeedback("success", result.output || "Pulled successfully")
-			} else {
-				showFeedback("error", result.error || "Pull failed")
-			}
-			refresh()
-		} catch {
-			showFeedback("error", "Pull failed")
-		} finally {
-			setIsPulling(false)
-		}
-	}, [refresh, showFeedback])
-
-	const handleSyncWithMain = useCallback(async () => {
-		setIsSyncing(true)
-		try {
-			// Use the current project root (harness knows the active session path)
-			const state = (await window.api.invoke({ type: "getState" })) as {
-				projectPath?: string
-			}
-			const worktreePath = state?.projectPath
-			if (!worktreePath) {
-				showFeedback("error", "No project path found")
-				return
-			}
-			const result = (await window.api.invoke({
-				type: "gitSyncWithMain",
-				worktreePath,
-			})) as { success: boolean; output?: string; error?: string }
-			if (result.success) {
-				showFeedback("success", result.output || "Synced with main")
-			} else {
-				showFeedback("error", result.error || "Sync failed")
-			}
-			refresh()
-		} catch {
-			showFeedback("error", "Sync with main failed")
-		} finally {
-			setIsSyncing(false)
-		}
-	}, [refresh, showFeedback])
+	const {
+		status,
+		aheadBehind,
+		commitMessage,
+		setCommitMessage,
+		isCommitting,
+		isPushing,
+		isPulling,
+		isSyncing,
+		feedback,
+		staged,
+		unstaged,
+		untracked,
+		handleStage,
+		handleUnstage,
+		handleStageAll,
+		handleUnstageAll,
+		handleCommit,
+		handlePush,
+		handlePull,
+		handleSyncWithMain,
+	} = useGitOperations()
 
 	// ── Loading / error states ───────────────────────────────────────
 
@@ -263,202 +54,6 @@ export function GitPanel({ onFileClick, activeFilePath }: GitPanelProps) {
 				}}
 			>
 				{status.error}
-			</div>
-		)
-	}
-
-	const staged = status.files.filter((f) => f.staged)
-	const unstaged = status.files.filter((f) => f.unstaged && !f.untracked)
-	const untracked = status.files.filter((f) => f.untracked)
-
-	// ── Helpers ──────────────────────────────────────────────────────
-
-	function statusLabel(s: string): string {
-		const x = s[0]
-		const y = s[1]
-		const code = x !== " " && x !== "?" ? x : y
-		switch (code) {
-			case "M":
-				return "modified"
-			case "A":
-				return "added"
-			case "D":
-				return "deleted"
-			case "R":
-				return "renamed"
-			case "C":
-				return "copied"
-			case "?":
-				return "untracked"
-			default:
-				return code
-		}
-	}
-
-	function statusColor(s: string): string {
-		const code = s.trim()[0]
-		switch (code) {
-			case "M":
-				return "var(--warning)"
-			case "A":
-			case "?":
-				return "var(--success)"
-			case "D":
-				return "var(--error)"
-			default:
-				return "var(--muted)"
-		}
-	}
-
-	// ── File section renderer ────────────────────────────────────────
-
-	function renderSection(
-		title: string,
-		files: GitFile[],
-		sectionType: "staged" | "unstaged" | "untracked",
-	) {
-		if (files.length === 0) return null
-		return (
-			<div style={{ marginBottom: 8 }}>
-				<div
-					style={{
-						padding: "4px 12px",
-						fontSize: 10,
-						fontWeight: 600,
-						color: "var(--dim)",
-						textTransform: "uppercase",
-						letterSpacing: "0.5px",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "space-between",
-					}}
-				>
-					<span>
-						{title} ({files.length})
-					</span>
-					{sectionType === "staged" && (
-						<button
-							onClick={handleUnstageAll}
-							style={{
-								fontSize: 9,
-								color: "var(--muted)",
-								cursor: "pointer",
-								background: "none",
-								border: "none",
-								textTransform: "none",
-								letterSpacing: "normal",
-								padding: "0 2px",
-							}}
-							title="Unstage all"
-						>
-							Unstage All
-						</button>
-					)}
-					{(sectionType === "unstaged" || sectionType === "untracked") && (
-						<button
-							onClick={handleStageAll}
-							style={{
-								fontSize: 9,
-								color: "var(--muted)",
-								cursor: "pointer",
-								background: "none",
-								border: "none",
-								textTransform: "none",
-								letterSpacing: "normal",
-								padding: "0 2px",
-							}}
-							title="Stage all"
-						>
-							Stage All
-						</button>
-					)}
-				</div>
-				{files.map((file) => {
-					const isActive = file.path === activeFilePath
-					return (
-						<button
-							key={file.path + file.status}
-							onClick={() => onFileClick?.(file.path)}
-							style={{
-								display: "flex",
-								alignItems: "center",
-								width: "100%",
-								padding: "3px 12px",
-								paddingLeft: isActive ? 10 : 12,
-								fontSize: 12,
-								textAlign: "left",
-								cursor: "pointer",
-								gap: 6,
-								background: isActive
-									? "var(--selected-bg)"
-									: "transparent",
-								border: "none",
-								borderLeft: isActive
-									? "2px solid var(--accent)"
-									: "2px solid transparent",
-							}}
-						>
-							<span
-								style={{
-									fontSize: 10,
-									color: statusColor(file.status),
-									fontWeight: 600,
-									width: 14,
-									flexShrink: 0,
-								}}
-							>
-								{statusLabel(file.status).charAt(0).toUpperCase()}
-							</span>
-							<span
-								style={{
-									color: "var(--text)",
-									overflow: "hidden",
-									textOverflow: "ellipsis",
-									whiteSpace: "nowrap",
-									flex: 1,
-								}}
-							>
-								{file.path}
-							</span>
-							<span
-								style={{
-									fontSize: 10,
-									color: statusColor(file.status),
-									flexShrink: 0,
-								}}
-							>
-								{statusLabel(file.status)}
-							</span>
-							<span
-								onClick={(e) => {
-									e.stopPropagation()
-									if (sectionType === "staged") {
-										handleUnstage([file.path])
-									} else {
-										handleStage([file.path])
-									}
-								}}
-								style={{
-									fontSize: 13,
-									color:
-										sectionType === "staged"
-											? "var(--error)"
-											: "var(--success)",
-									cursor: "pointer",
-									padding: "0 2px",
-									fontWeight: 700,
-									flexShrink: 0,
-									lineHeight: 1,
-								}}
-								title={
-									sectionType === "staged" ? "Unstage" : "Stage"
-								}
-							>
-								{sectionType === "staged" ? "\u2212" : "+"}
-							</span>
-						</button>
-					)
-				})}
 			</div>
 		)
 	}
@@ -705,9 +300,39 @@ export function GitPanel({ onFileClick, activeFilePath }: GitPanelProps) {
 				</div>
 			) : (
 				<>
-					{renderSection("Staged", staged, "staged")}
-					{renderSection("Unstaged", unstaged, "unstaged")}
-					{renderSection("Untracked", untracked, "untracked")}
+					<FileSection
+						title="Staged"
+						files={staged}
+						sectionType="staged"
+						activeFilePath={activeFilePath}
+						onFileClick={onFileClick}
+						onStage={handleStage}
+						onUnstage={handleUnstage}
+						onStageAll={handleStageAll}
+						onUnstageAll={handleUnstageAll}
+					/>
+					<FileSection
+						title="Unstaged"
+						files={unstaged}
+						sectionType="unstaged"
+						activeFilePath={activeFilePath}
+						onFileClick={onFileClick}
+						onStage={handleStage}
+						onUnstage={handleUnstage}
+						onStageAll={handleStageAll}
+						onUnstageAll={handleUnstageAll}
+					/>
+					<FileSection
+						title="Untracked"
+						files={untracked}
+						sectionType="untracked"
+						activeFilePath={activeFilePath}
+						onFileClick={onFileClick}
+						onStage={handleStage}
+						onUnstage={handleUnstage}
+						onStageAll={handleStageAll}
+						onUnstageAll={handleUnstageAll}
+					/>
 				</>
 			)}
 		</div>

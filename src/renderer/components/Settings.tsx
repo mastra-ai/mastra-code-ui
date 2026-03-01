@@ -1,232 +1,20 @@
 import { useState, useEffect, useCallback } from "react"
-import { ModelPickerInline, type ModelInfo } from "./ModelSelector"
-
-type NotificationMode = "off" | "bell" | "system" | "both"
-type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high"
-
-interface SettingsState {
-	notifications: NotificationMode
-	yolo: boolean
-	smartEditing: boolean
-	thinkingLevel: ThinkingLevel
-	observerModelId: string
-	reflectorModelId: string
-	observationThreshold: number
-	reflectionThreshold: number
-	prInstructions: string
-	defaultClonePath: string
-}
-
-interface PermissionCategory {
-	label: string
-	description: string
-}
-
-interface PermissionData {
-	rules: {
-		categories: Record<string, string>
-		tools: Record<string, string>
-	}
-	sessionGrants: string[]
-	categories: Record<string, PermissionCategory>
-}
-
-interface McpServerStatus {
-	name: string
-	connected: boolean
-	toolCount: number
-	toolNames: string[]
-	error?: string
-}
-
-interface SettingsProps {
-	onClose?: () => void
-	loggedInProviders?: Set<string>
-	onLogin?: (providerId: string) => void
-	onApiKey?: (providerId: string, apiKey: string) => void
-	onLogout?: (providerId: string) => void
-	initialSection?: string
-	onSectionChange?: (section: string) => void
-}
-
-// Reusable setting row
-function SettingRow({
-	label,
-	description,
-	children,
-}: {
-	label: string
-	description?: string
-	children: React.ReactNode
-}) {
-	return (
-		<div
-			style={{
-				display: "flex",
-				alignItems: "center",
-				justifyContent: "space-between",
-				padding: "12px 0",
-				borderBottom: "1px solid var(--border-muted)",
-				gap: 24,
-			}}
-		>
-			<div style={{ flex: 1, minWidth: 0 }}>
-				<div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>
-					{label}
-				</div>
-				{description && (
-					<div
-						style={{
-							fontSize: 11,
-							color: "var(--muted)",
-							marginTop: 2,
-							lineHeight: 1.4,
-						}}
-					>
-						{description}
-					</div>
-				)}
-			</div>
-			<div style={{ flexShrink: 0 }}>{children}</div>
-		</div>
-	)
-}
-
-// Toggle switch
-function Toggle({
-	checked,
-	onChange,
-}: {
-	checked: boolean
-	onChange: (v: boolean) => void
-}) {
-	return (
-		<button
-			onClick={() => onChange(!checked)}
-			style={{
-				width: 36,
-				height: 20,
-				borderRadius: 10,
-				background: checked ? "var(--accent)" : "var(--bg-elevated)",
-				border: `1px solid ${checked ? "var(--accent)" : "var(--border)"}`,
-				position: "relative",
-				cursor: "pointer",
-				transition: "background 0.15s, border-color 0.15s",
-			}}
-		>
-			<span
-				style={{
-					position: "absolute",
-					top: 2,
-					left: checked ? 18 : 2,
-					width: 14,
-					height: 14,
-					borderRadius: "50%",
-					background: "#fff",
-					transition: "left 0.15s",
-				}}
-			/>
-		</button>
-	)
-}
-
-// Select dropdown
-function Select({
-	value,
-	options,
-	onChange,
-}: {
-	value: string
-	options: Array<{ value: string; label: string }>
-	onChange: (v: string) => void
-}) {
-	return (
-		<select
-			value={value}
-			onChange={(e) => onChange(e.target.value)}
-			style={{
-				background: "var(--bg-elevated)",
-				color: "var(--text)",
-				border: "1px solid var(--border)",
-				borderRadius: 4,
-				padding: "4px 8px",
-				fontSize: 12,
-				cursor: "pointer",
-				fontFamily: "inherit",
-				minWidth: 120,
-			}}
-		>
-			{options.map((o) => (
-				<option key={o.value} value={o.value}>
-					{o.label}
-				</option>
-			))}
-		</select>
-	)
-}
-
-// Section header
-function SectionHeader({ title }: { title: string }) {
-	return (
-		<div
-			style={{
-				fontSize: 10,
-				fontWeight: 600,
-				color: "var(--muted)",
-				textTransform: "uppercase",
-				letterSpacing: "0.5px",
-				padding: "16px 0 4px",
-			}}
-		>
-			{title}
-		</div>
-	)
-}
-
-const notificationOptions: Array<{ value: string; label: string }> = [
-	{ value: "off", label: "Off" },
-	{ value: "bell", label: "Sound" },
-	{ value: "system", label: "System" },
-	{ value: "both", label: "Sound + System" },
-]
-
-const thinkingOptions: Array<{ value: string; label: string }> = [
-	{ value: "off", label: "Off" },
-	{ value: "minimal", label: "Minimal" },
-	{ value: "low", label: "Low" },
-	{ value: "medium", label: "Medium" },
-	{ value: "high", label: "High" },
-]
-
-const policyOptions: Array<{ value: string; label: string }> = [
-	{ value: "allow", label: "Allow" },
-	{ value: "ask", label: "Ask" },
-	{ value: "deny", label: "Deny" },
-]
-
-const accountProviders = [
-	{
-		id: "anthropic",
-		name: "Anthropic",
-		description: "Claude models via subscription or API key",
-		hasOAuth: true,
-		apiKeyPlaceholder: "sk-ant-...",
-	},
-	{
-		id: "openai-codex",
-		name: "OpenAI",
-		description: "GPT models via subscription or API key",
-		hasOAuth: true,
-		apiKeyPlaceholder: "sk-...",
-	},
-	{
-		id: "google",
-		name: "Google",
-		description: "Gemini models via API key",
-		hasOAuth: false,
-		apiKeyPlaceholder: "AIza...",
-	},
-]
+import { type ModelInfo } from "./ModelSelector"
+import type {
+	NotificationMode,
+	ThinkingLevel,
+	SettingsState,
+	PermissionData,
+	McpServerStatus,
+	SettingsProps,
+} from "../types/settings"
+import { AccountsSection } from "./settings/AccountsSection"
+import { GeneralSection } from "./settings/GeneralSection"
+import { McpSection } from "./settings/McpSection"
+import { ModelsSection } from "./settings/ModelsSection"
+import { AgentSection } from "./settings/AgentSection"
+import { GitSection } from "./settings/GitSection"
+import { MemorySection } from "./settings/MemorySection"
 
 export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogout, initialSection, onSectionChange }: SettingsProps) {
 	const [state, setState] = useState<SettingsState | null>(null)
@@ -244,8 +32,6 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 	const [permissions, setPermissions] = useState<PermissionData | null>(null)
 	const [mcpStatuses, setMcpStatuses] = useState<McpServerStatus[]>([])
 	const [mcpLoading, setMcpLoading] = useState(false)
-	const [addingServer, setAddingServer] = useState(false)
-	const [newServer, setNewServer] = useState({ name: "", command: "", args: "", scope: "project" })
 
 	// Load current state
 	useEffect(() => {
@@ -378,28 +164,26 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 		}
 	}, [])
 
-	const handleAddServer = useCallback(async () => {
-		if (!newServer.name || !newServer.command) return
+	const handleAddServer = useCallback(async (server: { name: string; command: string; args: string; scope: string }) => {
+		if (!server.name || !server.command) return
 		setMcpLoading(true)
 		try {
 			const statuses = await window.api.invoke({
 				type: "addMcpServer",
-				serverName: newServer.name,
-				serverCommand: newServer.command,
-				serverArgs: newServer.args
-					? newServer.args.split(/\s+/).filter(Boolean)
+				serverName: server.name,
+				serverCommand: server.command,
+				serverArgs: server.args
+					? server.args.split(/\s+/).filter(Boolean)
 					: [],
-				scope: newServer.scope,
+				scope: server.scope,
 			})
 			setMcpStatuses((statuses as McpServerStatus[]) ?? [])
-			setNewServer({ name: "", command: "", args: "", scope: "project" })
-			setAddingServer(false)
 		} catch {
 			// ignore
 		} finally {
 			setMcpLoading(false)
 		}
-	}, [newServer])
+	}, [])
 
 	const handleRemoveServer = useCallback(async (serverName: string) => {
 		setMcpLoading(true)
@@ -425,9 +209,6 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 		window.addEventListener("keydown", handleKey)
 		return () => window.removeEventListener("keydown", handleKey)
 	}, [onClose])
-
-	const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({})
-	const [showApiKeyFor, setShowApiKeyFor] = useState<string | null>(null)
 
 	const sections = [
 		{ id: "accounts", label: "Accounts" },
@@ -550,867 +331,63 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 						) : (
 							<>
 								{activeSection === "accounts" && (
-									<>
-										<SectionHeader title="Connected Providers" />
-										<div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 0" }}>
-											{accountProviders.map((p) => {
-												const connected = loggedInProviders?.has(p.id) ?? false
-												return (
-													<div
-														key={p.id}
-														style={{
-															display: "flex",
-															flexDirection: "column",
-															background: "var(--bg-surface)",
-															border: `1px solid ${connected ? "var(--border)" : "var(--border-muted)"}`,
-															borderRadius: 8,
-															overflow: "hidden",
-														}}
-													>
-														<div
-															style={{
-																display: "flex",
-																alignItems: "center",
-																gap: 10,
-																padding: "12px 14px",
-															}}
-														>
-															{/* Status dot */}
-															<span
-																style={{
-																	width: 7,
-																	height: 7,
-																	borderRadius: "50%",
-																	background: connected ? "#4ade80" : "var(--border)",
-																	flexShrink: 0,
-																}}
-															/>
-															<div style={{ flex: 1, minWidth: 0 }}>
-																<div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>
-																	{p.name}
-																</div>
-																<div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
-																	{p.description}
-																</div>
-															</div>
-															<div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-																{connected ? (
-																	<button
-																		onClick={() => onLogout?.(p.id)}
-																		style={{
-																			padding: "5px 12px",
-																			background: "transparent",
-																			color: "var(--muted)",
-																			borderRadius: 5,
-																			cursor: "pointer",
-																			fontSize: 11,
-																			border: "1px solid var(--border)",
-																		}}
-																	>
-																		Disconnect
-																	</button>
-																) : (
-																	<>
-																		{p.hasOAuth && (
-																			<button
-																				onClick={() => onLogin?.(p.id)}
-																				style={{
-																					padding: "5px 12px",
-																					background: "var(--accent)",
-																					color: "#fff",
-																					borderRadius: 5,
-																					cursor: "pointer",
-																					fontWeight: 500,
-																					fontSize: 11,
-																					border: "none",
-																				}}
-																			>
-																				Sign In
-																			</button>
-																		)}
-																		<button
-																			onClick={() => setShowApiKeyFor(showApiKeyFor === p.id ? null : p.id)}
-																			style={{
-																				padding: "5px 12px",
-																				background: showApiKeyFor === p.id ? "var(--bg-elevated)" : "transparent",
-																				color: "var(--muted)",
-																				borderRadius: 5,
-																				cursor: "pointer",
-																				fontSize: 11,
-																				border: "1px solid var(--border)",
-																			}}
-																		>
-																			API Key
-																		</button>
-																	</>
-																)}
-															</div>
-														</div>
-														{showApiKeyFor === p.id && !connected && (
-															<div style={{ padding: "0 14px 12px", display: "flex", gap: 6 }}>
-																<input
-																	type="password"
-																	value={apiKeyInputs[p.id] ?? ""}
-																	onChange={(e) => setApiKeyInputs((prev) => ({ ...prev, [p.id]: e.target.value }))}
-																	onKeyDown={(e) => {
-																		if (e.key === "Enter" && (apiKeyInputs[p.id] ?? "").trim()) {
-																			onApiKey?.(p.id, apiKeyInputs[p.id].trim())
-																			setApiKeyInputs((prev) => ({ ...prev, [p.id]: "" }))
-																			setShowApiKeyFor(null)
-																		}
-																	}}
-																	placeholder={p.apiKeyPlaceholder}
-																	autoFocus
-																	style={{
-																		flex: 1,
-																		padding: "6px 10px",
-																		background: "var(--bg-elevated)",
-																		border: "1px solid var(--border)",
-																		borderRadius: 5,
-																		color: "var(--text)",
-																		fontSize: 12,
-																		fontFamily: "inherit",
-																		outline: "none",
-																	}}
-																/>
-																<button
-																	onClick={() => {
-																		const key = (apiKeyInputs[p.id] ?? "").trim()
-																		if (!key) return
-																		onApiKey?.(p.id, key)
-																		setApiKeyInputs((prev) => ({ ...prev, [p.id]: "" }))
-																		setShowApiKeyFor(null)
-																	}}
-																	disabled={!(apiKeyInputs[p.id] ?? "").trim()}
-																	style={{
-																		padding: "6px 12px",
-																		background: (apiKeyInputs[p.id] ?? "").trim() ? "var(--accent)" : "var(--bg-elevated)",
-																		color: (apiKeyInputs[p.id] ?? "").trim() ? "#fff" : "var(--dim)",
-																		borderRadius: 5,
-																		cursor: (apiKeyInputs[p.id] ?? "").trim() ? "pointer" : "default",
-																		fontWeight: 500,
-																		fontSize: 11,
-																		border: "none",
-																	}}
-																>
-																	Connect
-																</button>
-															</div>
-														)}
-													</div>
-												)
-											})}
-										</div>
-										<div
-											style={{
-												fontSize: 11,
-												color: "var(--dim)",
-												padding: "12px 0",
-												lineHeight: 1.5,
-											}}
-										>
-											You can also set API keys via environment variables
-											(ANTHROPIC_API_KEY, OPENAI_API_KEY) or sign in with
-											OAuth for subscription-based access.
-										</div>
-									</>
+									<AccountsSection
+										loggedInProviders={loggedInProviders}
+										onLogin={onLogin}
+										onApiKey={onApiKey}
+										onLogout={onLogout}
+									/>
 								)}
 
 								{activeSection === "general" && (
-									<>
-										<SectionHeader title="Notifications" />
-										<SettingRow
-											label="Notification mode"
-											description="How to notify you when the agent finishes or needs attention"
-										>
-											<Select
-												value={state.notifications}
-												options={notificationOptions}
-												onChange={(v) =>
-													update(
-														"notifications",
-														v as NotificationMode,
-													)
-												}
-											/>
-										</SettingRow>
-
-										<SectionHeader title="Permissions" />
-										<SettingRow
-											label="Auto-approve all tools"
-											description="Skip confirmation dialogs for all tool execution (YOLO mode)"
-										>
-											<Toggle
-												checked={state.yolo}
-												onChange={(v) => update("yolo", v)}
-											/>
-										</SettingRow>
-
-										{!state.yolo && permissions && (
-											<div style={{ paddingBottom: 8 }}>
-												<div
-													style={{
-														fontSize: 11,
-														color: "var(--muted)",
-														padding: "4px 0 8px",
-														lineHeight: 1.4,
-													}}
-												>
-													Fine-tune approval per tool category:
-												</div>
-												{Object.entries(permissions.categories).map(
-													([catId, cat]) => (
-														<SettingRow
-															key={catId}
-															label={cat.label}
-															description={cat.description}
-														>
-															<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-																<Select
-																	value={permissions.rules.categories[catId] ?? "ask"}
-																	options={policyOptions}
-																	onChange={(v) => updatePermissionPolicy(catId, v)}
-																/>
-																{permissions.sessionGrants.includes(catId) && (
-																	<span
-																		style={{
-																			fontSize: 9,
-																			color: "#059669",
-																			background: "#05966922",
-																			padding: "1px 5px",
-																			borderRadius: 3,
-																			border: "1px solid #05966944",
-																			whiteSpace: "nowrap",
-																		}}
-																	>
-																		Session grant
-																	</span>
-																)}
-															</div>
-														</SettingRow>
-													),
-												)}
-												{permissions.sessionGrants.length > 0 && (
-													<div style={{ paddingTop: 8 }}>
-														<button
-															onClick={resetSessionGrants}
-															style={{
-																padding: "5px 10px",
-																background: "var(--bg-surface)",
-																color: "var(--muted)",
-																borderRadius: 6,
-																border: "1px solid var(--border)",
-																cursor: "pointer",
-																fontSize: 11,
-															}}
-														>
-															Reset session grants
-														</button>
-													</div>
-												)}
-											</div>
-										)}
-										<SectionHeader title="Workspaces" />
-										<SettingRow
-											label="Default clone location"
-											description="Where repositories are cloned to by default"
-										>
-											<div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-												<input
-													type="text"
-													value={state.defaultClonePath}
-													onChange={(e) => update("defaultClonePath", e.target.value)}
-													style={{
-														width: 220,
-														padding: "6px 10px",
-														background: "var(--bg-elevated)",
-														border: "1px solid var(--border)",
-														borderRadius: 6,
-														color: "var(--text)",
-														fontSize: 12,
-														fontFamily: "inherit",
-														outline: "none",
-													}}
-												/>
-												<button
-													onClick={async () => {
-														try {
-															const result = (await window.api.invoke({
-																type: "browseFolder",
-																title: "Choose default clone location",
-																defaultPath: state.defaultClonePath || undefined,
-															})) as { path?: string; cancelled?: boolean }
-															if (result?.path) update("defaultClonePath", result.path)
-														} catch {
-															// cancelled
-														}
-													}}
-													style={{
-														padding: "6px 12px",
-														background: "var(--bg-elevated)",
-														color: "var(--text)",
-														border: "1px solid var(--border)",
-														borderRadius: 6,
-														cursor: "pointer",
-														fontSize: 12,
-														whiteSpace: "nowrap",
-													}}
-												>
-													Browse...
-												</button>
-											</div>
-										</SettingRow>
-									</>
+									<GeneralSection
+										state={state}
+										permissions={permissions}
+										update={update}
+										updatePermissionPolicy={updatePermissionPolicy}
+										resetSessionGrants={resetSessionGrants}
+									/>
 								)}
 
 								{activeSection === "mcp" && (
-									<>
-										<SectionHeader title="MCP Servers" />
-										<div
-											style={{
-												fontSize: 11,
-												color: "var(--muted)",
-												padding: "4px 0 8px",
-												lineHeight: 1.4,
-											}}
-										>
-											External tool servers connected via Model
-											Context Protocol.
-										</div>
-
-										{mcpLoading && (
-											<div
-												style={{
-													padding: 16,
-													textAlign: "center",
-													color: "var(--muted)",
-													fontSize: 12,
-												}}
-											>
-												Loading...
-											</div>
-										)}
-
-										{!mcpLoading &&
-											mcpStatuses.length === 0 && (
-												<div
-													style={{
-														padding: "16px 0",
-														color: "var(--muted)",
-														fontSize: 12,
-													}}
-												>
-													No MCP servers configured.
-												</div>
-											)}
-
-										{!mcpLoading &&
-											mcpStatuses.map((server) => (
-												<div
-													key={server.name}
-													style={{
-														padding: "10px 0",
-														borderBottom:
-															"1px solid var(--border-muted)",
-													}}
-												>
-													<div
-														style={{
-															display: "flex",
-															alignItems: "center",
-															justifyContent:
-																"space-between",
-														}}
-													>
-														<div
-															style={{
-																display: "flex",
-																alignItems:
-																	"center",
-																gap: 8,
-															}}
-														>
-															<span
-																style={{
-																	width: 6,
-																	height: 6,
-																	borderRadius:
-																		"50%",
-																	background:
-																		server.connected
-																			? "#059669"
-																			: "#ef4444",
-																	flexShrink: 0,
-																}}
-															/>
-															<span
-																style={{
-																	fontSize: 13,
-																	fontWeight: 500,
-																	color: "var(--text)",
-																}}
-															>
-																{server.name}
-															</span>
-															<span
-																style={{
-																	fontSize: 10,
-																	color: "var(--muted)",
-																}}
-															>
-																{server.connected
-																	? `${server.toolCount} tools`
-																	: "disconnected"}
-															</span>
-														</div>
-														<button
-															onClick={() =>
-																handleRemoveServer(
-																	server.name,
-																)
-															}
-															style={{
-																padding: "2px 8px",
-																background:
-																	"transparent",
-																color: "var(--muted)",
-																borderRadius: 4,
-																border: "1px solid var(--border-muted)",
-																cursor: "pointer",
-																fontSize: 10,
-															}}
-														>
-															Remove
-														</button>
-													</div>
-													{server.error && (
-														<div
-															style={{
-																fontSize: 11,
-																color: "#ef4444",
-																marginTop: 4,
-																paddingLeft: 14,
-															}}
-														>
-															{server.error}
-														</div>
-													)}
-													{server.connected &&
-														server.toolNames
-															.length > 0 && (
-															<div
-																style={{
-																	fontSize: 10,
-																	color: "var(--muted)",
-																	marginTop: 4,
-																	paddingLeft: 14,
-																	lineHeight: 1.6,
-																}}
-															>
-																{server.toolNames.join(
-																	", ",
-																)}
-															</div>
-														)}
-												</div>
-											))}
-
-										<div
-											style={{
-												paddingTop: 12,
-												display: "flex",
-												gap: 8,
-											}}
-										>
-											<button
-												onClick={() =>
-													setAddingServer(!addingServer)
-												}
-												style={{
-													padding: "6px 12px",
-													background:
-														"var(--bg-surface)",
-													color: "var(--accent)",
-													borderRadius: 6,
-													border: "1px solid var(--accent)",
-													cursor: "pointer",
-													fontSize: 11,
-												}}
-											>
-												{addingServer
-													? "Cancel"
-													: "Add server"}
-											</button>
-											<button
-												onClick={handleReloadMcp}
-												style={{
-													padding: "6px 12px",
-													background:
-														"var(--bg-surface)",
-													color: "var(--muted)",
-													borderRadius: 6,
-													border: "1px solid var(--border)",
-													cursor: "pointer",
-													fontSize: 11,
-												}}
-											>
-												Reload all
-											</button>
-										</div>
-
-										{addingServer && (
-											<div
-												style={{
-													marginTop: 12,
-													padding: 12,
-													background:
-														"var(--bg-surface)",
-													borderRadius: 8,
-													border: "1px solid var(--border-muted)",
-												}}
-											>
-												<div
-													style={{
-														display: "flex",
-														flexDirection: "column",
-														gap: 8,
-													}}
-												>
-													<input
-														value={newServer.name}
-														onChange={(e) =>
-															setNewServer((p) => ({
-																...p,
-																name: e.target
-																	.value,
-															}))
-														}
-														placeholder="Server name"
-														style={{
-															padding: "6px 8px",
-															background:
-																"var(--bg-elevated)",
-															color: "var(--text)",
-															border: "1px solid var(--border)",
-															borderRadius: 4,
-															fontSize: 12,
-															fontFamily: "inherit",
-														}}
-													/>
-													<input
-														value={
-															newServer.command
-														}
-														onChange={(e) =>
-															setNewServer((p) => ({
-																...p,
-																command:
-																	e.target
-																		.value,
-															}))
-														}
-														placeholder="Command (e.g., npx)"
-														style={{
-															padding: "6px 8px",
-															background:
-																"var(--bg-elevated)",
-															color: "var(--text)",
-															border: "1px solid var(--border)",
-															borderRadius: 4,
-															fontSize: 12,
-															fontFamily: "inherit",
-														}}
-													/>
-													<input
-														value={newServer.args}
-														onChange={(e) =>
-															setNewServer((p) => ({
-																...p,
-																args: e.target
-																	.value,
-															}))
-														}
-														placeholder="Arguments (space-separated)"
-														style={{
-															padding: "6px 8px",
-															background:
-																"var(--bg-elevated)",
-															color: "var(--text)",
-															border: "1px solid var(--border)",
-															borderRadius: 4,
-															fontSize: 12,
-															fontFamily: "inherit",
-														}}
-													/>
-													<div
-														style={{
-															display: "flex",
-															alignItems:
-																"center",
-															gap: 8,
-														}}
-													>
-														<Select
-															value={
-																newServer.scope
-															}
-															options={[
-																{
-																	value: "project",
-																	label: "Project",
-																},
-																{
-																	value: "global",
-																	label: "Global",
-																},
-															]}
-															onChange={(v) =>
-																setNewServer(
-																	(p) => ({
-																		...p,
-																		scope: v,
-																	}),
-																)
-															}
-														/>
-														<button
-															onClick={
-																handleAddServer
-															}
-															disabled={
-																!newServer.name ||
-																!newServer.command
-															}
-															style={{
-																padding:
-																	"6px 16px",
-																background:
-																	newServer.name &&
-																	newServer.command
-																		? "var(--accent)"
-																		: "var(--bg-elevated)",
-																color:
-																	newServer.name &&
-																	newServer.command
-																		? "#fff"
-																		: "var(--muted)",
-																borderRadius: 6,
-																cursor:
-																	newServer.name &&
-																	newServer.command
-																		? "pointer"
-																		: "default",
-																fontSize: 12,
-																fontWeight: 500,
-															}}
-														>
-															Add
-														</button>
-													</div>
-												</div>
-											</div>
-										)}
-									</>
+									<McpSection
+										mcpStatuses={mcpStatuses}
+										mcpLoading={mcpLoading}
+										onReload={handleReloadMcp}
+										onAddServer={handleAddServer}
+										onRemoveServer={handleRemoveServer}
+									/>
 								)}
 
 								{activeSection === "models" && (
-									<>
-										<SectionHeader title="Thinking" />
-										<SettingRow
-											label="Extended thinking"
-											description="Budget for chain-of-thought reasoning (Anthropic models)"
-										>
-											<Select
-												value={state.thinkingLevel}
-												options={thinkingOptions}
-												onChange={(v) =>
-													update(
-														"thinkingLevel",
-														v as ThinkingLevel,
-													)
-												}
-											/>
-										</SettingRow>
-
-										<div
-											style={{
-												fontSize: 11,
-												color: "var(--dim)",
-												padding: "12px 0",
-												lineHeight: 1.5,
-											}}
-										>
-											Use the model selector in the status bar
-											to change the active model and mode.
-										</div>
-									</>
+									<ModelsSection
+										state={state}
+										update={update}
+									/>
 								)}
 
 								{activeSection === "agent" && (
-									<>
-										<SectionHeader title="Editing" />
-										<SettingRow
-											label="Smart editing"
-											description="Use LSP-based intelligent edits when available"
-										>
-											<Toggle
-												checked={state.smartEditing}
-												onChange={(v) =>
-													update("smartEditing", v)
-												}
-											/>
-										</SettingRow>
-									</>
+									<AgentSection
+										state={state}
+										update={update}
+									/>
 								)}
 
 								{activeSection === "git" && (
-									<>
-										<SectionHeader title="Pull Requests" />
-										<div style={{ padding: "12px 0" }}>
-											<div
-												style={{
-													fontSize: 13,
-													fontWeight: 500,
-													color: "var(--text)",
-													marginBottom: 4,
-												}}
-											>
-												PR instructions
-											</div>
-											<div
-												style={{
-													fontSize: 11,
-													color: "var(--muted)",
-													marginBottom: 8,
-													lineHeight: 1.4,
-												}}
-											>
-												Custom instructions the agent follows
-												when creating pull requests (e.g.
-												format, reviewers, labels, conventions)
-											</div>
-											<textarea
-												value={state.prInstructions}
-												onChange={(e) => {
-													const v = e.target.value
-													setState((prev) =>
-														prev
-															? {
-																	...prev,
-																	prInstructions: v,
-																}
-															: prev,
-													)
-												}}
-												onBlur={() =>
-													update(
-														"prInstructions",
-														state.prInstructions,
-													)
-												}
-												placeholder={`Example:\n- Always include a "Test plan" section\n- Add the "team/frontend" label\n- Tag @grayson for review`}
-												rows={6}
-												style={{
-													width: "100%",
-													background:
-														"var(--bg-elevated)",
-													color: "var(--text)",
-													border: "1px solid var(--border)",
-													borderRadius: 6,
-													padding: "8px 10px",
-													fontSize: 12,
-													fontFamily: "inherit",
-													lineHeight: 1.5,
-													resize: "vertical",
-													minHeight: 80,
-												}}
-											/>
-										</div>
-									</>
+									<GitSection
+										state={state}
+										setState={setState}
+										update={update}
+									/>
 								)}
 
 								{activeSection === "memory" && (
-									<>
-										<SectionHeader title="Observational Memory" />
-										<SettingRow
-											label="Observer model"
-											description="Model used to analyze conversation and extract observations"
-										>
-											<ModelPickerInline
-												currentModelId={state.observerModelId}
-												models={models}
-												loading={!modelsLoaded}
-												onSelect={(v) =>
-													update("observerModelId", v)
-												}
-											/>
-										</SettingRow>
-										<SettingRow
-											label="Reflector model"
-											description="Model used to synthesize observations into memory"
-										>
-											<ModelPickerInline
-												currentModelId={state.reflectorModelId}
-												models={models}
-												loading={!modelsLoaded}
-												onSelect={(v) =>
-													update("reflectorModelId", v)
-												}
-											/>
-										</SettingRow>
-
-										<SectionHeader title="Thresholds" />
-										<SettingRow
-											label="Observation threshold"
-											description="Token count that triggers observation extraction"
-										>
-											<input
-												type="number"
-												value={state.observationThreshold}
-												onChange={(e) => {
-													const v = parseInt(e.target.value, 10)
-													if (!isNaN(v) && v > 0)
-														update("observationThreshold", v)
-												}}
-												style={{
-													width: 80,
-													background: "var(--bg-elevated)",
-													color: "var(--text)",
-													border: "1px solid var(--border)",
-													borderRadius: 4,
-													padding: "4px 8px",
-													fontSize: 12,
-													fontFamily: "inherit",
-													textAlign: "right",
-												}}
-											/>
-										</SettingRow>
-										<SettingRow
-											label="Reflection threshold"
-											description="Token count that triggers memory reflection"
-										>
-											<input
-												type="number"
-												value={state.reflectionThreshold}
-												onChange={(e) => {
-													const v = parseInt(e.target.value, 10)
-													if (!isNaN(v) && v > 0)
-														update("reflectionThreshold", v)
-												}}
-												style={{
-													width: 80,
-													background: "var(--bg-elevated)",
-													color: "var(--text)",
-													border: "1px solid var(--border)",
-													borderRadius: 4,
-													padding: "4px 8px",
-													fontSize: 12,
-													fontFamily: "inherit",
-													textAlign: "right",
-												}}
-											/>
-										</SettingRow>
-									</>
+									<MemorySection
+										state={state}
+										models={models}
+										modelsLoaded={modelsLoaded}
+										update={update}
+									/>
 								)}
 							</>
 						)}

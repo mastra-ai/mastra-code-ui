@@ -1,8 +1,10 @@
-import { useState, useRef, useCallback, useEffect } from "react"
-import { ProjectList, type EnrichedProject } from "./ProjectList"
+import { useState, useCallback } from "react"
+import { ProjectList } from "./ProjectList"
+import type { EnrichedProject } from "../types/project-list"
+import { ConfirmDialog } from "./ConfirmDialog"
+import { ResizeHandle } from "./ResizeHandle"
 import type { ThreadInfo } from "../types/ipc"
-
-export type WorktreeStatus = "in_progress" | "in_review" | "done" | "archived"
+import type { WorktreeStatus } from "../types/project"
 
 interface SidebarProps {
 	threads: ThreadInfo[]
@@ -79,38 +81,9 @@ export function Sidebar({
 	const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 	const [historyCollapsed, setHistoryCollapsed] = useState(false)
 	const [historyHeight, setHistoryHeight] = useState(160)
-	const isDragging = useRef(false)
-	const dragStartY = useRef(0)
-	const dragStartHeight = useRef(0)
 
-	const handleResizeStart = useCallback((e: React.MouseEvent) => {
-		e.preventDefault()
-		isDragging.current = true
-		dragStartY.current = e.clientY
-		dragStartHeight.current = historyHeight
-		document.body.style.cursor = "ns-resize"
-		document.body.style.userSelect = "none"
-	}, [historyHeight])
-
-	useEffect(() => {
-		const handleMouseMove = (e: MouseEvent) => {
-			if (!isDragging.current) return
-			const delta = dragStartY.current - e.clientY
-			const newHeight = Math.max(60, Math.min(500, dragStartHeight.current + delta))
-			setHistoryHeight(newHeight)
-		}
-		const handleMouseUp = () => {
-			if (!isDragging.current) return
-			isDragging.current = false
-			document.body.style.cursor = ""
-			document.body.style.userSelect = ""
-		}
-		window.addEventListener("mousemove", handleMouseMove)
-		window.addEventListener("mouseup", handleMouseUp)
-		return () => {
-			window.removeEventListener("mousemove", handleMouseMove)
-			window.removeEventListener("mouseup", handleMouseUp)
-		}
+	const handleResize = useCallback((delta: number) => {
+		setHistoryHeight((h) => Math.max(60, Math.min(500, h + delta)))
 	}, [])
 
 	if (!sidebarVisible) return null
@@ -251,19 +224,7 @@ export function Sidebar({
 			</div>
 
 			{/* Resize handle */}
-			<div
-				onMouseDown={handleResizeStart}
-				style={{
-					height: 5,
-					flexShrink: 0,
-					cursor: "ns-resize",
-					borderTop: "1px solid var(--border-muted)",
-					background: "transparent",
-					transition: "background 0.15s",
-				}}
-				onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--border-muted)" }}
-				onMouseLeave={(e) => { if (!isDragging.current) (e.currentTarget as HTMLElement).style.background = "transparent" }}
-			/>
+			<ResizeHandle onResize={handleResize} />
 
 			{/* Bottom section: threads + providers — pinned to bottom */}
 			<div
@@ -534,70 +495,16 @@ export function Sidebar({
 
 			{/* Delete confirmation modal */}
 			{confirmDeleteId && (
-				<div
-					style={{
-						position: "fixed",
-						inset: 0,
-						background: "rgba(0,0,0,0.5)",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						zIndex: 9999,
+				<ConfirmDialog
+					title="Delete thread?"
+					description={`"${threads.find((t) => t.id === confirmDeleteId)?.title || "Untitled"}" will be permanently deleted.`}
+					confirmLabel="Delete"
+					onConfirm={() => {
+						onDeleteThread(confirmDeleteId)
+						setConfirmDeleteId(null)
 					}}
-					onClick={() => setConfirmDeleteId(null)}
-				>
-					<div
-						onClick={(e) => e.stopPropagation()}
-						style={{
-							background: "var(--bg-surface)",
-							border: "1px solid var(--border-muted)",
-							borderRadius: 8,
-							padding: "20px 24px",
-							maxWidth: 320,
-							width: "90%",
-						}}
-					>
-						<div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
-							Delete thread?
-						</div>
-						<div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
-							"{threads.find((t) => t.id === confirmDeleteId)?.title || "Untitled"}" will be permanently deleted.
-						</div>
-						<div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-							<button
-								onClick={() => setConfirmDeleteId(null)}
-								style={{
-									padding: "6px 14px",
-									fontSize: 12,
-									borderRadius: 4,
-									background: "var(--bg)",
-									color: "var(--text)",
-									cursor: "pointer",
-									border: "1px solid var(--border-muted)",
-								}}
-							>
-								Cancel
-							</button>
-							<button
-								onClick={() => {
-									onDeleteThread(confirmDeleteId)
-									setConfirmDeleteId(null)
-								}}
-								style={{
-									padding: "6px 14px",
-									fontSize: 12,
-									borderRadius: 4,
-									background: "var(--error)",
-									color: "#fff",
-									cursor: "pointer",
-									border: "none",
-								}}
-							>
-								Delete
-							</button>
-						</div>
-					</div>
-				</div>
+					onCancel={() => setConfirmDeleteId(null)}
+				/>
 			)}
 		</div>
 	)
