@@ -18,6 +18,7 @@ import { AgentDashboard } from "./components/AgentDashboard"
 import { CommandPalette, type CommandItem } from "./components/CommandPalette"
 import { QuickFileOpen } from "./components/QuickFileOpen"
 import { BrowserView } from "./components/BrowserView"
+import { OpenInDropdown } from "./components/OpenInDropdown"
 import type {
 	TokenUsage,
 	ThreadInfo,
@@ -316,6 +317,41 @@ export function App() {
 		const newMode = modeId === "plan" ? "build" : "plan"
 		await window.api.invoke({ type: "switchMode", modeId: newMode })
 	}, [modeId])
+
+	const handleBuiltinCommand = useCallback(
+		async (name: string) => {
+			switch (name) {
+				case "new":
+					handleNewThread()
+					break
+				case "clear":
+					dispatch({ type: "CLEAR" })
+					break
+				case "plan":
+					await window.api.invoke({ type: "switchMode", modeId: "plan" })
+					break
+				case "build":
+					await window.api.invoke({ type: "switchMode", modeId: "build" })
+					break
+				case "fast":
+					await window.api.invoke({ type: "switchMode", modeId: "fast" })
+					break
+				case "model":
+					dialogs.setShowModelSelector(true)
+					break
+				case "thinking":
+					handleToggleThinking()
+					break
+				case "settings":
+					tabs.setActiveTab("settings")
+					break
+				case "help":
+					dialogs.setShowCommandPalette(true)
+					break
+			}
+		},
+		[handleNewThread, handleToggleThinking],
+	)
 
 	// Command palette items
 	const commandPaletteItems = useMemo((): CommandItem[] => {
@@ -662,6 +698,9 @@ export function App() {
 						)
 					})()}
 
+					{/* Open in... dropdown */}
+					<OpenInDropdown projectPath={project.projectInfo?.rootPath ?? null} />
+
 					{/* Right sidebar toggle */}
 					<button
 						className="titlebar-no-drag"
@@ -768,6 +807,7 @@ export function App() {
 								onAbort={handleAbort}
 								isAgentActive={chat.isAgentActive}
 								modeId={modeId}
+								onBuiltinCommand={handleBuiltinCommand}
 							/>
 						</div>
 

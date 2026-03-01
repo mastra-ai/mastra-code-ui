@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
+import { getFileTypeInfo } from "../utils/fileIcons"
 
 interface FileEntry {
 	name: string
@@ -14,39 +15,89 @@ interface FileTreeProps {
 	activeFilePath?: string | null
 }
 
+function FolderIcon({ open }: { open?: boolean }) {
+	if (open) {
+		return (
+			<svg
+				width="15"
+				height="15"
+				viewBox="0 0 16 16"
+				fill="none"
+				style={{ marginRight: 4, flexShrink: 0 }}
+			>
+				<path
+					d="M1.5 3.5A1 1 0 012.5 2.5H6l1.5 1.5H13a1 1 0 011 1V6H3L1.5 13V3.5z"
+					fill="#60a5fa"
+					fillOpacity="0.3"
+					stroke="#60a5fa"
+					strokeWidth="0.8"
+					strokeLinejoin="round"
+				/>
+				<path
+					d="M3 6h11.5L12.5 13H1L3 6z"
+					fill="#60a5fa"
+					fillOpacity="0.15"
+					stroke="#60a5fa"
+					strokeWidth="0.8"
+					strokeLinejoin="round"
+				/>
+			</svg>
+		)
+	}
+	return (
+		<svg
+			width="15"
+			height="15"
+			viewBox="0 0 16 16"
+			fill="none"
+			style={{ marginRight: 4, flexShrink: 0 }}
+		>
+			<path
+				d="M1.5 3.5A1 1 0 012.5 2.5H6l1.5 1.5H13a1 1 0 011 1V12.5a1 1 0 01-1 1H2.5a1 1 0 01-1-1V3.5z"
+				fill="#60a5fa"
+				fillOpacity="0.2"
+				stroke="#60a5fa"
+				strokeWidth="0.8"
+				strokeLinejoin="round"
+			/>
+		</svg>
+	)
+}
+
 function FileIcon({
 	isDirectory,
 	name,
+	isExpanded,
 }: {
 	isDirectory: boolean
 	name: string
+	isExpanded?: boolean
 }) {
 	if (isDirectory) {
-		return (
-			<span style={{ color: "var(--dir-icon)", marginRight: 4 }}>
-				&#x1F4C1;
-			</span>
-		)
+		return <FolderIcon open={isExpanded} />
 	}
-	const ext = name.split(".").pop()?.toLowerCase()
-	let icon = "\u{1F4C4}" // default file
-	if (ext === "ts" || ext === "tsx") icon = "\u{1D54B}" // T
-	else if (ext === "js" || ext === "jsx") icon = "\u{1D541}" // J
-	else if (ext === "json") icon = "{}"
-	else if (ext === "md") icon = "\u{1D544}" // M
-	else if (ext === "css") icon = "#"
+
+	const { label, color } = getFileTypeInfo(name)
+
 	return (
 		<span
 			style={{
-				color: "var(--file-icon)",
+				color,
 				marginRight: 4,
-				fontSize: 10,
-				width: 14,
-				display: "inline-block",
-				textAlign: "center",
+				fontSize: 9,
+				fontWeight: 700,
+				width: 15,
+				height: 15,
+				display: "inline-flex",
+				alignItems: "center",
+				justifyContent: "center",
+				flexShrink: 0,
+				lineHeight: 1,
+				letterSpacing: "-0.5px",
+				fontFamily: "inherit",
 			}}
 		>
-			{icon}
+			{label}
 		</span>
 	)
 }
@@ -110,7 +161,7 @@ function DirectoryNode({
 				>
 					{expanded ? "\u25BC" : "\u25B6"}
 				</span>
-				<FileIcon isDirectory name={entry.name} />
+				<FileIcon isDirectory name={entry.name} isExpanded={expanded} />
 				<span
 					style={{
 						overflow: "hidden",

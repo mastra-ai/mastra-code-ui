@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from "react"
 
-interface SlashCommand {
+export interface SlashCommand {
 	name: string
 	description: string
+	builtin?: boolean
 }
 
 export function useSlashAutocomplete(
 	filter: string,
 	visible: boolean,
-	onSelect: (commandName: string) => void,
+	onSelect: (command: SlashCommand) => void,
 	onClose: () => void,
 ): {
 	handleKeyDown: (e: React.KeyboardEvent) => boolean
@@ -17,6 +18,7 @@ export function useSlashAutocomplete(
 	const [commands, setCommands] = useState<SlashCommand[]>([])
 	const [selectedIndex, setSelectedIndex] = useState(0)
 	const cacheRef = useRef<SlashCommand[] | null>(null)
+	const listRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
 		if (!visible) return
@@ -48,18 +50,34 @@ export function useSlashAutocomplete(
 		c.name.toLowerCase().includes(filter.toLowerCase()),
 	)
 
-	// Group by namespace
+	// Group: builtins first, then by namespace
+	const builtins = filtered.filter((c) => c.builtin)
+	const custom = filtered.filter((c) => !c.builtin)
+
 	const grouped: Record<string, SlashCommand[]> = {}
-	for (const cmd of filtered) {
+	if (builtins.length > 0) {
+		grouped["commands"] = builtins
+	}
+	for (const cmd of custom) {
 		const namespace = cmd.name.includes(":")
 			? cmd.name.split(":")[0]
-			: "general"
+			: "custom"
 		if (!grouped[namespace]) grouped[namespace] = []
 		grouped[namespace].push(cmd)
 	}
 
 	// Flat list for keyboard nav
 	const flatList = Object.values(grouped).flat()
+
+	// Scroll selected item into view
+	useEffect(() => {
+		if (!visible || !listRef.current) return
+		const items = listRef.current.querySelectorAll("[data-cmd-index]")
+		const selected = items[selectedIndex] as HTMLElement | undefined
+		if (selected) {
+			selected.scrollIntoView({ block: "nearest" })
+		}
+	}, [selectedIndex, visible])
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent): boolean => {
@@ -80,7 +98,7 @@ export function useSlashAutocomplete(
 			if (e.key === "Enter" || e.key === "Tab") {
 				e.preventDefault()
 				if (flatList[selectedIndex]) {
-					onSelect(flatList[selectedIndex].name)
+					onSelect(flatList[selectedIndex])
 				}
 				return true
 			}
@@ -107,19 +125,20 @@ export function useSlashAutocomplete(
 		handleKeyDown,
 		element: (
 			<div
+				ref={listRef}
 				style={{
 					position: "absolute",
 					bottom: "100%",
 					left: 0,
 					right: 0,
-					maxHeight: 240,
+					maxHeight: 280,
 					overflowY: "auto",
 					background: "var(--bg-elevated)",
 					border: "1px solid var(--border)",
 					borderRadius: 8,
 					padding: 4,
 					zIndex: 50,
-					boxShadow: "0 -4px 12px rgba(0,0,0,0.2)",
+					boxShadow: "0 -4px 16px rgba(0,0,0,0.3)",
 					marginBottom: 4,
 				}}
 			>
@@ -129,9 +148,10 @@ export function useSlashAutocomplete(
 							style={{
 								padding: "6px 8px 2px",
 								fontSize: 10,
-								color: "var(--muted)",
+								color: "var(--dim)",
 								textTransform: "uppercase",
 								fontWeight: 600,
+								letterSpacing: "0.5px",
 							}}
 						>
 							{namespace}
@@ -142,15 +162,16 @@ export function useSlashAutocomplete(
 							return (
 								<button
 									key={cmd.name}
-									onClick={() => onSelect(cmd.name)}
+									data-cmd-index={idx}
+									onClick={() => onSelect(cmd)}
 									onMouseEnter={() => setSelectedIndex(idx)}
 									style={{
 										display: "flex",
 										width: "100%",
-										padding: "4px 8px",
+										padding: "6px 8px",
 										textAlign: "left",
 										cursor: "pointer",
-										borderRadius: 4,
+										borderRadius: 6,
 										background: isSelected
 											? "var(--accent)" + "22"
 											: "transparent",
@@ -159,13 +180,17 @@ export function useSlashAutocomplete(
 											? "var(--accent)"
 											: "var(--text)",
 										gap: 8,
-										alignItems: "baseline",
+										alignItems: "center",
+										border: "none",
+										outline: "none",
+										transition: "background 0.1s",
 									}}
 								>
 									<span
 										style={{
-											fontFamily: "monospace",
+											fontFamily: "var(--font-mono, monospace)",
 											flexShrink: 0,
+											fontWeight: 500,
 										}}
 									>
 										/{cmd.name}

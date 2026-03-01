@@ -227,17 +227,21 @@ export const FileEditor = forwardRef<FileEditorHandle, FileEditorProps>(function
 					}}
 					title="Open in external editor"
 					style={{
-						fontSize: 11,
+						display: "flex",
+						alignItems: "center",
 						color: "var(--muted)",
 						cursor: "pointer",
-						padding: "2px 8px",
+						padding: "2px 4px",
 						borderRadius: 3,
-						border: "1px solid var(--border)",
+						border: "none",
 						background: "transparent",
-						fontWeight: 500,
 					}}
 				>
-					Open in Editor
+					<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+						<path d="M12 9v4H3V4h4" />
+						<path d="M9 2h5v5" />
+						<path d="M14 2L7 9" />
+					</svg>
 				</button>
 				{isDirty && !saving && (
 					<button

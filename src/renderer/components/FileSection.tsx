@@ -1,5 +1,6 @@
 import type { GitFile } from "../types/git"
 import { statusLabel, statusColor } from "../utils/git"
+import { getFileTypeInfo } from "../utils/fileIcons"
 
 export interface FileSectionProps {
 	title: string
@@ -83,6 +84,8 @@ export function FileSection({
 			</div>
 			{files.map((file) => {
 				const isActive = file.path === activeFilePath
+				const fileName = file.path.split("/").pop() || file.path
+				const fileType = getFileTypeInfo(fileName)
 				return (
 					<button
 						key={file.path + file.status}
@@ -116,6 +119,22 @@ export function FileSection({
 							}}
 						>
 							{statusLabel(file.status).charAt(0).toUpperCase()}
+						</span>
+						<span
+							style={{
+								color: fileType.color,
+								fontSize: 9,
+								fontWeight: 700,
+								width: 15,
+								flexShrink: 0,
+								display: "inline-flex",
+								alignItems: "center",
+								justifyContent: "center",
+								lineHeight: 1,
+								letterSpacing: "-0.5px",
+							}}
+						>
+							{fileType.label}
 						</span>
 						<span
 							style={{

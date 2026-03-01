@@ -11,7 +11,12 @@ export function getFileHandlers(): Record<string, IpcCommandHandler> {
 			const dirPath = path.resolve(projectRoot, (command.path as string) || ".")
 			const entries = fs.readdirSync(dirPath, { withFileTypes: true })
 			return entries
-				.filter((e) => !e.name.startsWith("."))
+				.filter(
+					(e) =>
+						e.name !== ".git" &&
+						e.name !== "node_modules" &&
+						e.name !== ".DS_Store",
+				)
 				.map((e) => ({
 					name: e.name,
 					path: path.join((command.path as string) || ".", e.name),
@@ -164,6 +169,30 @@ export function getFileHandlers(): Record<string, IpcCommandHandler> {
 				}
 			} else {
 				shell.openPath(filePath)
+			}
+		},
+		openProjectIn: async (command, ctx) => {
+			const projectRoot =
+				(command.projectPath as string) || ctx.getActiveSession().projectRoot
+			const target = command.target as string
+			const { execSync } =
+				require("child_process") as typeof import("child_process")
+			if (target === "finder") {
+				shell.openPath(projectRoot)
+			} else if (target === "terminal") {
+				execSync(`open -a Terminal "${projectRoot}"`, { stdio: "pipe" })
+			} else if (target === "cursor") {
+				try {
+					execSync(`cursor "${projectRoot}"`, { stdio: "pipe" })
+				} catch {
+					shell.openPath(projectRoot)
+				}
+			} else if (target === "vscode") {
+				try {
+					execSync(`code "${projectRoot}"`, { stdio: "pipe" })
+				} catch {
+					shell.openPath(projectRoot)
+				}
 			}
 		},
 		openExternal: async (command) => {
