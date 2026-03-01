@@ -1,150 +1,13 @@
 import { useState, useMemo } from "react"
-import type { WorktreeStatus } from "./Sidebar"
+import type { WorktreeStatus } from "../types/project"
+import type { EnrichedProject, ProjectListProps } from "../types/project-list"
+import { hashColor, statusConfig, statusOrder } from "../utils/project-list"
+import { WorktreeIndicator } from "./project-list/WorktreeIndicator"
+import { StatusBadge } from "./project-list/StatusBadge"
+import { FilterChip } from "./project-list/FilterChip"
+import { ConfirmDialog } from "./ConfirmDialog"
 
-interface WorktreeInfo {
-	path: string
-	branch: string
-}
-
-export interface EnrichedProject {
-	name: string
-	rootPath: string
-	lastOpened: string
-	gitBranch?: string
-	isWorktree?: boolean
-	mainRepoPath?: string
-	worktrees: WorktreeInfo[]
-}
-
-interface ProjectListProps {
-	projects: EnrichedProject[]
-	activeProjectPath: string | null
-	isAgentActive: boolean
-	activeWorktrees: Set<string>
-	unreadWorktrees: Set<string>
-	worktreeStatuses: Map<string, WorktreeStatus>
-	linkedIssues?: Record<string, { issueId: string; issueIdentifier: string; provider?: string }>
-	onSwitchProject: (path: string) => void
-	onOpenFolder: () => void
-	onCloneRepo: () => void
-	onRemoveProject: (path: string) => void
-	onCreateWorktree: (repoPath: string) => void
-	onDeleteWorktree: (worktreePath: string) => void
-}
-
-// Stable color palette for worktree branches — visually distinct
-const branchColors = [
-	"#7c3aed", // purple
-	"#2563eb", // blue
-	"#059669", // green
-	"#d97706", // amber
-	"#dc2626", // red
-	"#0891b2", // cyan
-	"#c026d3", // fuchsia
-	"#ea580c", // orange
-	"#16a34a", // emerald
-	"#e11d48", // rose
-]
-
-// Hash a string to a stable color index so the same branch always gets the same color
-function hashColor(str: string): string {
-	let hash = 0
-	for (let i = 0; i < str.length; i++) {
-		hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0
-	}
-	return branchColors[Math.abs(hash) % branchColors.length]
-}
-
-const statusConfig: Record<WorktreeStatus, { label: string; color: string }> = {
-	in_progress: { label: "In Progress", color: "#d97706" },
-	in_review: { label: "In Review", color: "#2563eb" },
-	done: { label: "Done", color: "#059669" },
-	archived: { label: "Archived", color: "#6b7280" },
-}
-
-const statusOrder: WorktreeStatus[] = ["in_progress", "in_review", "done", "archived"]
-
-function WorktreeIndicator({ color, isSpinning, isGlowing }: { color: string; isSpinning: boolean; isGlowing: boolean }) {
-	if (isSpinning) {
-		return (
-			<span
-				style={{
-					width: 10,
-					height: 10,
-					flexShrink: 0,
-					display: "inline-block",
-					borderRadius: "50%",
-					border: `2px solid transparent`,
-					borderTopColor: color,
-					borderRightColor: color,
-					animation: "wt-spin 0.8s linear infinite",
-				}}
-			/>
-		)
-	}
-
-	return (
-		<span
-			style={{
-				width: 10,
-				height: 10,
-				borderRadius: "50%",
-				background: color,
-				flexShrink: 0,
-				boxShadow: isGlowing ? `0 0 6px 2px ${color}, 0 0 12px 4px ${color}60` : "none",
-			}}
-		/>
-	)
-}
-
-function StatusBadge({ status }: { status: WorktreeStatus }) {
-	const config = statusConfig[status]
-	return (
-		<span
-			style={{
-				fontSize: 9,
-				fontWeight: 600,
-				color: config.color,
-				background: `${config.color}18`,
-				padding: "1px 5px",
-				borderRadius: 3,
-				whiteSpace: "nowrap",
-				letterSpacing: "0.3px",
-			}}
-		>
-			{config.label}
-		</span>
-	)
-}
-
-function FilterChip({ label, active, color, onClick }: {
-	label: string
-	active: boolean
-	color?: string
-	onClick: () => void
-}) {
-	return (
-		<button
-			onClick={onClick}
-			style={{
-				padding: "2px 7px",
-				fontSize: 9,
-				fontWeight: 600,
-				borderRadius: 3,
-				cursor: "pointer",
-				border: "1px solid",
-				borderColor: active ? (color || "var(--accent)") : "var(--border)",
-				background: active ? `${color || "var(--accent)"}20` : "transparent",
-				color: active ? (color || "var(--text)") : "var(--dim)",
-				whiteSpace: "nowrap",
-				transition: "all 0.12s ease",
-				lineHeight: "16px",
-			}}
-		>
-			{label}
-		</button>
-	)
-}
+export type { EnrichedProject } from "../types/project-list"
 
 export function ProjectList({
 	projects,
@@ -1041,140 +904,32 @@ export function ProjectList({
 				</>
 			)}
 
-			{/* Delete worktree confirmation modal */}
+			{/* Delete worktree confirmation */}
 			{confirmDeleteWorktree && (
-				<div
-					style={{
-						position: "fixed",
-						inset: 0,
-						background: "rgba(0,0,0,0.5)",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						zIndex: 9999,
+				<ConfirmDialog
+					title="Delete worktree?"
+					description={`The worktree "${confirmDeleteWorktree.branch}" and its files on disk will be permanently removed.`}
+					confirmLabel="Delete"
+					onConfirm={() => {
+						onDeleteWorktree(confirmDeleteWorktree.path)
+						setConfirmDeleteWorktree(null)
 					}}
-					onClick={() => setConfirmDeleteWorktree(null)}
-				>
-					<div
-						onClick={(e) => e.stopPropagation()}
-						style={{
-							background: "var(--bg-surface)",
-							border: "1px solid var(--border-muted)",
-							borderRadius: 8,
-							padding: "20px 24px",
-							maxWidth: 320,
-							width: "90%",
-						}}
-					>
-						<div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
-							Delete worktree?
-						</div>
-						<div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
-							The worktree "{confirmDeleteWorktree.branch}" and its files on disk will be permanently removed.
-						</div>
-						<div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-							<button
-								onClick={() => setConfirmDeleteWorktree(null)}
-								style={{
-									padding: "6px 14px",
-									fontSize: 12,
-									borderRadius: 4,
-									background: "var(--bg)",
-									color: "var(--text)",
-									cursor: "pointer",
-									border: "1px solid var(--border-muted)",
-								}}
-							>
-								Cancel
-							</button>
-							<button
-								onClick={() => {
-									onDeleteWorktree(confirmDeleteWorktree.path)
-									setConfirmDeleteWorktree(null)
-								}}
-								style={{
-									padding: "6px 14px",
-									fontSize: 12,
-									borderRadius: 4,
-									background: "var(--error)",
-									color: "#fff",
-									cursor: "pointer",
-									border: "none",
-								}}
-							>
-								Delete
-							</button>
-						</div>
-					</div>
-				</div>
+					onCancel={() => setConfirmDeleteWorktree(null)}
+				/>
 			)}
 
-			{/* Remove confirmation modal */}
+			{/* Remove workspace confirmation */}
 			{confirmRemovePath && (
-				<div
-					style={{
-						position: "fixed",
-						inset: 0,
-						background: "rgba(0,0,0,0.5)",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						zIndex: 9999,
+				<ConfirmDialog
+					title="Remove workspace?"
+					description={`"${groups.find((g) => g.root.rootPath === confirmRemovePath)?.root.name || "Untitled"}" will be removed from the sidebar. Files on disk will not be deleted.`}
+					confirmLabel="Remove"
+					onConfirm={() => {
+						onRemoveProject(confirmRemovePath)
+						setConfirmRemovePath(null)
 					}}
-					onClick={() => setConfirmRemovePath(null)}
-				>
-					<div
-						onClick={(e) => e.stopPropagation()}
-						style={{
-							background: "var(--bg-surface)",
-							border: "1px solid var(--border-muted)",
-							borderRadius: 8,
-							padding: "20px 24px",
-							maxWidth: 320,
-							width: "90%",
-						}}
-					>
-						<div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
-							Remove workspace?
-						</div>
-						<div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
-							"{groups.find((g) => g.root.rootPath === confirmRemovePath)?.root.name || "Untitled"}" will be removed from the sidebar. Files on disk will not be deleted.
-						</div>
-						<div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-							<button
-								onClick={() => setConfirmRemovePath(null)}
-								style={{
-									padding: "6px 14px",
-									fontSize: 12,
-									borderRadius: 4,
-									background: "var(--bg)",
-									color: "var(--text)",
-									cursor: "pointer",
-									border: "1px solid var(--border-muted)",
-								}}
-							>
-								Cancel
-							</button>
-							<button
-								onClick={() => {
-									onRemoveProject(confirmRemovePath)
-									setConfirmRemovePath(null)
-								}}
-								style={{
-									padding: "6px 14px",
-									fontSize: 12,
-									borderRadius: 4,
-									background: "var(--error)",
-									color: "#fff",
-									cursor: "pointer",
-									border: "none",
-								}}
-							>
-								Remove
-							</button>
-						</div>
-					</div>
-				</div>
+					onCancel={() => setConfirmRemovePath(null)}
+				/>
 			)}
 		</div>
 	)

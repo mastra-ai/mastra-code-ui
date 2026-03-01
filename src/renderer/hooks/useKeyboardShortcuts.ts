@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import type { EnrichedProject } from "../components/ProjectList"
+import type { EnrichedProject } from "../types/project-list"
 import type { RightSidebarTab } from "../components/RightSidebar"
 import type { ProjectInfo } from "../types/project"
 

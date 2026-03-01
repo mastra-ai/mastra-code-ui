@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from "react"
-import type { EnrichedProject } from "../components/ProjectList"
+import type { EnrichedProject } from "../types/project-list"
 import type {
 	LinearIssue,
 	GitHubIssue,
 	WorkflowStates,
-} from "../components/TaskBoard"
+} from "../types/taskboard"
 import type { ProjectInfo } from "../types/project"
 import type { ChatAction } from "../types/chat"
 

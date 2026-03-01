@@ -4,3 +4,5 @@ export interface ProjectInfo {
 	gitBranch?: string
 	isWorktree?: boolean
 }
+
+export type WorktreeStatus = "in_progress" | "in_review" | "done" | "archived"
