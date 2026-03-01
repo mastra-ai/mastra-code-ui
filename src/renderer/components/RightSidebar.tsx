@@ -184,7 +184,7 @@ export function RightSidebar({
 					)}
 
 					{/* Tab content */}
-					<div style={{ flex: 1, overflow: "hidden" }}>
+					<div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" as const, minHeight: 0 }}>
 						{activeTab === "files" && (
 							<FileTree projectName={projectName} projectPath={projectPath} onFileClick={onFileClick} activeFilePath={activeFilePath} />
 						)}
