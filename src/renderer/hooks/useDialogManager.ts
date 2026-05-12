@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react"
+import type { PendingQuestion, QuestionAnswer } from "../types/chat"
 
 interface PendingApproval {
 	toolCallId: string
@@ -6,12 +7,6 @@ interface PendingApproval {
 	args: unknown
 	category: string | null
 	categoryLabel: string | null
-}
-
-interface PendingQuestion {
-	questionId: string
-	question: string
-	options?: Array<{ label: string; description?: string }>
 }
 
 interface PendingPlan {
@@ -53,7 +48,7 @@ export function useDialogManager() {
 	)
 
 	const handleQuestionResponse = useCallback(
-		async (questionId: string, answer: string) => {
+		async (questionId: string, answer: QuestionAnswer) => {
 			await window.api.invoke({
 				type: "respondToQuestion",
 				questionId,

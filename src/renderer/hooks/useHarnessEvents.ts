@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react"
 import type { ChatAction } from "../types/chat"
+import type { PendingQuestion } from "../types/chat"
 import type { ProjectInfo } from "../types/project"
 import type {
 	HarnessEventPayload,
@@ -10,6 +11,10 @@ import type {
 } from "../types/ipc"
 import type { RightSidebarTab } from "../components/RightSidebar"
 import { playCompletionSound } from "../utils/audio"
+import {
+	normalizePendingQuestion,
+	normalizePendingQuestionFromToolStart,
+} from "../utils/askUser"
 
 export interface HarnessCallbacks {
 	dispatch: React.Dispatch<ChatAction>
@@ -136,13 +141,32 @@ export function useHarnessEvents(callbacks: HarnessCallbacks) {
 					}
 					break
 				case "tool_start":
-					if (isActiveWorktree)
+					if (isActiveWorktree) {
 						cb.dispatch({
 							type: "TOOL_START",
 							id: event.toolCallId as string,
 							name: event.toolName as string,
 							args: event.args,
 						})
+						if (event.toolName === "ask_user") {
+							const pendingQuestion = normalizePendingQuestionFromToolStart(
+								event.toolCallId as string,
+								event.args,
+							)
+							if (pendingQuestion) {
+								cb.dispatch({
+									type: "ASK_QUESTION",
+									question: pendingQuestion,
+								})
+								cb.setPendingQuestion(
+									(prev: PendingQuestion | null): PendingQuestion | null => {
+										if (prev && prev.responseEnabled !== false) return prev
+										return pendingQuestion
+									},
+								)
+							}
+						}
+					}
 					break
 				case "tool_update":
 					if (isActiveWorktree)
@@ -153,13 +177,25 @@ export function useHarnessEvents(callbacks: HarnessCallbacks) {
 						})
 					break
 				case "tool_end":
-					if (isActiveWorktree)
+					if (isActiveWorktree) {
 						cb.dispatch({
 							type: "TOOL_END",
 							id: event.toolCallId as string,
 							result: event.result,
 							isError: event.isError as boolean,
 						})
+						cb.setPendingQuestion(
+							(prev: PendingQuestion | null): PendingQuestion | null => {
+								if (
+									prev?.responseEnabled === false &&
+									prev.toolCallId === event.toolCallId
+								) {
+									return null
+								}
+								return prev
+							},
+						)
+					}
 					break
 				case "shell_output":
 					if (isActiveWorktree)
@@ -179,15 +215,31 @@ export function useHarnessEvents(callbacks: HarnessCallbacks) {
 						categoryLabel: (event.categoryLabel as string) ?? null,
 					})
 					break
-				case "ask_question":
-					cb.setPendingQuestion({
+				case "ask_question": {
+					const pendingQuestion = normalizePendingQuestion({
 						questionId: event.questionId as string,
 						question: event.question as string,
-						options: event.options as
-							| Array<{ label: string; description?: string }>
-							| undefined,
+						options: event.options,
+						selectionMode: event.selectionMode,
 					})
+					if (isActiveWorktree) {
+						cb.dispatch({
+							type: "ASK_QUESTION",
+							question: pendingQuestion,
+						})
+					}
+					cb.setPendingQuestion(
+						(prev: PendingQuestion | null): PendingQuestion => ({
+							...pendingQuestion,
+							toolCallId:
+								prev?.responseEnabled === false &&
+								prev.question === pendingQuestion.question
+									? prev.toolCallId
+									: pendingQuestion.toolCallId,
+						}),
+					)
 					break
+				}
 				case "plan_approval_required":
 					cb.setPendingPlan({
 						planId: event.planId as string,
@@ -229,6 +281,16 @@ export function useHarnessEvents(callbacks: HarnessCallbacks) {
 							prev.includes(newThreadId) ? prev : [...prev, newThreadId],
 						)
 						cb.setActiveTab(`thread:${newThreadId}`)
+					}
+					cb.loadThreads()
+					break
+				}
+				case "thread_deleted": {
+					const deletedThreadId = event.threadId as string | undefined
+					if (deletedThreadId) {
+						cb.setOpenThreadTabs((prev) =>
+							prev.filter((threadId) => threadId !== deletedThreadId),
+						)
 					}
 					cb.loadThreads()
 					break

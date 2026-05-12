@@ -7,6 +7,7 @@ export function getAuthHandlers(): Record<string, IpcCommandHandler> {
 			const s = ctx.getActiveSession()
 			const h = s.harness
 			const authStorage = s.authStorage
+			const providerId = command.providerId as string
 
 			let pendingPromptResolve: ((value: string) => void) | null = null
 			let pendingPromptReject: ((reason: Error) => void) | null = null
@@ -26,12 +27,12 @@ export function getAuthHandlers(): Record<string, IpcCommandHandler> {
 			ipcMain.on("login:prompt-response", promptHandler)
 
 			try {
-				await authStorage.login(command.providerId, {
+				await authStorage.login(providerId, {
 					onAuth: (info: any) => {
 						shell.openExternal(info.url)
 						ctx.mainWindow?.webContents.send("harness:event", {
 							type: "login_auth",
-							providerId: command.providerId,
+							providerId,
 							url: info.url,
 							instructions: info.instructions,
 						})
@@ -42,7 +43,7 @@ export function getAuthHandlers(): Record<string, IpcCommandHandler> {
 							pendingPromptReject = reject
 							ctx.mainWindow?.webContents.send("harness:event", {
 								type: "login_prompt",
-								providerId: command.providerId,
+								providerId,
 								message: prompt.message,
 								placeholder: prompt.placeholder,
 							})
@@ -51,7 +52,7 @@ export function getAuthHandlers(): Record<string, IpcCommandHandler> {
 					onProgress: (message: string) => {
 						ctx.mainWindow?.webContents.send("harness:event", {
 							type: "login_progress",
-							providerId: command.providerId,
+							providerId,
 							message,
 						})
 					},
@@ -61,7 +62,7 @@ export function getAuthHandlers(): Record<string, IpcCommandHandler> {
 							pendingPromptReject = reject
 							ctx.mainWindow?.webContents.send("harness:event", {
 								type: "login_prompt",
-								providerId: command.providerId,
+								providerId,
 								message: "Paste the authorization code here:",
 								placeholder: "Authorization code",
 							})
@@ -70,21 +71,19 @@ export function getAuthHandlers(): Record<string, IpcCommandHandler> {
 					signal: new AbortController().signal,
 				})
 
-				const defaultModel = authStorage.getDefaultModelForProvider(
-					command.providerId,
-				)
+				const defaultModel = authStorage.getDefaultModelForProvider(providerId)
 				if (defaultModel) {
 					await h.switchModel({ modelId: defaultModel })
 				}
 				ctx.mainWindow?.webContents.send("harness:event", {
 					type: "login_success",
-					providerId: command.providerId,
+					providerId,
 					modelId: h.getFullModelId(),
 				})
 			} catch (err: any) {
 				ctx.mainWindow?.webContents.send("harness:event", {
 					type: "login_error",
-					providerId: command.providerId,
+					providerId,
 					error: err?.message ?? String(err),
 				})
 			} finally {
@@ -92,7 +91,7 @@ export function getAuthHandlers(): Record<string, IpcCommandHandler> {
 			}
 		},
 		logout: async (command, ctx) => {
-			ctx.getActiveSession().authStorage.logout(command.providerId)
+			ctx.getActiveSession().authStorage.logout(command.providerId as string)
 		},
 		setApiKey: async (command, ctx) => {
 			const s = ctx.getActiveSession()

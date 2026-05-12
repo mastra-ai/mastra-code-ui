@@ -14,28 +14,43 @@ interface TerminalInstance {
 	starting: boolean
 }
 
-const THEME = {
-	background: "#09090b",
-	foreground: "#fafafa",
-	cursor: "#fafafa",
-	selectionBackground: "#7c3aed66",
-	black: "#09090b",
-	red: "#ef4444",
-	green: "#22c55e",
-	yellow: "#f59e0b",
-	blue: "#3b82f6",
-	magenta: "#a855f7",
-	cyan: "#06b6d4",
-	white: "#fafafa",
-	brightBlack: "#71717a",
-	brightRed: "#f87171",
-	brightGreen: "#4ade80",
-	brightYellow: "#fbbf24",
-	brightBlue: "#60a5fa",
-	brightMagenta: "#c084fc",
-	brightCyan: "#22d3ee",
-	brightWhite: "#ffffff",
+function resolveCssColor(name: string): string {
+	if (typeof document === "undefined" || !document.body) return ""
+	const probe = document.createElement("span")
+	probe.style.color = `var(${name})`
+	document.body.appendChild(probe)
+	const color = getComputedStyle(probe).color
+	probe.remove()
+	return color
 }
+
+function getTerminalTheme() {
+	return {
+		background: resolveCssColor("--terminal-background"),
+		foreground: resolveCssColor("--terminal-foreground"),
+		cursor: resolveCssColor("--terminal-cursor"),
+		selectionBackground: resolveCssColor("--terminal-selection"),
+		black: resolveCssColor("--terminal-black"),
+		red: resolveCssColor("--terminal-red"),
+		green: resolveCssColor("--terminal-green"),
+		yellow: resolveCssColor("--terminal-yellow"),
+		blue: resolveCssColor("--terminal-blue"),
+		magenta: resolveCssColor("--terminal-magenta"),
+		cyan: resolveCssColor("--terminal-cyan"),
+		white: resolveCssColor("--terminal-white"),
+		brightBlack: resolveCssColor("--terminal-bright-black"),
+		brightRed: resolveCssColor("--terminal-bright-red"),
+		brightGreen: resolveCssColor("--terminal-bright-green"),
+		brightYellow: resolveCssColor("--terminal-bright-yellow"),
+		brightBlue: resolveCssColor("--terminal-bright-blue"),
+		brightMagenta: resolveCssColor("--terminal-bright-magenta"),
+		brightCyan: resolveCssColor("--terminal-bright-cyan"),
+		brightWhite: resolveCssColor("--terminal-bright-white"),
+	}
+}
+
+const PANE_HEADER_HEIGHT = 32
+const PANE_HEADER_FONT_SIZE = 12
 
 interface TerminalPanelProps {
 	height: number
@@ -65,7 +80,7 @@ export function TerminalPanel({ height, projectPath, onOpenBrowser }: TerminalPa
 			fontSize: 12,
 			fontFamily: '"SF Mono", "Menlo", "Monaco", "Consolas", monospace',
 			cursorBlink: true,
-			theme: THEME,
+			theme: getTerminalTheme(),
 		})
 
 		const fitAddon = new FitAddon()
@@ -319,7 +334,7 @@ export function TerminalPanel({ height, projectPath, onOpenBrowser }: TerminalPa
 					display: "flex",
 					alignItems: "center",
 					justifyContent: "center",
-					background: "#09090b",
+					background: "var(--terminal-background)",
 					color: "var(--dim)",
 					fontSize: 12,
 				}}
@@ -337,7 +352,7 @@ export function TerminalPanel({ height, projectPath, onOpenBrowser }: TerminalPa
 				display: "flex",
 				flexDirection: "column",
 				overflow: "hidden",
-				background: "#09090b",
+				background: "var(--terminal-background)",
 			}}
 		>
 			{/* Terminal tab bar */}
@@ -349,13 +364,13 @@ export function TerminalPanel({ height, projectPath, onOpenBrowser }: TerminalPa
 					borderBottom: "1px solid var(--border-muted)",
 					background: "var(--bg-surface)",
 					flexShrink: 0,
-					height: 28,
+					height: PANE_HEADER_HEIGHT,
 					overflow: "hidden",
 				}}
 			>
 				<span
 					style={{
-						fontSize: 10,
+						fontSize: PANE_HEADER_FONT_SIZE,
 						fontWeight: 600,
 						color: "var(--muted)",
 						padding: "0 8px",
@@ -392,7 +407,7 @@ export function TerminalPanel({ height, projectPath, onOpenBrowser }: TerminalPa
 											: "var(--muted)",
 									background:
 										activeTab === id
-											? "#09090b"
+											? "var(--terminal-background)"
 											: "transparent",
 									borderRadius: "3px 3px 0 0",
 									cursor: "pointer",

@@ -15,12 +15,15 @@ import * as fs from "fs"
 import { fileURLToPath } from "url"
 import * as pty from "node-pty"
 
-import { createMastraCode } from "mastracode"
+import { createMastraCode, type MastraCodeConfig } from "mastracode"
 
 import {
 	createNavigateBrowserTool,
 	createComputerUseTool,
 } from "../tools/index.js"
+import { executeSubagent } from "../agents/subagents/execute.js"
+import { exploreSubagent } from "../agents/subagents/explore.js"
+import { planSubagent } from "../agents/subagents/plan.js"
 import { getAppDataDir } from "../utils/project.js"
 import {
 	getToolCategory,
@@ -29,8 +32,11 @@ import {
 } from "../permissions.js"
 import type { ToolCategory } from "../permissions.js"
 
-import { AuthStorage } from "../auth/storage.js"
 import { PlaywrightBrowserManager } from "../browser/playwright-manager.js"
+import {
+	createSharedAuthStorage,
+	migrateUiAuthToMastracodeRuntimeAuth,
+} from "./auth-storage.js"
 
 // Extracted modules
 import { ElectronStateManager } from "./electron-state.js"
@@ -58,9 +64,21 @@ let mainWindow: BrowserWindow | null = null
 
 const sessions = new Map<string, WorktreeSession>()
 let activeSessionPath: string = process.cwd()
+let initialSessionReady: Promise<void> | null = null
+let ipcHandlersRegistered = false
+
+const defaultSubagents = [
+	exploreSubagent,
+	planSubagent,
+	executeSubagent,
+] satisfies NonNullable<MastraCodeConfig["subagents"]>
 
 function getActiveSession(): WorktreeSession {
-	return sessions.get(activeSessionPath)!
+	const session = sessions.get(activeSessionPath)
+	if (!session) {
+		throw new Error(`Session not initialized for ${activeSessionPath}`)
+	}
+	return session
 }
 
 // Per-session agent timing and token tracking for the Agent Dashboard
@@ -78,23 +96,33 @@ async function createHarness(projectPath: string) {
 	const navigateBrowserTool = createNavigateBrowserTool(browserManager)
 	const computerUseTool = createComputerUseTool(browserManager)
 
+	// `mastracode` owns resolveModel() and reads OAuth credentials from its own
+	// app-data auth.json. Migrate before creating it so startup env loading sees
+	// credentials that were previously written by the Electron dev app.
+	migrateUiAuthToMastracodeRuntimeAuth()
+
 	const { harness, mcpManager, hookManager, resolveModel, storageWarning } =
 		await createMastraCode({
 			cwd: projectPath,
+			subagents: defaultSubagents,
 			extraTools: {
 				"navigate-browser": navigateBrowserTool,
 				computer: computerUseTool,
-			},
+			} as unknown as MastraCodeConfig["extraTools"],
 		})
+
+	if (!mcpManager) {
+		throw new Error("MCP manager was not initialized")
+	}
 
 	if (storageWarning) {
 		console.warn("[storage]", storageWarning)
 	}
 
-	// Use our local AuthStorage which has getDefaultModelForProvider, model
-	// tracking, and other methods the mastracode package's version lacks.
-	// Both read/write the same auth.json file so credentials stay in sync.
-	const authStorage = new AuthStorage()
+	// Use our local AuthStorage class for Electron-only helpers, but point it at
+	// the installed mastracode runtime auth file so /login and resolveModel()
+	// share the same credentials.
+	const authStorage = createSharedAuthStorage()
 	const electronState = new ElectronStateManager()
 
 	// Hook manager session tracking + OM progress loading
@@ -135,9 +163,15 @@ async function createHarness(projectPath: string) {
 // IPC Handlers — thin dispatcher using handler registry
 // =============================================================================
 function registerIpcHandlers() {
+	if (ipcHandlersRegistered) return
+	ipcHandlersRegistered = true
 	const handlers = getAllHandlers()
 
 	ipcMain.handle("harness:command", async (_event, command) => {
+		if (!sessions.has(activeSessionPath) && initialSessionReady) {
+			await initialSessionReady
+		}
+
 		const handler = handlers[command.type]
 		if (!handler) {
 			console.warn("Unknown IPC command:", command.type)
@@ -518,43 +552,49 @@ app.whenReady().then(async () => {
 		) || process.cwd()
 	activeSessionPath = projectPath
 
-	// Create window and menu
+	// Register IPC before loading the renderer. The renderer calls
+	// harness:command on mount, while session creation can take time after
+	// dependency upgrades.
+	registerIpcHandlers()
+
+	initialSessionReady = (async () => {
+		// Create initial session
+		const result = await createHarness(projectPath)
+		const initialSession: WorktreeSession = {
+			harness: result.harness,
+			mcpManager: result.mcpManager,
+			browserManager: result.browserManager,
+			resolveModel: result.resolveModel,
+			authStorage: result.authStorage,
+			electronState: result.electronState,
+			projectRoot: projectPath,
+			unsubscribe: null,
+			ptySessions: new Map(),
+		}
+		sessions.set(projectPath, initialSession)
+
+		if (mainWindow) bridgeAllEvents(mainWindow)
+
+		// Initialize harness
+		await initialSession.harness.init()
+		await ensureAuthenticatedModel(
+			initialSession.harness,
+			initialSession.authStorage,
+		)
+
+		// Load OM progress for the current thread
+		await initialSession.harness.loadOMProgress?.().catch(() => {})
+
+		// Init MCP
+		if (initialSession.mcpManager?.hasServers()) {
+			await initialSession.mcpManager.init()
+		}
+	})()
+
+	// Create window and menu after the IPC handler exists.
 	createWindow()
 	setupMenu()
-
-	// Create initial session
-	const result = await createHarness(projectPath)
-	const initialSession: WorktreeSession = {
-		harness: result.harness,
-		mcpManager: result.mcpManager,
-		browserManager: result.browserManager,
-		resolveModel: result.resolveModel,
-		authStorage: result.authStorage,
-		electronState: result.electronState,
-		projectRoot: projectPath,
-		unsubscribe: null,
-		ptySessions: new Map(),
-	}
-	sessions.set(projectPath, initialSession)
-
-	// Register IPC and bridge events
-	registerIpcHandlers()
-	if (mainWindow) bridgeAllEvents(mainWindow)
-
-	// Initialize harness
-	await initialSession.harness.init()
-	await ensureAuthenticatedModel(
-		initialSession.harness,
-		initialSession.authStorage,
-	)
-
-	// Load OM progress for the current thread
-	await initialSession.harness.loadOMProgress?.().catch(() => {})
-
-	// Init MCP
-	if (initialSession.mcpManager?.hasServers()) {
-		await initialSession.mcpManager.init()
-	}
+	await initialSessionReady
 
 	// Redirect console noise to log file
 	const logFile = path.join(getAppDataDir(), "debug.log")

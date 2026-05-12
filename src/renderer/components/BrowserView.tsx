@@ -1,4 +1,11 @@
 import { useState, useRef, useCallback } from "react"
+import {
+	ChevronLeftIcon,
+	ChevronRightIcon,
+	ExternalLinkSquareIcon,
+	ReloadIcon,
+	XCloseIcon,
+} from "./Icons"
 
 interface BrowserHistoryEntry {
 	url: string
@@ -186,9 +193,7 @@ export function BrowserView({ url, onNavigate, onClose, onTitleChange }: Browser
 					}}
 					title="Back"
 				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-						<polyline points="15 18 9 12 15 6" />
-					</svg>
+					<ChevronLeftIcon width="14" height="14" />
 				</button>
 
 				{/* Forward */}
@@ -208,9 +213,7 @@ export function BrowserView({ url, onNavigate, onClose, onTitleChange }: Browser
 					}}
 					title="Forward"
 				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-						<polyline points="9 18 15 12 9 6" />
-					</svg>
+					<ChevronRightIcon width="14" height="14" />
 				</button>
 
 				{/* Reload */}
@@ -227,12 +230,9 @@ export function BrowserView({ url, onNavigate, onClose, onTitleChange }: Browser
 						cursor: "pointer",
 						background: "transparent",
 					}}
-					title={isLoading ? "Loading..." : "Reload"}
+					title={isLoading ? "Loading" : "Reload"}
 				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-						<polyline points="23 4 23 10 17 10" />
-						<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-					</svg>
+					<ReloadIcon width="14" height="14" />
 				</button>
 
 				{/* Address bar */}
@@ -276,7 +276,7 @@ export function BrowserView({ url, onNavigate, onClose, onTitleChange }: Browser
 							fontFamily: "inherit",
 							outline: "none",
 						}}
-						placeholder="Enter URL..."
+						placeholder="Enter URL"
 					/>
 
 					{/* History autocomplete dropdown */}
@@ -361,11 +361,7 @@ export function BrowserView({ url, onNavigate, onClose, onTitleChange }: Browser
 					}}
 					title="Open in external browser"
 				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-						<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-						<polyline points="15 3 21 3 21 9" />
-						<line x1="10" y1="14" x2="21" y2="3" />
-					</svg>
+					<ExternalLinkSquareIcon width="14" height="14" />
 				</button>
 
 				{/* Close */}
@@ -384,10 +380,7 @@ export function BrowserView({ url, onNavigate, onClose, onTitleChange }: Browser
 					}}
 					title="Close browser tab"
 				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-						<line x1="18" y1="6" x2="6" y2="18" />
-						<line x1="6" y1="6" x2="18" y2="18" />
-					</svg>
+					<XCloseIcon width="14" height="14" />
 				</button>
 			</div>
 

@@ -6,10 +6,17 @@
 import { createTool } from "@mastra/core/tools"
 import { z } from "zod/v3"
 import * as path from "path"
-import type { HarnessRequestContext } from "@mastra/core/harness"
+import type {
+	HarnessQuestionAnswer,
+	HarnessRequestContext,
+} from "@mastra/core/harness"
 import { isPathAllowed, getAllowedPathsFromContext } from "./utils.js"
 
 let requestCounter = 0
+
+interface SandboxState {
+	sandboxAllowedPaths?: string[]
+}
 
 export const requestSandboxAccessTool = createTool({
 	id: "request_sandbox_access",
@@ -27,7 +34,7 @@ export const requestSandboxAccessTool = createTool({
 	execute: async ({ path: requestedPath, reason }, context) => {
 		try {
 			const harnessCtx = context?.requestContext?.get("harness") as
-				| HarnessRequestContext
+				| HarnessRequestContext<SandboxState>
 				| undefined
 
 			// Resolve to absolute path
@@ -55,9 +62,14 @@ export const requestSandboxAccessTool = createTool({
 			const questionId = `sandbox_${++requestCounter}_${Date.now()}`
 
 			// Create a promise that resolves when the user answers in the TUI
-			const answer = await new Promise<string>((resolve) => {
+			const answer = await new Promise<HarnessQuestionAnswer>((resolve) => {
 				// Register the resolver so respondToQuestion() can resolve it
-				harnessCtx.registerQuestion!({ questionId, resolve })
+				harnessCtx.registerQuestion!({
+					questionId,
+					resolve: (answer) => {
+						resolve(Array.isArray(answer) ? answer.join(",") : answer)
+					},
+				})
 
 				// Emit event — UI will show the dialog
 				harnessCtx.emitEvent!({
@@ -67,9 +79,10 @@ export const requestSandboxAccessTool = createTool({
 				})
 			})
 
+			const answerText = Array.isArray(answer) ? answer.join(", ") : answer
 			const approved =
-				answer.toLowerCase().startsWith("y") ||
-				answer.toLowerCase() === "approve"
+				answerText.toLowerCase().startsWith("y") ||
+				answerText.toLowerCase() === "approve"
 
 			if (approved) {
 				// Add to allowed paths

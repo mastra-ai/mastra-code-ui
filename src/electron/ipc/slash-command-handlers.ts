@@ -37,7 +37,10 @@ export function getSlashCommandHandlers(): Record<string, IpcCommandHandler> {
 				(c: { name: string }) => c.name === command.commandName,
 			)
 			if (!cmd) throw new Error(`Unknown command: /${command.commandName}`)
-			return await processSlashCommand(cmd, command.args ?? [], projectRoot)
+			const args = Array.isArray(command.args)
+				? command.args.map((arg) => String(arg))
+				: []
+			return await processSlashCommand(cmd, args, projectRoot)
 		},
 	}
 }

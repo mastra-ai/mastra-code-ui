@@ -1,4 +1,9 @@
 import { useState, useEffect, useCallback } from "react"
+import {
+	ChevronRightIcon,
+	FileTreeFolderClosedIcon,
+	FileTreeFolderOpenIcon,
+} from "./Icons"
 import { getFileTypeInfo } from "../utils/fileIcons"
 
 interface FileEntry {
@@ -16,52 +21,8 @@ interface FileTreeProps {
 }
 
 function FolderIcon({ open }: { open?: boolean }) {
-	if (open) {
-		return (
-			<svg
-				width="15"
-				height="15"
-				viewBox="0 0 16 16"
-				fill="none"
-				style={{ marginRight: 4, flexShrink: 0 }}
-			>
-				<path
-					d="M1.5 3.5A1 1 0 012.5 2.5H6l1.5 1.5H13a1 1 0 011 1V6H3L1.5 13V3.5z"
-					fill="#60a5fa"
-					fillOpacity="0.3"
-					stroke="#60a5fa"
-					strokeWidth="0.8"
-					strokeLinejoin="round"
-				/>
-				<path
-					d="M3 6h11.5L12.5 13H1L3 6z"
-					fill="#60a5fa"
-					fillOpacity="0.15"
-					stroke="#60a5fa"
-					strokeWidth="0.8"
-					strokeLinejoin="round"
-				/>
-			</svg>
-		)
-	}
-	return (
-		<svg
-			width="15"
-			height="15"
-			viewBox="0 0 16 16"
-			fill="none"
-			style={{ marginRight: 4, flexShrink: 0 }}
-		>
-			<path
-				d="M1.5 3.5A1 1 0 012.5 2.5H6l1.5 1.5H13a1 1 0 011 1V12.5a1 1 0 01-1 1H2.5a1 1 0 01-1-1V3.5z"
-				fill="#60a5fa"
-				fillOpacity="0.2"
-				stroke="#60a5fa"
-				strokeWidth="0.8"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	)
+	const Icon = open ? FileTreeFolderOpenIcon : FileTreeFolderClosedIcon
+	return <Icon style={{ marginRight: 4, flexShrink: 0 }} />
 }
 
 function FileIcon({
@@ -137,6 +98,7 @@ function DirectoryNode({
 	return (
 		<div>
 			<button
+				className="file-tree-item"
 				onClick={toggle}
 				style={{
 					display: "flex",
@@ -152,14 +114,15 @@ function DirectoryNode({
 				}}
 			>
 				<span
+					aria-hidden="true"
+					className="icon-chevron-toggle"
 					style={{
 						width: 12,
-						fontSize: 8,
 						color: "var(--muted)",
-						flexShrink: 0,
+						transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
 					}}
 				>
-					{expanded ? "\u25BC" : "\u25B6"}
+					<ChevronRightIcon width="10" height="10" />
 				</span>
 				<FileIcon isDirectory name={entry.name} isExpanded={expanded} />
 				<span
@@ -254,6 +217,8 @@ function FileNode({
 	return (
 		<>
 			<button
+				className="file-tree-item"
+				data-active={isActive ? "true" : undefined}
 				onClick={() => onFileClick?.(entry.path)}
 				onContextMenu={(e) => {
 					e.preventDefault()
@@ -302,6 +267,7 @@ function FileNode({
 					}}
 				>
 					<button
+						className="ui-hover-item"
 						onClick={() => {
 							window.api.invoke({
 								type: "openInEditor",
@@ -321,12 +287,6 @@ function FileNode({
 							borderRadius: 4,
 							background: "transparent",
 							whiteSpace: "nowrap",
-						}}
-						onMouseEnter={(e) => {
-							e.currentTarget.style.background = "var(--accent)" + "22"
-						}}
-						onMouseLeave={(e) => {
-							e.currentTarget.style.background = "transparent"
 						}}
 					>
 						Open in Editor

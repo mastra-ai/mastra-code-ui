@@ -12,10 +12,18 @@ export function getHarnessHandlers(): Record<string, IpcCommandHandler> {
 		sendMessage: async (command, ctx) => {
 			const s = ctx.getActiveSession()
 			const h = s.harness
+			const content = command.content as string
+			const images = command.images as
+				| Array<{ mimeType: string; data: string }>
+				| undefined
+			const files = images?.map(({ mimeType, data }) => ({
+				data,
+				mediaType: mimeType,
+			}))
 			const threadBefore = h.getCurrentThreadId()
 			h.sendMessage({
-				content: command.content,
-				...(command.images ? { files: command.images } : {}),
+				content,
+				...(files ? { files } : {}),
 			})
 				.then(async () => {
 					const threadAfter = h.getCurrentThreadId()
@@ -32,7 +40,7 @@ export function getHarnessHandlers(): Record<string, IpcCommandHandler> {
 					}
 					if (needsTitle) {
 						ctx
-							.generateThreadTitle(h, command.content, s.resolveModel)
+							.generateThreadTitle(h, content, s.resolveModel)
 							.catch((err) => console.warn("Title gen catch:", err))
 					}
 				})
@@ -45,47 +53,52 @@ export function getHarnessHandlers(): Record<string, IpcCommandHandler> {
 			ctx.getActiveSession().harness.abort()
 		},
 		steer: async (command, ctx) => {
-			await ctx.getActiveSession().harness.steer({ content: command.content })
+			await ctx
+				.getActiveSession()
+				.harness.steer({ content: command.content as string })
 		},
 		followUp: async (command, ctx) => {
 			await ctx
 				.getActiveSession()
-				.harness.followUp({ content: command.content })
+				.harness.followUp({ content: command.content as string })
 		},
 		switchMode: async (command, ctx) => {
 			await ctx
 				.getActiveSession()
-				.harness.switchMode({ modeId: command.modeId })
+				.harness.switchMode({ modeId: command.modeId as string })
 		},
 		switchModel: async (command, ctx) => {
 			await ctx.getActiveSession().harness.switchModel({
-				modelId: command.modelId,
-				scope: command.scope,
-				modeId: command.modeId,
+				modelId: command.modelId as string,
+				scope: command.scope as "global" | "thread" | undefined,
+				modeId: command.modeId as string | undefined,
 			})
 		},
 		switchThread: async (command, ctx) => {
 			await ctx
 				.getActiveSession()
-				.harness.switchThread({ threadId: command.threadId })
+				.harness.switchThread({ threadId: command.threadId as string })
 		},
 		createThread: async (command, ctx) => {
 			return await ctx
 				.getActiveSession()
-				.harness.createThread({ title: command.title })
+				.harness.createThread({ title: command.title as string | undefined })
 		},
 		renameThread: async (command, ctx) => {
 			await ctx
 				.getActiveSession()
-				.harness.renameThread({ title: command.title })
+				.harness.renameThread({ title: command.title as string })
 		},
 		deleteThread: async (command, ctx) => {
-			await ctx.deleteThread(ctx.getActiveSession().harness, command.threadId)
+			return await ctx.deleteThread(
+				ctx.getActiveSession().harness,
+				command.threadId as string,
+			)
 		},
 		getMessages: async (command, ctx) => {
 			return await ctx
 				.getActiveSession()
-				.harness.listMessages({ limit: command.limit })
+				.harness.listMessages({ limit: command.limit as number | undefined })
 		},
 		getModes: async (_command, ctx) => {
 			return ctx
@@ -133,11 +146,11 @@ export function getHarnessHandlers(): Record<string, IpcCommandHandler> {
 			const rawModels = await ctx
 				.getActiveSession()
 				.harness.listAvailableModels()
-			return (rawModels ?? []).map((m: any) => ({
+			return (rawModels ?? []).map((m) => ({
 				id: m.id,
-				name: m.modelName ?? m.name ?? m.id.split("/").pop(),
+				name: m.modelName ?? m.id.split("/").pop(),
 				provider: m.provider,
-				hasAuth: m.hasApiKey ?? m.hasAuth ?? false,
+				hasAuth: m.hasApiKey,
 			}))
 		},
 	}

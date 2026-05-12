@@ -60,7 +60,7 @@ export function FileSection({
 						}}
 						title="Unstage all"
 					>
-						Unstage All
+						Unstage all
 					</button>
 				)}
 				{(sectionType === "unstaged" || sectionType === "untracked") && (
@@ -78,7 +78,7 @@ export function FileSection({
 						}}
 						title="Stage all"
 					>
-						Stage All
+						Stage all
 					</button>
 				)}
 			</div>

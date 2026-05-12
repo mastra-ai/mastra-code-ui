@@ -1,7 +1,19 @@
 import type { BrowserWindow } from "electron"
 import { generateText } from "ai"
-import type { Harness } from "@mastra/core/harness"
+import type { LanguageModel } from "ai"
 import type { AuthStorage } from "../auth/storage.js"
+import type {
+	DeleteThreadResult,
+	MastraCodeHarness,
+	MastraCodeResolveModel,
+} from "./ipc/types.js"
+
+export type ThreadDeletionHarness = Pick<
+	MastraCodeHarness,
+	"createThread" | "getCurrentThreadId"
+> & {
+	memory: Pick<MastraCodeHarness["memory"], "deleteThread">
+}
 
 let mainWindowRef: BrowserWindow | null = null
 
@@ -10,7 +22,7 @@ export function setMainWindowRef(win: BrowserWindow | null) {
 }
 
 export async function ensureAuthenticatedModel(
-	h: Harness<any>,
+	h: MastraCodeHarness,
 	authStorage: AuthStorage,
 ) {
 	const modelId = h.getCurrentModelId()
@@ -38,16 +50,16 @@ export async function ensureAuthenticatedModel(
 }
 
 export async function generateThreadTitle(
-	h: Harness<any>,
+	h: MastraCodeHarness,
 	userMessage: string,
-	resolveModel: (modelId: string) => any,
+	resolveModel: MastraCodeResolveModel,
 ) {
 	try {
 		const modelId = h.getCurrentModelId()
 		if (!modelId) return
 		const model = resolveModel(modelId)
 		const result = await generateText({
-			model: model as any,
+			model: model as LanguageModel,
 			prompt: `Generate a very short title (5-8 words max) for a conversation that starts with this message. Return ONLY the title, no quotes or extra punctuation:\n\n${userMessage.slice(0, 500)}`,
 		})
 		const title = result.text?.trim()
@@ -65,11 +77,16 @@ export async function generateThreadTitle(
 }
 
 export async function deleteThread(
-	h: Harness<any>,
+	h: ThreadDeletionHarness,
 	threadId: string,
-): Promise<void> {
-	const currentThreadId = h.getCurrentThreadId()
-	if (currentThreadId === threadId) {
-		await h.createThread({ title: "New Thread" })
+): Promise<DeleteThreadResult> {
+	const wasCurrentThread = h.getCurrentThreadId() === threadId
+	await h.memory.deleteThread({ threadId })
+
+	if (wasCurrentThread) {
+		const thread = await h.createThread({ title: "New Thread" })
+		return { deletedThreadId: threadId, currentThreadId: thread.id }
 	}
+
+	return { deletedThreadId: threadId, currentThreadId: h.getCurrentThreadId() }
 }

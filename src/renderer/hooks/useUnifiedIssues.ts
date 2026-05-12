@@ -85,10 +85,10 @@ export function useUnifiedIssues(params: {
 						: "unstarted"
 			const stateColor =
 				issue.state === "closed"
-					? "#5e6ad2"
+					? "var(--task-state-done)"
 					: isLinkedToWorktree
-						? "#f2c94c"
-						: "#e2e2e2"
+						? "var(--task-state-active)"
+						: "var(--task-state-todo)"
 			const stateName =
 				issue.state === "closed"
 					? "Done"
@@ -124,10 +124,10 @@ export function useUnifiedIssues(params: {
 						: "unstarted"
 			const stateColor =
 				issue.status === "done"
-					? "#5e6ad2"
+					? "var(--task-state-done)"
 					: issue.status === "in_progress"
-						? "#f2c94c"
-						: "#e2e2e2"
+						? "var(--task-state-active)"
+						: "var(--task-state-todo)"
 			const stateName =
 				issue.status === "done"
 					? "Done"

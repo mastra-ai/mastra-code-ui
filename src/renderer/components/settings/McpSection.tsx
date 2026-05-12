@@ -102,8 +102,8 @@ export function McpSection({
 											"50%",
 										background:
 											server.connected
-												? "#059669"
-												: "#ef4444",
+												? "var(--color-green)"
+												: "var(--color-red)",
 										flexShrink: 0,
 									}}
 								/>
@@ -151,7 +151,7 @@ export function McpSection({
 							<div
 								style={{
 									fontSize: 11,
-									color: "#ef4444",
+									color: "var(--color-red)",
 									marginTop: 4,
 									paddingLeft: 14,
 								}}
@@ -354,7 +354,7 @@ export function McpSection({
 									color:
 										newServer.name &&
 										newServer.command
-											? "#fff"
+											? "var(--text-on-accent)"
 											: "var(--muted)",
 									borderRadius: 6,
 									cursor:

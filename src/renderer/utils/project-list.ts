@@ -2,16 +2,16 @@ import type { WorktreeStatus } from "../types/project"
 
 // Stable color palette for worktree branches — visually distinct
 export const branchColors = [
-	"#7c3aed", // purple
-	"#2563eb", // blue
-	"#059669", // green
-	"#d97706", // amber
-	"#dc2626", // red
-	"#0891b2", // cyan
-	"#c026d3", // fuchsia
-	"#ea580c", // orange
-	"#16a34a", // emerald
-	"#e11d48", // rose
+	"var(--project-branch-1)",
+	"var(--project-branch-2)",
+	"var(--project-branch-3)",
+	"var(--project-branch-4)",
+	"var(--project-branch-5)",
+	"var(--project-branch-6)",
+	"var(--project-branch-7)",
+	"var(--project-branch-8)",
+	"var(--project-branch-9)",
+	"var(--project-branch-10)",
 ]
 
 // Hash a string to a stable color index so the same branch always gets the same color
@@ -27,10 +27,10 @@ export const statusConfig: Record<
 	WorktreeStatus,
 	{ label: string; color: string }
 > = {
-	in_progress: { label: "In Progress", color: "#d97706" },
-	in_review: { label: "In Review", color: "#2563eb" },
-	done: { label: "Done", color: "#059669" },
-	archived: { label: "Archived", color: "#6b7280" },
+	in_progress: { label: "In Progress", color: "var(--color-amber)" },
+	in_review: { label: "In Review", color: "var(--color-blue)" },
+	done: { label: "Done", color: "var(--color-green)" },
+	archived: { label: "Archived", color: "var(--color-gray-muted)" },
 }
 
 export const statusOrder: WorktreeStatus[] = [

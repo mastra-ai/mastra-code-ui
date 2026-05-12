@@ -3,29 +3,34 @@ import type { IpcCommandHandler } from "./types.js"
 export function getSettingsHandlers(): Record<string, IpcCommandHandler> {
 	return {
 		setThinkingLevel: async (command, ctx) => {
-			await ctx
-				.getActiveSession()
-				.harness.setState({ thinkingLevel: command.level })
+			await ctx.getActiveSession().harness.setState({
+				thinkingLevel: command.level as
+					| "off"
+					| "low"
+					| "medium"
+					| "high"
+					| "xhigh",
+			})
 		},
 		setNotifications: async (command, ctx) => {
-			await ctx
-				.getActiveSession()
-				.harness.setState({ notifications: command.mode })
+			await ctx.getActiveSession().harness.setState({
+				notifications: command.mode as "off" | "bell" | "system" | "both",
+			})
 		},
 		setSmartEditing: async (command, ctx) => {
 			await ctx
 				.getActiveSession()
-				.harness.setState({ smartEditing: command.enabled })
+				.harness.setState({ smartEditing: command.enabled as boolean })
 		},
 		setObserverModel: async (command, ctx) => {
 			await ctx
 				.getActiveSession()
-				.harness.switchObserverModel({ modelId: command.modelId })
+				.harness.switchObserverModel({ modelId: command.modelId as string })
 		},
 		setReflectorModel: async (command, ctx) => {
 			await ctx
 				.getActiveSession()
-				.harness.switchReflectorModel({ modelId: command.modelId })
+				.harness.switchReflectorModel({ modelId: command.modelId as string })
 		},
 		setState: async (command, ctx) => {
 			const session = ctx.getActiveSession()

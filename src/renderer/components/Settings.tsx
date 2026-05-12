@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
+import { ChevronLeftIcon } from "./Icons"
 import { type ModelInfo } from "./ModelSelector"
 import type {
 	NotificationMode,
@@ -257,9 +258,7 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 						}}
 						title="Back (Esc)"
 					>
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-							<polyline points="15 18 9 12 15 6" />
-						</svg>
+						<ChevronLeftIcon />
 					</button>
 				)}
 				<span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
@@ -326,7 +325,7 @@ export function Settings({ onClose, loggedInProviders, onLogin, onApiKey, onLogo
 									fontSize: 12,
 								}}
 							>
-								Loading...
+								Loading
 							</div>
 						) : (
 							<>

@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { SearchStrokeIcon } from "./Icons"
+import { ShimmerText } from "./Shimmer"
 
 interface QuickFileOpenProps {
 	onSelect: (filePath: string) => void
@@ -56,7 +58,9 @@ export function QuickFileOpen({ onSelect, onClose }: QuickFileOpenProps) {
 
 	// Scroll into view
 	useEffect(() => {
-		const el = listRef.current?.querySelector("[data-selected='true']") as HTMLElement | null
+		const el = listRef.current?.querySelector(
+			"[data-selected='true']",
+		) as HTMLElement | null
 		el?.scrollIntoView({ block: "nearest" })
 	}, [selectedIndex])
 
@@ -123,19 +127,7 @@ export function QuickFileOpen({ onSelect, onClose }: QuickFileOpenProps) {
 						gap: 8,
 					}}
 				>
-					<svg
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="var(--muted)"
-						strokeWidth="2"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					>
-						<circle cx="11" cy="11" r="8" />
-						<line x1="21" y1="21" x2="16.65" y2="16.65" />
-					</svg>
+					<SearchStrokeIcon style={{ color: "var(--muted)" }} />
 					<input
 						ref={inputRef}
 						type="text"
@@ -171,7 +163,9 @@ export function QuickFileOpen({ onSelect, onClose }: QuickFileOpenProps) {
 								fontSize: 12,
 							}}
 						>
-							Loading files...
+							<ShimmerText style={{ color: "var(--muted)" }}>
+								Loading files...
+							</ShimmerText>
 						</div>
 					)}
 
@@ -197,7 +191,8 @@ export function QuickFileOpen({ onSelect, onClose }: QuickFileOpenProps) {
 						return (
 							<div
 								key={filePath}
-								data-selected={isSelected}
+								className="ui-hover-item"
+								data-selected={isSelected ? "true" : undefined}
 								onClick={() => onSelect(filePath)}
 								onMouseEnter={() => setSelectedIndex(idx)}
 								style={{
@@ -206,9 +201,7 @@ export function QuickFileOpen({ onSelect, onClose }: QuickFileOpenProps) {
 									gap: 8,
 									padding: "6px 16px",
 									cursor: "pointer",
-									background: isSelected
-										? "var(--accent)22"
-										: "transparent",
+									background: isSelected ? "var(--accent)22" : "transparent",
 									transition: "background 0.05s",
 								}}
 							>

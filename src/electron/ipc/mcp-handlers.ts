@@ -20,6 +20,7 @@ export function getMcpHandlers(): Record<string, IpcCommandHandler> {
 		},
 		addMcpServer: async (command, ctx) => {
 			const mcpManager = ctx.getActiveSession().mcpManager
+			const serverName = command.serverName as string
 			const configPath =
 				command.scope === "global"
 					? mcpManager.getConfigPaths().global
@@ -33,7 +34,7 @@ export function getMcpHandlers(): Record<string, IpcCommandHandler> {
 				return {}
 			})()
 			if (!existing.mcpServers) existing.mcpServers = {}
-			existing.mcpServers[command.serverName] = {
+			existing.mcpServers[serverName] = {
 				command: command.serverCommand,
 				args: command.serverArgs ?? [],
 				env: command.serverEnv ?? undefined,
@@ -46,6 +47,7 @@ export function getMcpHandlers(): Record<string, IpcCommandHandler> {
 		},
 		removeMcpServer: async (command, ctx) => {
 			const mcpManager = ctx.getActiveSession().mcpManager
+			const serverName = command.serverName as string
 			for (const configPath of [
 				mcpManager.getConfigPaths().project,
 				mcpManager.getConfigPaths().global,
@@ -53,8 +55,8 @@ export function getMcpHandlers(): Record<string, IpcCommandHandler> {
 				try {
 					if (!fs.existsSync(configPath)) continue
 					const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"))
-					if (cfg.mcpServers?.[command.serverName]) {
-						delete cfg.mcpServers[command.serverName]
+					if (cfg.mcpServers?.[serverName]) {
+						delete cfg.mcpServers[serverName]
 						fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2))
 					}
 				} catch {}

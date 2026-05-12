@@ -1,4 +1,31 @@
 import type { Message } from "./ipc"
+import {
+	getToolResultIsError,
+	normalizeAskUserQuestion,
+} from "../utils/askUser"
+
+export type QuestionSelectionMode = "single_select" | "multi_select"
+
+export type QuestionAnswer = string | string[]
+
+export interface QuestionOption {
+	label: string
+	description?: string
+}
+
+export interface PendingQuestion {
+	questionId: string
+	toolCallId?: string
+	question: string
+	options?: QuestionOption[]
+	selectionMode?: QuestionSelectionMode
+	responseEnabled?: boolean
+}
+
+export interface ToolQuestionState extends PendingQuestion {
+	answer?: QuestionAnswer
+	responseStatus?: "waiting" | "submitted"
+}
 
 export type ToolState = {
 	id: string
@@ -8,6 +35,7 @@ export type ToolState = {
 	isError?: boolean
 	status: "pending" | "running" | "complete" | "error"
 	shellOutput?: string
+	question?: ToolQuestionState
 }
 
 export type SubagentState = {
@@ -46,6 +74,8 @@ export type ChatAction =
 	| { type: "TOOL_START"; id: string; name: string; args: unknown }
 	| { type: "TOOL_UPDATE"; id: string; partialResult: unknown }
 	| { type: "TOOL_END"; id: string; result: unknown; isError: boolean }
+	| { type: "ASK_QUESTION"; question: PendingQuestion }
+	| { type: "QUESTION_RESPONSE"; questionId: string; answer: QuestionAnswer }
 	| {
 			type: "SHELL_OUTPUT"
 			id: string
@@ -117,16 +147,33 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 			}
 		}
 		case "MESSAGE_UPDATE": {
-			const msgs = state.messages.map((m) =>
-				m.id === action.message.id ? action.message : m,
+			const messageExists = state.messages.some(
+				(m) => m.id === action.message.id,
 			)
-			return { ...state, messages: msgs }
+			const messages = messageExists
+				? state.messages.map((m) =>
+						m.id === action.message.id ? action.message : m,
+					)
+				: [...state.messages, action.message]
+			return {
+				...state,
+				messages,
+				streamingMessageId:
+					action.message.role === "assistant"
+						? action.message.id
+						: state.streamingMessageId,
+			}
 		}
 		case "MESSAGE_END": {
-			const msgs = state.messages.map((m) =>
-				m.id === action.message.id ? action.message : m,
+			const messageExists = state.messages.some(
+				(m) => m.id === action.message.id,
 			)
-			return { ...state, messages: msgs, streamingMessageId: null }
+			const messages = messageExists
+				? state.messages.map((m) =>
+						m.id === action.message.id ? action.message : m,
+					)
+				: [...state.messages, action.message]
+			return { ...state, messages, streamingMessageId: null }
 		}
 		case "TOOL_START": {
 			const tools = new Map(state.tools)
@@ -150,12 +197,64 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 			const tools = new Map(state.tools)
 			const tool = tools.get(action.id)
 			if (tool) {
+				const isError = getToolResultIsError(action.result, action.isError)
 				tools.set(action.id, {
 					...tool,
 					result: action.result,
-					isError: action.isError,
-					status: action.isError ? "error" : "complete",
+					isError,
+					status: isError ? "error" : "complete",
 				})
+			}
+			return { ...state, tools }
+		}
+		case "ASK_QUESTION": {
+			const tools = new Map(state.tools)
+			const matchingEntries = Array.from(tools.entries()).filter(([, tool]) => {
+				if (tool.name !== "ask_user" || tool.status !== "running") {
+					return false
+				}
+				if (tool.question) {
+					return (
+						tool.question.responseEnabled === false &&
+						tool.question.question === action.question.question
+					)
+				}
+				const args =
+					tool.args && typeof tool.args === "object"
+						? (tool.args as Record<string, unknown>)
+						: null
+				return (
+					args !== null &&
+					normalizeAskUserQuestion(args)?.question === action.question.question
+				)
+			})
+			const [toolId, tool] = matchingEntries[matchingEntries.length - 1] ?? []
+			if (toolId && tool) {
+				tools.set(toolId, {
+					...tool,
+					question: {
+						...tool.question,
+						...action.question,
+						responseEnabled: action.question.responseEnabled,
+						responseStatus: "waiting",
+					},
+				})
+			}
+			return { ...state, tools }
+		}
+		case "QUESTION_RESPONSE": {
+			const tools = new Map(state.tools)
+			for (const [toolId, tool] of tools) {
+				if (tool.question?.questionId !== action.questionId) continue
+				tools.set(toolId, {
+					...tool,
+					question: {
+						...tool.question,
+						answer: action.answer,
+						responseStatus: "submitted",
+					},
+				})
+				break
 			}
 			return { ...state, tools }
 		}

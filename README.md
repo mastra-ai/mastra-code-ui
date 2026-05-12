@@ -1,6 +1,6 @@
-# Mastra Code
+# MastraCode
 
-A desktop coding agent built with [Mastra](https://mastra.ai) and Electron.
+A desktop coding agent. Open a folder, connect a provider, and the agent reads, edits, and runs code from there. Built on [Mastra](https://mastra.ai) and Electron.
 
 ## Features
 

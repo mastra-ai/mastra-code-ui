@@ -1,5 +1,5 @@
 export type NotificationMode = "off" | "bell" | "system" | "both"
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high"
+export type ThinkingLevel = "off" | "low" | "medium" | "high" | "xhigh"
 
 export interface SettingsState {
 	notifications: NotificationMode

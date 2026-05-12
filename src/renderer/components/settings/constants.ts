@@ -7,10 +7,10 @@ export const notificationOptions: Array<{ value: string; label: string }> = [
 
 export const thinkingOptions: Array<{ value: string; label: string }> = [
 	{ value: "off", label: "Off" },
-	{ value: "minimal", label: "Minimal" },
 	{ value: "low", label: "Low" },
 	{ value: "medium", label: "Medium" },
 	{ value: "high", label: "High" },
+	{ value: "xhigh", label: "Extra High" },
 ]
 
 export const policyOptions: Array<{ value: string; label: string }> = [

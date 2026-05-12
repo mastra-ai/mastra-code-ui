@@ -15,8 +15,8 @@ export function ModelsSection({
 		<>
 			<SectionHeader title="Thinking" />
 			<SettingRow
-				label="Extended thinking"
-				description="Budget for chain-of-thought reasoning (Anthropic models)"
+				label="Reasoning"
+				description="Reasoning effort for supported OpenAI models"
 			>
 				<Select
 					value={state.thinkingLevel}
