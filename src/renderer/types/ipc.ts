@@ -11,6 +11,7 @@ export type HarnessEventType =
 	| "model_changed"
 	| "thread_changed"
 	| "thread_created"
+	| "thread_deleted"
 	| "state_changed"
 	| "agent_start"
 	| "agent_end"

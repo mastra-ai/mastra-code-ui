@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
+import { ChevronLeftIcon } from "./Icons"
 
 interface AgentData {
 	worktreePath: string
@@ -31,8 +32,11 @@ interface AgentDashboardProps {
 
 // Stable color palette — same as ProjectList
 const branchColors = [
-	"#7c3aed", "#2563eb", "#059669", "#d97706", "#dc2626",
-	"#0891b2", "#c026d3", "#ea580c", "#16a34a", "#e11d48",
+	"var(--project-branch-1)", "var(--project-branch-2)",
+	"var(--project-branch-3)", "var(--project-branch-4)",
+	"var(--project-branch-5)", "var(--project-branch-6)",
+	"var(--project-branch-7)", "var(--project-branch-8)",
+	"var(--project-branch-9)", "var(--project-branch-10)",
 ]
 
 function hashColor(str: string): string {
@@ -159,9 +163,7 @@ export function AgentDashboard({ onClose, onSwitchToAgent }: AgentDashboardProps
 					}}
 					title="Back"
 				>
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-						<polyline points="15 18 9 12 15 6" />
-					</svg>
+					<ChevronLeftIcon />
 				</button>
 				<span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
 					Agents
@@ -171,8 +173,8 @@ export function AgentDashboard({ onClose, onSwitchToAgent }: AgentDashboardProps
 						style={{
 							fontSize: 9,
 							fontWeight: 600,
-							color: "#d97706",
-							background: "#d9770618",
+							color: "var(--color-amber)",
+							background: "var(--color-amber-bg)",
 							padding: "1px 6px",
 							borderRadius: 3,
 						}}
@@ -200,7 +202,7 @@ export function AgentDashboard({ onClose, onSwitchToAgent }: AgentDashboardProps
 					}}
 				>
 					<SummaryItem label="Sessions" value={String(totals.totalCount)} />
-					<SummaryItem label="Active" value={String(totals.activeCount)} color={totals.activeCount > 0 ? "#d97706" : undefined} />
+					<SummaryItem label="Active" value={String(totals.activeCount)} color={totals.activeCount > 0 ? "var(--color-amber)" : undefined} />
 					<SummaryItem label="Input" value={formatTokens(totals.promptTokens)} />
 					<SummaryItem label="Output" value={formatTokens(totals.completionTokens)} />
 					<SummaryItem label="Total tokens" value={formatTokens(totals.totalTokens)} />
@@ -306,11 +308,11 @@ export function AgentDashboard({ onClose, onSwitchToAgent }: AgentDashboardProps
 										<span
 											style={{
 												fontSize: 9,
-												color: "#5E6AD2",
-												background: "#5E6AD218",
+												color: "var(--brand-linear)",
+												background: "var(--brand-linear-bg)",
 												padding: "1px 6px",
 												borderRadius: 3,
-												border: "1px solid #5E6AD233",
+												border: "1px solid var(--brand-linear-border)",
 												fontFamily: "monospace",
 												fontWeight: 500,
 												flexShrink: 0,
@@ -325,8 +327,8 @@ export function AgentDashboard({ onClose, onSwitchToAgent }: AgentDashboardProps
 										style={{
 											fontSize: 9,
 											fontWeight: 600,
-											color: agent.isActive ? "#d97706" : "var(--muted)",
-											background: agent.isActive ? "#d9770618" : "var(--muted)18",
+											color: agent.isActive ? "var(--color-amber)" : "var(--muted)",
+											background: agent.isActive ? "var(--color-amber-bg)" : "var(--color-muted-bg)",
 											padding: "1px 5px",
 											borderRadius: 3,
 											flexShrink: 0,

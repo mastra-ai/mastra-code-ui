@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from "react"
 import type { OMProgressState } from "../types/ipc"
 
-// Mastra brand colors
-const OBSERVER_COLOR = "#fdac53" // orange — observation/messages
-const REFLECTOR_COLOR = "#ff69cc" // pink — reflection/memory
-const COLOR_RED = "#DC5663" // high threshold
-const COLOR_GRAY = "#52525b" // low threshold (dark mode)
+const OBSERVER_COLOR = "var(--om-observer)"
+const REFLECTOR_COLOR = "var(--om-reflector)"
+const THRESHOLD_HIGH_COLOR = "var(--om-threshold-high)"
+const THRESHOLD_LOW_COLOR = "var(--om-threshold-low)"
 
 function colorByPercent(percent: number): string {
-	if (percent >= 90) return COLOR_RED
+	if (percent >= 90) return THRESHOLD_HIGH_COLOR
 	if (percent >= 70) return OBSERVER_COLOR
-	return COLOR_GRAY
+	return THRESHOLD_LOW_COLOR
 }
 
 /** Format token count without k suffix: 7234 -> "7.2", 200 -> "0.2", 38 -> "<0.1", 0 -> "0" */

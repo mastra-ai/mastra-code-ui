@@ -1,15 +1,30 @@
 import type { BrowserWindow } from "electron"
 import type * as pty from "node-pty"
-import type { Harness } from "@mastra/core/harness"
+import type { createMastraCode } from "mastracode"
+import type { AuthStorage } from "../../auth/storage.js"
 import type { ElectronStateManager } from "../electron-state.js"
 import type { PlaywrightBrowserManager } from "../../browser/playwright-manager.js"
 
-export interface WorktreeSession {
-	harness: Harness<any>
-	mcpManager: any
+export type MastraCodeRuntime = Awaited<ReturnType<typeof createMastraCode>>
+export type MastraCodeHarness = MastraCodeRuntime["harness"]
+export type MastraCodeMcpManager = NonNullable<MastraCodeRuntime["mcpManager"]>
+export type MastraCodeResolveModel = MastraCodeRuntime["resolveModel"]
+
+export interface HarnessRuntime {
+	harness: MastraCodeHarness
+	mcpManager: MastraCodeMcpManager
 	browserManager: PlaywrightBrowserManager
-	resolveModel: (modelId: string) => any
-	authStorage: any
+	resolveModel: MastraCodeResolveModel
+	authStorage: AuthStorage
+	electronState: ElectronStateManager
+}
+
+export interface WorktreeSession {
+	harness: MastraCodeHarness
+	mcpManager: MastraCodeMcpManager
+	browserManager: PlaywrightBrowserManager
+	resolveModel: MastraCodeResolveModel
+	authStorage: AuthStorage
 	electronState: ElectronStateManager
 	projectRoot: string
 	unsubscribe: (() => void) | null
@@ -22,10 +37,17 @@ export interface AgentTiming {
 	currentModelId: string | null
 }
 
+export type IpcCommand = Readonly<{ type: string } & Record<string, unknown>>
+
 export type IpcCommandHandler = (
-	command: any,
+	command: IpcCommand,
 	ctx: HandlerContext,
-) => Promise<any>
+) => Promise<unknown>
+
+export type DeleteThreadResult = {
+	deletedThreadId: string
+	currentThreadId: string | null
+}
 
 export interface HandlerContext {
 	getActiveSession: () => WorktreeSession
@@ -36,19 +58,18 @@ export interface HandlerContext {
 	sessionTimings: Map<string, AgentTiming>
 	cleanupSession: (path: string) => void
 	bridgeAllEvents: (window: BrowserWindow) => void
-	createHarness: (path: string) => Promise<{
-		harness: Harness<any>
-		mcpManager: any
-		browserManager: PlaywrightBrowserManager
-		resolveModel: (modelId: string) => any
-		authStorage: any
-		electronState: ElectronStateManager
-	}>
-	ensureAuthenticatedModel: (h: Harness<any>, authStorage: any) => Promise<void>
-	generateThreadTitle: (
-		h: Harness<any>,
-		userMessage: string,
-		resolveModel: (modelId: string) => any,
+	createHarness: (path: string) => Promise<HarnessRuntime>
+	ensureAuthenticatedModel: (
+		h: MastraCodeHarness,
+		authStorage: AuthStorage,
 	) => Promise<void>
-	deleteThread: (h: Harness<any>, threadId: string) => Promise<void>
+	generateThreadTitle: (
+		h: MastraCodeHarness,
+		userMessage: string,
+		resolveModel: MastraCodeResolveModel,
+	) => Promise<void>
+	deleteThread: (
+		h: MastraCodeHarness,
+		threadId: string,
+	) => Promise<DeleteThreadResult>
 }

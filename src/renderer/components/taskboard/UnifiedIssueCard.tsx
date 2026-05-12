@@ -1,5 +1,10 @@
 import { useState } from "react"
-import { LinearIcon, GitHubIcon, HandmadeIcon } from "./icons"
+import {
+	GitHubMarkIcon,
+	HandmadeEditIcon,
+	LinearIcon,
+	WorktreeBranchIcon,
+} from "../Icons"
 import { PRIORITY_LABELS, STATE_TYPE_ORDER } from "./constants"
 import type { UnifiedIssue, LinearState } from "../../types/taskboard"
 
@@ -53,7 +58,7 @@ export function UnifiedIssueCard({
 			>
 				{/* Provider icon */}
 				<span style={{ color: issue.provider === "handmade" ? "#f59e0b" : "var(--dim)", display: "flex", flexShrink: 0 }}>
-					{issue.provider === "github" ? <GitHubIcon size={10} /> : issue.provider === "handmade" ? <HandmadeIcon size={10} /> : <LinearIcon size={10} />}
+					{issue.provider === "github" ? <GitHubMarkIcon size={10} /> : issue.provider === "handmade" ? <HandmadeEditIcon size={10} /> : <LinearIcon size={10} />}
 				</span>
 				<span
 					style={{
@@ -271,9 +276,7 @@ export function UnifiedIssueCard({
 							gap: 4,
 						}}
 					>
-						<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-							<circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M6 21V9a9 9 0 0 0 9 9" />
-						</svg>
+						<WorktreeBranchIcon width="10" height="10" />
 						Switch to worktree
 					</button>
 				) : onStartWork && !isTerminal ? (
@@ -295,9 +298,7 @@ export function UnifiedIssueCard({
 							gap: 4,
 						}}
 					>
-						<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-							<circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><path d="M6 21V9a9 9 0 0 0 9 9" />
-						</svg>
+						<WorktreeBranchIcon width="10" height="10" />
 						Start work
 					</button>
 				) : null}

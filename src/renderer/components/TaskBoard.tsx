@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react"
 import type { TaskBoardProps } from "../types/taskboard"
 import { PRIORITY_LABELS } from "./taskboard/constants"
-import { LinearIcon, GitHubIcon, HandmadeIcon } from "./taskboard/icons"
+import { ChevronLeftIcon, GitHubMarkIcon, HandmadeEditIcon, LinearIcon } from "./Icons"
 import { DisconnectMenu } from "./taskboard/DisconnectMenu"
 import { UnifiedIssueCard } from "./taskboard/UnifiedIssueCard"
 import { useLinearApi } from "../hooks/useLinearApi"
@@ -79,18 +79,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 						}}
 						title="Back (Esc)"
 					>
-						<svg
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						>
-							<polyline points="15 18 9 12 15 6" />
-						</svg>
+						<ChevronLeftIcon />
 					</button>
 				)}
 				<span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
@@ -109,7 +98,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 							)}
 							{github.githubConnected && (
 								<span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--muted)", background: "var(--bg-surface)", padding: "2px 8px", borderRadius: 3, border: "1px solid var(--border-muted)" }}>
-									<GitHubIcon size={10} />
+									<GitHubMarkIcon size={10} />
 									{github.githubOwner}/{github.githubRepo}
 								</span>
 							)}
@@ -204,7 +193,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 										gap: 4,
 									}}
 								>
-									<HandmadeIcon size={10} /> + Task
+									<HandmadeEditIcon size={10} /> + Task
 								</button>
 								{linear.linearConnected && (
 									<button
@@ -213,7 +202,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 											padding: "4px 12px",
 											fontSize: 11,
 											background: "var(--accent)",
-											color: "#fff",
+											color: "var(--text-on-accent)",
 											borderRadius: 4,
 											cursor: "pointer",
 											fontWeight: 500,
@@ -273,7 +262,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 											gap: 4,
 										}}
 									>
-										<GitHubIcon size={10} /> + GitHub
+										<GitHubMarkIcon size={10} /> + GitHub
 									</button>
 								)}
 								<DisconnectMenu
@@ -298,8 +287,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 					style={{
 						padding: "8px 20px",
 						fontSize: 12,
-						color: "#ef4444",
-						background: "#ef444411",
+						color: "var(--color-red)",
+						background: "var(--color-red-bg)",
 						borderBottom: "1px solid var(--border-muted)",
 					}}
 				>
@@ -308,7 +297,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 						onClick={() => setError(null)}
 						style={{
 							marginLeft: 8,
-							color: "#ef4444",
+							color: "var(--color-red)",
 							background: "transparent",
 							border: "none",
 							cursor: "pointer",
@@ -346,9 +335,9 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 								borderRadius: 3,
 								cursor: "pointer",
 								border: "1px solid",
-								borderColor: unified.sourceFilter === null || unified.sourceFilter.has("linear") ? "#5E6AD2" : "var(--border)",
-								background: unified.sourceFilter === null || unified.sourceFilter.has("linear") ? "#5E6AD218" : "transparent",
-								color: unified.sourceFilter === null || unified.sourceFilter.has("linear") ? "#5E6AD2" : "var(--dim)",
+								borderColor: unified.sourceFilter === null || unified.sourceFilter.has("linear") ? "var(--brand-linear)" : "var(--border)",
+								background: unified.sourceFilter === null || unified.sourceFilter.has("linear") ? "var(--brand-linear-bg)" : "transparent",
+								color: unified.sourceFilter === null || unified.sourceFilter.has("linear") ? "var(--brand-linear)" : "var(--dim)",
 								fontWeight: 600,
 							}}
 						>
@@ -367,13 +356,13 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 								borderRadius: 3,
 								cursor: "pointer",
 								border: "1px solid",
-								borderColor: unified.sourceFilter === null || unified.sourceFilter.has("github") ? "#8b949e" : "var(--border)",
-								background: unified.sourceFilter === null || unified.sourceFilter.has("github") ? "#8b949e18" : "transparent",
+								borderColor: unified.sourceFilter === null || unified.sourceFilter.has("github") ? "var(--brand-github-muted)" : "var(--border)",
+								background: unified.sourceFilter === null || unified.sourceFilter.has("github") ? "var(--brand-github-muted-bg)" : "transparent",
 								color: unified.sourceFilter === null || unified.sourceFilter.has("github") ? "var(--text)" : "var(--dim)",
 								fontWeight: 600,
 							}}
 						>
-							<GitHubIcon size={10} /> GitHub
+							<GitHubMarkIcon size={10} /> GitHub
 						</button>
 					)}
 					{unified.availableSources.includes("handmade") && (
@@ -388,13 +377,13 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 								borderRadius: 3,
 								cursor: "pointer",
 								border: "1px solid",
-								borderColor: unified.sourceFilter === null || unified.sourceFilter.has("handmade") ? "#f59e0b" : "var(--border)",
-								background: unified.sourceFilter === null || unified.sourceFilter.has("handmade") ? "#f59e0b18" : "transparent",
-								color: unified.sourceFilter === null || unified.sourceFilter.has("handmade") ? "#f59e0b" : "var(--dim)",
+								borderColor: unified.sourceFilter === null || unified.sourceFilter.has("handmade") ? "var(--warning)" : "var(--border)",
+								background: unified.sourceFilter === null || unified.sourceFilter.has("handmade") ? "var(--color-warning-bg)" : "transparent",
+								color: unified.sourceFilter === null || unified.sourceFilter.has("handmade") ? "var(--warning)" : "var(--dim)",
 								fontWeight: 600,
 							}}
 						>
-							<HandmadeIcon size={10} /> Manual
+							<HandmadeEditIcon size={10} /> Manual
 						</button>
 					)}
 
@@ -455,7 +444,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 						alignItems: "center",
 					}}
 				>
-					<HandmadeIcon size={14} />
+					<HandmadeEditIcon size={14} />
 					<input
 						value={handmade.newHandmadeTitle}
 						onChange={(e) => handmade.setNewHandmadeTitle(e.target.value)}
@@ -481,8 +470,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 						disabled={!handmade.newHandmadeTitle.trim()}
 						style={{
 							padding: "6px 16px",
-							background: handmade.newHandmadeTitle.trim() ? "#f59e0b" : "var(--bg-elevated)",
-							color: handmade.newHandmadeTitle.trim() ? "#fff" : "var(--muted)",
+							background: handmade.newHandmadeTitle.trim() ? "var(--warning)" : "var(--bg-elevated)",
+							color: handmade.newHandmadeTitle.trim() ? "var(--text-on-accent)" : "var(--muted)",
 							borderRadius: 4,
 							cursor: handmade.newHandmadeTitle.trim() ? "pointer" : "default",
 							fontSize: 12,
@@ -547,7 +536,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 						style={{
 							padding: "6px 16px",
 							background: linear.newTitle.trim() ? "var(--accent)" : "var(--bg-elevated)",
-							color: linear.newTitle.trim() ? "#fff" : "var(--muted)",
+							color: linear.newTitle.trim() ? "var(--text-on-accent)" : "var(--muted)",
 							borderRadius: 4,
 							cursor: linear.newTitle.trim() ? "pointer" : "default",
 							fontSize: 12,
@@ -662,8 +651,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 							style={{
 								width: "100%",
 								padding: "10px 20px",
-								background: github.githubConnecting ? "var(--bg-elevated)" : "#24292e",
-								color: github.githubConnecting ? "var(--muted)" : "#fff",
+								background: github.githubConnecting ? "var(--bg-elevated)" : "var(--brand-github)",
+								color: github.githubConnecting ? "var(--muted)" : "var(--text-on-accent)",
 								borderRadius: 8,
 								cursor: github.githubConnecting ? "default" : "pointer",
 								fontSize: 13,
@@ -680,7 +669,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 								"Connecting..."
 							) : (
 								<>
-									<GitHubIcon size={16} />
+									<GitHubMarkIcon size={16} />
 									Connect with GitHub CLI
 								</>
 							)}
@@ -729,8 +718,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 										disabled={!github.githubPATInput.trim() || github.githubConnecting}
 										style={{
 											padding: "8px 16px",
-											background: github.githubPATInput.trim() && !github.githubConnecting ? "#24292e" : "var(--bg-elevated)",
-											color: github.githubPATInput.trim() && !github.githubConnecting ? "#fff" : "var(--muted)",
+											background: github.githubPATInput.trim() && !github.githubConnecting ? "var(--brand-github)" : "var(--bg-elevated)",
+											color: github.githubPATInput.trim() && !github.githubConnecting ? "var(--text-on-accent)" : "var(--muted)",
 											borderRadius: 6,
 											cursor: github.githubPATInput.trim() && !github.githubConnecting ? "pointer" : "default",
 											fontSize: 12,
@@ -758,8 +747,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 							style={{
 								width: "100%",
 								padding: "10px 20px",
-								background: linear.connecting ? "var(--bg-elevated)" : "#5E6AD2",
-								color: linear.connecting ? "var(--muted)" : "#fff",
+								background: linear.connecting ? "var(--bg-elevated)" : "var(--brand-linear)",
+								color: linear.connecting ? "var(--muted)" : "var(--text-on-accent)",
 								borderRadius: 8,
 								cursor: linear.connecting ? "default" : "pointer",
 								fontSize: 13,
@@ -864,7 +853,7 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 													: "var(--bg-elevated)",
 											color:
 												linear.linearApiKey.trim() && !linear.loading
-													? "#fff"
+													? "var(--text-on-accent)"
 													: "var(--muted)",
 											borderRadius: 6,
 											cursor:
@@ -1166,8 +1155,8 @@ export function TaskBoard({ agentTasks, onClose, onStartWork, onStartWorkGithub,
 									borderBottom: "1px solid var(--border-muted)",
 								}}
 							>
-								<span style={{ color: issue.provider === "handmade" ? "#f59e0b" : "var(--dim)", flexShrink: 0, display: "flex" }}>
-									{issue.provider === "github" ? <GitHubIcon size={11} /> : issue.provider === "handmade" ? <HandmadeIcon size={11} /> : <LinearIcon size={11} />}
+								<span style={{ color: issue.provider === "handmade" ? "var(--warning)" : "var(--dim)", flexShrink: 0, display: "flex" }}>
+									{issue.provider === "github" ? <GitHubMarkIcon size={11} /> : issue.provider === "handmade" ? <HandmadeEditIcon size={11} /> : <LinearIcon size={11} />}
 								</span>
 								<span
 									style={{

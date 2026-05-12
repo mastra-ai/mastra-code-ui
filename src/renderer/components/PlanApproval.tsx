@@ -1,6 +1,45 @@
 import { useState } from "react"
-import Markdown from "react-markdown"
+import { Streamdown } from "streamdown"
 import remarkGfm from "remark-gfm"
+import remarkBreaks from "remark-breaks"
+import { MermaidBlock } from "./MermaidBlock"
+import { CodeBlock } from "./CodeBlock"
+
+const planRemarkPlugins = [remarkGfm, remarkBreaks]
+
+const reactNodeToString = (node: React.ReactNode): string => {
+	if (typeof node === "string") return node
+	if (typeof node === "number") return String(node)
+	if (Array.isArray(node)) return node.map(reactNodeToString).join("")
+	return ""
+}
+
+const planMarkdownComponents = {
+	pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+	code: ({
+		className,
+		children,
+		...props
+	}: React.HTMLAttributes<HTMLElement>) => {
+		const lang = /language-(\w+)/.exec(className || "")?.[1]
+		const text = reactNodeToString(children).replace(/\n$/, "")
+		if (lang === "mermaid") return <MermaidBlock code={text} />
+		if (lang) return <CodeBlock code={text} language={lang} />
+		return (
+			<code className={className} {...props}>
+				{children}
+			</code>
+		)
+	},
+}
+
+function handlePlanMarkdownClick(e: React.MouseEvent<HTMLDivElement>) {
+	const anchor = (e.target as HTMLElement).closest("a")
+	if (anchor && anchor.href) {
+		e.preventDefault()
+		window.api.invoke({ type: "openExternal", url: anchor.href })
+	}
+}
 
 interface PlanApprovalProps {
 	planId: string
@@ -69,16 +108,24 @@ export function PlanApproval({
 						fontSize: 13,
 						lineHeight: 1.6,
 					}}
-					className="markdown-body"
+					data-component="markdown"
+					onClick={handlePlanMarkdownClick}
 				>
-					<Markdown remarkPlugins={[remarkGfm]}>{plan}</Markdown>
+					<Streamdown
+						mode="static"
+						remarkPlugins={planRemarkPlugins}
+						components={planMarkdownComponents}
+						controls={false}
+					>
+						{plan}
+					</Streamdown>
 				</div>
 
 				<div style={{ flexShrink: 0 }}>
 					<input
 						value={feedback}
 						onChange={(e) => setFeedback(e.target.value)}
-						placeholder="Optional feedback..."
+						placeholder="Optional feedback"
 						style={{
 							width: "100%",
 							padding: "8px 12px",

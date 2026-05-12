@@ -1,0 +1,92 @@
+diff --git a/dist/harness/index.cjs b/dist/harness/index.cjs
+index 13c4701..2843d5c 100644
+--- a/dist/harness/index.cjs
++++ b/dist/harness/index.cjs
+@@ -209,6 +209,6 @@ function formatQuestionAnswer(answer) {
+ var askUserTool = chunkM4KUR53T_cjs.createTool({
+   id: "ask_user",
+-  description: "Ask the user a question and wait for their response. Use this when you need clarification, want to validate assumptions, or need the user to make a decision between options. Provide options for structured choices (2-4 options), or omit them for open-ended questions. Use selectionMode to choose whether the user can pick one option or multiple options.",
++  description: "Ask the user a question and wait for their response. Use this when you need clarification, want to validate assumptions, or need the user to make a decision between options. Provide options for structured choices (2-4 options), or omit them for open-ended questions. Use selectionMode only with options to choose whether the user can pick one option or multiple options.",
+   inputSchema: v4.z.object({
+     question: v4.z.string().min(1).describe("The question to ask the user. Should be clear and specific."),
+     options: v4.z.array(
+@@ -218,21 +218,16 @@ var askUserTool = chunkM4KUR53T_cjs.createTool({
+       })
+     ).optional().describe("Optional choices. If provided, shows a selection list. If omitted, shows a free-text input."),
+     selectionMode: v4.z.enum(["single_select", "multi_select"]).optional().describe(
+-      "Controls how many provided options the user can select. Defaults to single_select when options are provided. Requires options."
++      "Controls how many provided options the user can select. Defaults to single_select when options are provided. Ignored when options are omitted."
+     )
+   }),
+   execute: async ({ question, options, selectionMode }, context) => {
+     try {
+       const harnessCtx = context?.requestContext?.get("harness");
+-      const resolvedSelectionMode = options?.length ? selectionMode ?? "single_select" : void 0;
+-      if (selectionMode && !options?.length) {
+-        return {
+-          content: "Failed to ask user: selectionMode requires options.",
+-          isError: true
+-        };
+-      }
++      const normalizedOptions = options?.length ? options : void 0;
++      const resolvedSelectionMode = normalizedOptions?.length ? selectionMode ?? "single_select" : void 0;
+       if (!harnessCtx?.emitEvent || !harnessCtx?.registerQuestion) {
+         return {
+-          content: `[Question for user]: ${question}${options?.length ? "\nOptions: " + options.map((o) => o.label).join(", ") : ""}${resolvedSelectionMode ? "\nSelection mode: " + resolvedSelectionMode : ""}`,
++          content: `[Question for user]: ${question}${normalizedOptions?.length ? "\nOptions: " + normalizedOptions.map((o) => o.label).join(", ") : ""}${resolvedSelectionMode ? "\nSelection mode: " + resolvedSelectionMode : ""}`,
+           isError: false
+         };
+@@ -257,6 +252,6 @@ var askUserTool = chunkM4KUR53T_cjs.createTool({
+           type: "ask_question",
+           questionId,
+           question,
+-          options,
++          options: normalizedOptions,
+           selectionMode: resolvedSelectionMode
+         });
+diff --git a/dist/harness/index.js b/dist/harness/index.js
+index b21d81f..98803f6 100644
+--- a/dist/harness/index.js
++++ b/dist/harness/index.js
+@@ -207,6 +207,6 @@ function formatQuestionAnswer(answer) {
+ var askUserTool = createTool({
+   id: "ask_user",
+-  description: "Ask the user a question and wait for their response. Use this when you need clarification, want to validate assumptions, or need the user to make a decision between options. Provide options for structured choices (2-4 options), or omit them for open-ended questions. Use selectionMode to choose whether the user can pick one option or multiple options.",
++  description: "Ask the user a question and wait for their response. Use this when you need clarification, want to validate assumptions, or need the user to make a decision between options. Provide options for structured choices (2-4 options), or omit them for open-ended questions. Use selectionMode only with options to choose whether the user can pick one option or multiple options.",
+   inputSchema: z.object({
+     question: z.string().min(1).describe("The question to ask the user. Should be clear and specific."),
+     options: z.array(
+@@ -216,21 +216,16 @@ var askUserTool = createTool({
+       })
+     ).optional().describe("Optional choices. If provided, shows a selection list. If omitted, shows a free-text input."),
+     selectionMode: z.enum(["single_select", "multi_select"]).optional().describe(
+-      "Controls how many provided options the user can select. Defaults to single_select when options are provided. Requires options."
++      "Controls how many provided options the user can select. Defaults to single_select when options are provided. Ignored when options are omitted."
+     )
+   }),
+   execute: async ({ question, options, selectionMode }, context) => {
+     try {
+       const harnessCtx = context?.requestContext?.get("harness");
+-      const resolvedSelectionMode = options?.length ? selectionMode ?? "single_select" : void 0;
+-      if (selectionMode && !options?.length) {
+-        return {
+-          content: "Failed to ask user: selectionMode requires options.",
+-          isError: true
+-        };
+-      }
++      const normalizedOptions = options?.length ? options : void 0;
++      const resolvedSelectionMode = normalizedOptions?.length ? selectionMode ?? "single_select" : void 0;
+       if (!harnessCtx?.emitEvent || !harnessCtx?.registerQuestion) {
+         return {
+-          content: `[Question for user]: ${question}${options?.length ? "\nOptions: " + options.map((o) => o.label).join(", ") : ""}${resolvedSelectionMode ? "\nSelection mode: " + resolvedSelectionMode : ""}`,
++          content: `[Question for user]: ${question}${normalizedOptions?.length ? "\nOptions: " + normalizedOptions.map((o) => o.label).join(", ") : ""}${resolvedSelectionMode ? "\nSelection mode: " + resolvedSelectionMode : ""}`,
+           isError: false
+         };
+@@ -255,6 +250,6 @@ var askUserTool = createTool({
+           type: "ask_question",
+           questionId,
+           question,
+-          options,
++          options: normalizedOptions,
+           selectionMode: resolvedSelectionMode
+         });

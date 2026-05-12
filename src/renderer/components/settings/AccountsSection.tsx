@@ -50,7 +50,7 @@ export function AccountsSection({
 										width: 7,
 										height: 7,
 										borderRadius: "50%",
-										background: connected ? "#4ade80" : "var(--border)",
+										background: connected ? "var(--color-green-bright)" : "var(--border)",
 										flexShrink: 0,
 									}}
 								/>
@@ -86,7 +86,7 @@ export function AccountsSection({
 													style={{
 														padding: "5px 12px",
 														background: "var(--accent)",
-														color: "#fff",
+														color: "var(--text-on-accent)",
 														borderRadius: 5,
 														cursor: "pointer",
 														fontWeight: 500,
@@ -154,7 +154,7 @@ export function AccountsSection({
 										style={{
 											padding: "6px 12px",
 											background: (apiKeyInputs[p.id] ?? "").trim() ? "var(--accent)" : "var(--bg-elevated)",
-											color: (apiKeyInputs[p.id] ?? "").trim() ? "#fff" : "var(--dim)",
+											color: (apiKeyInputs[p.id] ?? "").trim() ? "var(--text-on-accent)" : "var(--dim)",
 											borderRadius: 5,
 											cursor: (apiKeyInputs[p.id] ?? "").trim() ? "pointer" : "default",
 											fontWeight: 500,

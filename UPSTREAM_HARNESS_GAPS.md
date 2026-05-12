@@ -4,27 +4,23 @@ This document catalogues functionality needed by the Electron app that is missin
 under-typed in the published `Harness` from `@mastra/core/harness`. Each item describes
 the current workaround and the ideal upstream API.
 
-**Last updated:** Upgraded to `@mastra/core@1.9.0` + `mastracode@0.5.1` — 15 of 17 gaps resolved.
+**Last updated:** Upgraded to `@mastra/core@1.32.1` + `mastracode@0.17.2`; thread deletion is now wired through the public `harness.memory` API.
 
 ---
 
-## 1. `Harness.deleteThread(threadId)` — OPEN
+## ~~1. `Harness.deleteThread(threadId)`~~ — RESOLVED in `@mastra/core@1.32.1`
 
-**Files:** `src/electron/main.ts`
+**Files:** `src/electron/helpers.ts`, `src/renderer/App.tsx`
 
-The Electron app lets users delete threads. The published Harness has no `deleteThread`
-method. The current mock switches away from the thread but does **not** remove it from
-storage, so deleted threads accumulate forever.
-
-**Workaround:** Mock helper that calls `createThread()` if the deleted thread is current.
-
-**Ideal API:**
+The Electron app now calls the Harness memory accessor:
 
 ```ts
-harness.deleteThread(threadId: string): Promise<void>
+harness.memory.deleteThread({ threadId })
 ```
 
-Deletes the thread from storage and auto-switches if it was the current thread.
+This deletes the thread and its messages from storage. When the deleted thread was
+active, the Electron helper creates and switches to a replacement thread so the UI
+does not land on a missing conversation.
 
 ---
 
@@ -84,17 +80,13 @@ A targeted cast is still needed since our function returns broader types
 
 ---
 
-## 9. `HarnessConfig.hookManager` — OPEN
+## ~~9. `HarnessConfig.hookManager`~~ — RESOLVED upstream, pending package bump
 
 **File:** `src/electron/main.ts`
 
-A `HookManager` runs lifecycle hooks (pre-send, post-send, tool-use, session start/stop).
-It cannot be passed through the Harness constructor, so it is manually subscribed to
-harness events externally.
-
-**Workaround:** External event subscription wiring.
-
-**Ideal API:**
+The local upstream `mastra` checkout now accepts a structural hook manager on
+`HarnessConfig`, syncs hook session IDs on thread lifecycle events, and wraps
+harness/MCP tools with PreToolUse/PostToolUse hooks.
 
 ```ts
 interface HarnessConfig {
@@ -104,16 +96,13 @@ interface HarnessConfig {
 
 ---
 
-## 10. `HarnessConfig.mcpManager` — OPEN
+## ~~10. `HarnessConfig.mcpManager`~~ — RESOLVED upstream, pending package bump
 
 **File:** `src/electron/main.ts`
 
-MCP tool servers are managed via an external `MCPManager`. The harness cannot init,
-disconnect, or inject MCP tools at config time.
-
-**Workaround:** MCP tools injected ad-hoc via the agent's `tools` callback.
-
-**Ideal API:**
+The local upstream `mastra` checkout now accepts a structural MCP manager on
+`HarnessConfig`, merges MCP tools into the harness toolset per request, exposes
+Harness MCP init helpers, and disconnects MCP during `Harness.destroy()`.
 
 ```ts
 interface HarnessConfig {
@@ -245,9 +234,9 @@ beta header (computer use, code execution, web fetch, etc.).
 | -------- | ------------------------------------ | -------------------------------------------------------------------------- |
 | RESOLVED | 2, 3, 4, 5, 6, 7, 11, 12, 13, 15, 16 | Fixed by `@mastra/core@1.8.0` typed APIs; 11 resolved via `tools` function |
 | RESOLVED | 17                                   | Token usage field mismatch fixed in `@mastra/core@1.9.0`                   |
+| RESOLVED | 1                                    | Thread deletion wired via `harness.memory.deleteThread()`                  |
+| RESOLVED | 9, 10                                | Resolved upstream in local `mastra` checkout; pending package bump         |
 | RESOLVED | 18, 19                               | `resolveModel` export + `extraTools` wiring fixed in `mastracode@0.5.0`    |
 | PARTIAL  | 8                                    | Targeted cast replaces `as any`                                            |
-| OPEN     | 1                                    | `deleteThread` still missing                                               |
-| OPEN     | 9, 10                                | Config extensibility (hookManager, mcpManager)                             |
 | OPEN     | 14                                   | Auth integration (intentionally external)                                  |
 | OPEN     | 20                                   | OAuth fetch drops SDK beta headers (patched locally)                       |

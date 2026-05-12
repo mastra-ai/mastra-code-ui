@@ -6,6 +6,15 @@ import { WorktreeIndicator } from "./project-list/WorktreeIndicator"
 import { StatusBadge } from "./project-list/StatusBadge"
 import { FilterChip } from "./project-list/FilterChip"
 import { ConfirmDialog } from "./ConfirmDialog"
+import {
+	ChevronRightIcon,
+	CirclePlusIcon,
+	FolderOpenSimpleIcon,
+	GitForkIcon,
+	MenuLinesIcon,
+	RepoFolderIcon,
+	SearchStrokeIcon,
+} from "./Icons"
 
 export type { EnrichedProject } from "../types/project-list"
 
@@ -27,15 +36,23 @@ export function ProjectList({
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 	const [hoveredProject, setHoveredProject] = useState<string | null>(null)
 	const [hoveredWorktree, setHoveredWorktree] = useState<string | null>(null)
-	const [confirmRemovePath, setConfirmRemovePath] = useState<string | null>(null)
-	const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState<{ path: string; branch: string } | null>(null)
+	const [confirmRemovePath, setConfirmRemovePath] = useState<string | null>(
+		null,
+	)
+	const [confirmDeleteWorktree, setConfirmDeleteWorktree] = useState<{
+		path: string
+		branch: string
+	} | null>(null)
 	const [filterText, setFilterText] = useState("")
 	const [groupByStatus, setGroupByStatus] = useState(false)
 	const [addMenuOpen, setAddMenuOpen] = useState(false)
-	const [collapsedStatuses, setCollapsedStatuses] = useState<Set<string>>(new Set())
+	const [collapsedStatuses, setCollapsedStatuses] = useState<Set<string>>(
+		new Set(),
+	)
 	// Multi-select filters: null = all selected (default), Set = only these are selected
 	const [selectedRepos, setSelectedRepos] = useState<Set<string> | null>(null)
-	const [selectedStatuses, setSelectedStatuses] = useState<Set<WorktreeStatus> | null>(null)
+	const [selectedStatuses, setSelectedStatuses] =
+		useState<Set<WorktreeStatus> | null>(null)
 
 	// Group projects: root projects have worktrees nested underneath
 	const groups = useMemo(() => {
@@ -51,9 +68,7 @@ export function ProjectList({
 			seen.add(groupKey)
 
 			const root =
-				projects.find(
-					(q) => q.rootPath === groupKey && !q.isWorktree,
-				) ||
+				projects.find((q) => q.rootPath === groupKey && !q.isWorktree) ||
 				projects.find((q) => q.rootPath === groupKey) ||
 				p
 			const wts = p.worktrees || []
@@ -109,7 +124,8 @@ export function ProjectList({
 							g.root.name.toLowerCase().includes(q),
 					)
 					if (rootMatches) return g
-					if (matchedWorktrees.length > 0) return { ...g, worktrees: matchedWorktrees }
+					if (matchedWorktrees.length > 0)
+						return { ...g, worktrees: matchedWorktrees }
 					return null
 				})
 				.filter(Boolean) as typeof groups
@@ -122,7 +138,10 @@ export function ProjectList({
 	const statusGroups = useMemo(() => {
 		if (!groupByStatus) return null
 		const q = filterText.toLowerCase()
-		const grouped: Record<WorktreeStatus, Array<{ wt: EnrichedProject; repoName: string }>> = {
+		const grouped: Record<
+			WorktreeStatus,
+			Array<{ wt: EnrichedProject; repoName: string }>
+		> = {
 			in_progress: [],
 			in_review: [],
 			done: [],
@@ -135,7 +154,11 @@ export function ProjectList({
 
 			for (const wt of g.worktrees) {
 				// Text filter
-				if (q && !(wt.gitBranch || wt.name).toLowerCase().includes(q) && !g.root.name.toLowerCase().includes(q)) {
+				if (
+					q &&
+					!(wt.gitBranch || wt.name).toLowerCase().includes(q) &&
+					!g.root.name.toLowerCase().includes(q)
+				) {
 					continue
 				}
 				const status = worktreeStatuses.get(wt.rootPath) || "in_progress"
@@ -145,7 +168,14 @@ export function ProjectList({
 			}
 		}
 		return grouped
-	}, [groupByStatus, groups, worktreeStatuses, filterText, selectedRepos, selectedStatuses])
+	}, [
+		groupByStatus,
+		groups,
+		worktreeStatuses,
+		filterText,
+		selectedRepos,
+		selectedStatuses,
+	])
 
 	function toggleCollapse(rootPath: string) {
 		setCollapsed((prev) => {
@@ -220,35 +250,47 @@ export function ProjectList({
 			`}</style>
 
 			{/* Section label */}
-			<div style={{
-				padding: "0 14px 4px",
-				fontSize: 10,
-				fontWeight: 600,
-				color: "var(--dim)",
-				textTransform: "uppercase",
-				letterSpacing: "0.5px",
-			}}>
+			<div
+				style={{
+					padding: "0 14px 4px",
+					fontSize: 10,
+					fontWeight: 600,
+					color: "var(--dim)",
+					textTransform: "uppercase",
+					letterSpacing: "0.5px",
+				}}
+			>
 				Workspaces
 			</div>
 
 			{/* Filter + Group controls */}
-			<div style={{ padding: "0 12px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
+			<div
+				style={{
+					padding: "0 12px 8px",
+					display: "flex",
+					flexDirection: "column",
+					gap: 6,
+				}}
+			>
 				{/* Filter input */}
 				<div style={{ position: "relative" }}>
-					<svg
-						width="13" height="13" viewBox="0 0 24 24"
-						fill="none" stroke="var(--dim)" strokeWidth="2"
-						strokeLinecap="round" strokeLinejoin="round"
-						style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-					>
-						<circle cx="11" cy="11" r="8" />
-						<line x1="21" y1="21" x2="16.65" y2="16.65" />
-					</svg>
+					<SearchStrokeIcon
+						width="13"
+						height="13"
+						style={{
+							color: "var(--dim)",
+							position: "absolute",
+							left: 8,
+							top: "50%",
+							transform: "translateY(-50%)",
+							pointerEvents: "none",
+						}}
+					/>
 					<input
 						type="text"
 						value={filterText}
 						onChange={(e) => setFilterText(e.target.value)}
-						placeholder="Filter..."
+						placeholder="Filter"
 						style={{
 							width: "100%",
 							padding: "6px 8px 6px 28px",
@@ -260,8 +302,12 @@ export function ProjectList({
 							outline: "none",
 							boxSizing: "border-box",
 						}}
-						onFocus={(e) => { e.currentTarget.style.borderColor = "var(--accent)" }}
-						onBlur={(e) => { e.currentTarget.style.borderColor = "var(--border)" }}
+						onFocus={(e) => {
+							e.currentTarget.style.borderColor = "var(--accent)"
+						}}
+						onBlur={(e) => {
+							e.currentTarget.style.borderColor = "var(--border)"
+						}}
 					/>
 					{filterText && (
 						<button
@@ -287,13 +333,15 @@ export function ProjectList({
 
 				{/* Segmented control: Repo | Status + Add button */}
 				<div style={{ display: "flex", gap: 6 }}>
-					<div style={{
-						flex: 1,
-						display: "flex",
-						borderRadius: 5,
-						border: "1px solid var(--border)",
-						overflow: "hidden",
-					}}>
+					<div
+						style={{
+							flex: 1,
+							display: "flex",
+							borderRadius: 5,
+							border: "1px solid var(--border)",
+							overflow: "hidden",
+						}}
+					>
 						<button
 							onClick={() => setGroupByStatus(false)}
 							style={{
@@ -303,7 +351,9 @@ export function ProjectList({
 								justifyContent: "center",
 								gap: 4,
 								padding: "4px 6px",
-								background: !groupByStatus ? "var(--selected-bg)" : "transparent",
+								background: !groupByStatus
+									? "var(--selected-bg)"
+									: "transparent",
 								color: !groupByStatus ? "var(--text)" : "var(--dim)",
 								fontSize: 10,
 								fontWeight: 600,
@@ -313,9 +363,7 @@ export function ProjectList({
 								transition: "all 0.15s ease",
 							}}
 						>
-							<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-								<path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-							</svg>
+							<RepoFolderIcon width="11" height="11" />
 							Repo
 						</button>
 						<button
@@ -327,7 +375,9 @@ export function ProjectList({
 								justifyContent: "center",
 								gap: 4,
 								padding: "4px 6px",
-								background: groupByStatus ? "var(--selected-bg)" : "transparent",
+								background: groupByStatus
+									? "var(--selected-bg)"
+									: "transparent",
 								color: groupByStatus ? "var(--text)" : "var(--dim)",
 								fontSize: 10,
 								fontWeight: 600,
@@ -336,11 +386,7 @@ export function ProjectList({
 								transition: "all 0.15s ease",
 							}}
 						>
-							<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-								<line x1="4" y1="6" x2="20" y2="6" />
-								<line x1="4" y1="12" x2="16" y2="12" />
-								<line x1="4" y1="18" x2="12" y2="18" />
-							</svg>
+							<MenuLinesIcon width="11" height="11" />
 							Status
 						</button>
 					</div>
@@ -348,7 +394,7 @@ export function ProjectList({
 						<button
 							onClick={() => setAddMenuOpen((v) => !v)}
 							onBlur={() => setTimeout(() => setAddMenuOpen(false), 150)}
-							title="Add Workspace"
+							title="Add workspace"
 							style={{
 								padding: "5px 10px",
 								background: addMenuOpen ? "var(--bg-elevated)" : "transparent",
@@ -375,11 +421,15 @@ export function ProjectList({
 									padding: 4,
 									zIndex: 100,
 									minWidth: 160,
-									boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+									boxShadow: "var(--shadow-card)",
 								}}
 							>
 								<button
-									onMouseDown={(e) => { e.preventDefault(); onOpenFolder(); setAddMenuOpen(false) }}
+									onMouseDown={(e) => {
+										e.preventDefault()
+										onOpenFolder()
+										setAddMenuOpen(false)
+									}}
 									style={{
 										display: "flex",
 										alignItems: "center",
@@ -394,16 +444,22 @@ export function ProjectList({
 										cursor: "pointer",
 										textAlign: "left",
 									}}
-									onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-surface)" }}
-									onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+									onMouseEnter={(e) => {
+										e.currentTarget.style.background = "var(--bg-surface)"
+									}}
+									onMouseLeave={(e) => {
+										e.currentTarget.style.background = "transparent"
+									}}
 								>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-										<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-									</svg>
-									Open Folder
+									<FolderOpenSimpleIcon width="14" height="14" />
+									Open folder
 								</button>
 								<button
-									onMouseDown={(e) => { e.preventDefault(); onCloneRepo(); setAddMenuOpen(false) }}
+									onMouseDown={(e) => {
+										e.preventDefault()
+										onCloneRepo()
+										setAddMenuOpen(false)
+									}}
 									style={{
 										display: "flex",
 										alignItems: "center",
@@ -418,13 +474,14 @@ export function ProjectList({
 										cursor: "pointer",
 										textAlign: "left",
 									}}
-									onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-surface)" }}
-									onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+									onMouseEnter={(e) => {
+										e.currentTarget.style.background = "var(--bg-surface)"
+									}}
+									onMouseLeave={(e) => {
+										e.currentTarget.style.background = "transparent"
+									}}
 								>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-										<circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" />
-										<path d="M13 6h3a2 2 0 012 2v7" /><line x1="6" y1="9" x2="6" y2="21" />
-									</svg>
+									<GitForkIcon width="14" height="14" />
 									Clone from URL
 								</button>
 							</div>
@@ -452,7 +509,9 @@ export function ProjectList({
 								key={status}
 								label={statusConfig[status].label}
 								color={statusConfig[status].color}
-								active={selectedStatuses === null || selectedStatuses.has(status)}
+								active={
+									selectedStatuses === null || selectedStatuses.has(status)
+								}
 								onClick={() => toggleStatusFilter(status)}
 							/>
 						))}
@@ -486,157 +545,180 @@ export function ProjectList({
 										borderLeft: `3px solid ${config.color}`,
 									}}
 								>
-									<span style={{
-										fontSize: 8,
-										color: config.color,
-										display: "inline-block",
-										transition: "transform 0.15s ease",
-										transform: isStatusExpanded ? "rotate(0deg)" : "rotate(-90deg)",
-									}}>
-										&#9660;
+									<span
+										aria-hidden="true"
+										className="icon-chevron-toggle"
+										style={{
+											width: 12,
+											height: 12,
+											color: config.color,
+											transform: isStatusExpanded
+												? "rotate(90deg)"
+												: "rotate(0deg)",
+										}}
+									>
+										<ChevronRightIcon width="11" height="11" />
 									</span>
-									<span style={{
-										fontSize: 10,
-										fontWeight: 700,
-										color: config.color,
-										textTransform: "uppercase",
-										letterSpacing: "0.5px",
-									}}>
+									<span
+										style={{
+											fontSize: 10,
+											fontWeight: 700,
+											color: config.color,
+											textTransform: "uppercase",
+											letterSpacing: "0.5px",
+										}}
+									>
 										{config.label}
 									</span>
-									<span style={{
-										fontSize: 10,
-										color: "var(--dim)",
-										marginLeft: "auto",
-									}}>
+									<span
+										style={{
+											fontSize: 10,
+											color: "var(--dim)",
+											marginLeft: "auto",
+										}}
+									>
 										{items.length}
 									</span>
 								</button>
 
 								{/* Worktree items in this status group */}
-								{isStatusExpanded && items.map(({ wt, repoName }) => {
-									const wtColor = hashColor(wt.gitBranch || wt.rootPath)
-									const wtIsActive = isActive(wt.rootPath)
-									const wtIsSpinning = activeWorktrees.has(wt.rootPath) || (wtIsActive && isAgentActive)
-									const wtIsGlowing = unreadWorktrees.has(wt.rootPath)
+								{isStatusExpanded &&
+									items.map(({ wt, repoName }) => {
+										const wtColor = hashColor(wt.gitBranch || wt.rootPath)
+										const wtIsActive = isActive(wt.rootPath)
+										const wtIsSpinning =
+											activeWorktrees.has(wt.rootPath) ||
+											(wtIsActive && isAgentActive)
+										const wtIsGlowing = unreadWorktrees.has(wt.rootPath)
 
-									return (
-										<button
-											key={wt.rootPath}
-											onClick={() => onSwitchProject(wt.rootPath)}
-											style={{
-												display: "flex",
-												alignItems: "center",
-												width: "100%",
-												padding: "10px 14px 10px 28px",
-												textAlign: "left",
-												cursor: "pointer",
-												borderRadius: 0,
-												borderLeft: wtIsActive
-													? `3px solid ${wtColor}`
-													: "3px solid transparent",
-												background: wtIsActive
-													? "var(--selected-bg)"
-													: "transparent",
-												gap: 8,
-											}}
-										>
-											<WorktreeIndicator
-												color={wtColor}
-												isSpinning={wtIsSpinning}
-												isGlowing={wtIsGlowing}
-											/>
-											<div style={{ flex: 1, minWidth: 0 }}>
-												<div
-													style={{
-														fontSize: 12,
-														color: "var(--text)",
-														whiteSpace: "nowrap",
-														overflow: "hidden",
-														textOverflow: "ellipsis",
-														fontWeight: 500,
-													}}
-												>
-													{wt.gitBranch || wt.name}
+										return (
+											<button
+												key={wt.rootPath}
+												onClick={() => onSwitchProject(wt.rootPath)}
+												style={{
+													display: "flex",
+													alignItems: "center",
+													width: "100%",
+													padding: "10px 14px 10px 28px",
+													textAlign: "left",
+													cursor: "pointer",
+													borderRadius: 0,
+													borderLeft: wtIsActive
+														? `3px solid ${wtColor}`
+														: "3px solid transparent",
+													background: wtIsActive
+														? "var(--selected-bg)"
+														: "transparent",
+													gap: 8,
+												}}
+											>
+												<WorktreeIndicator
+													color={wtColor}
+													isSpinning={wtIsSpinning}
+													isGlowing={wtIsGlowing}
+												/>
+												<div style={{ flex: 1, minWidth: 0 }}>
+													<div
+														style={{
+															fontSize: 12,
+															color: "var(--text)",
+															whiteSpace: "nowrap",
+															overflow: "hidden",
+															textOverflow: "ellipsis",
+															fontWeight: 500,
+														}}
+													>
+														{wt.gitBranch || wt.name}
+													</div>
+													<div
+														style={{
+															fontSize: 10,
+															color: "var(--dim)",
+															marginTop: 1,
+															display: "flex",
+															alignItems: "center",
+															gap: 6,
+														}}
+													>
+														{repoName}
+														{linkedIssues?.[wt.rootPath] && (
+															<span
+																style={{
+																	fontSize: 9,
+																	color: "var(--brand-linear)",
+																	background: "var(--brand-linear-bg)",
+																	padding: "0px 4px",
+																	borderRadius: 2,
+																	fontFamily: "monospace",
+																	fontWeight: 500,
+																}}
+															>
+																{linkedIssues[wt.rootPath].issueIdentifier}
+															</span>
+														)}
+													</div>
 												</div>
-												<div
-													style={{
-														fontSize: 10,
-														color: "var(--dim)",
-														marginTop: 1,
-														display: "flex",
-														alignItems: "center",
-														gap: 6,
-													}}
-												>
-													{repoName}
-													{linkedIssues?.[wt.rootPath] && (
-														<span
-															style={{
-																fontSize: 9,
-																color: "#5E6AD2",
-																background: "#5E6AD218",
-																padding: "0px 4px",
-																borderRadius: 2,
-																fontFamily: "monospace",
-																fontWeight: 500,
-															}}
-														>
-															{linkedIssues[wt.rootPath].issueIdentifier}
-														</span>
-													)}
-												</div>
-											</div>
-										</button>
-									)
-								})}
+											</button>
+										)
+									})}
 							</div>
 						)
 					})}
 
 					{/* Show repos with no worktrees even in grouped view */}
-					{filteredGroups.filter((g) => g.worktrees.length === 0).length > 0 && (
+					{filteredGroups.filter((g) => g.worktrees.length === 0).length >
+						0 && (
 						<div style={{ marginTop: 4 }}>
-							<div style={{
-								padding: "6px 14px",
-								fontSize: 10,
-								fontWeight: 700,
-								color: "var(--dim)",
-								textTransform: "uppercase",
-								letterSpacing: "0.5px",
-								borderLeft: "3px solid var(--border-muted)",
-							}}>
+							<div
+								style={{
+									padding: "6px 14px",
+									fontSize: 10,
+									fontWeight: 700,
+									color: "var(--dim)",
+									textTransform: "uppercase",
+									letterSpacing: "0.5px",
+									borderLeft: "3px solid var(--border-muted)",
+								}}
+							>
 								Repos
 							</div>
-							{filteredGroups.filter((g) => g.worktrees.length === 0).map(({ root }) => (
-								<button
-									key={root.rootPath}
-									onClick={() => onSwitchProject(root.rootPath)}
-									style={{
-										display: "flex",
-										alignItems: "center",
-										width: "100%",
-										padding: "10px 14px 10px 28px",
-										textAlign: "left",
-										cursor: "pointer",
-										borderRadius: 0,
-										borderLeft: isActive(root.rootPath) ? "3px solid var(--accent)" : "3px solid transparent",
-										background: isActive(root.rootPath) ? "var(--selected-bg)" : "transparent",
-										gap: 8,
-									}}
-								>
-									<span style={{
-										fontSize: 13,
-										fontWeight: 700,
-										color: "var(--text)",
-										whiteSpace: "nowrap",
-										overflow: "hidden",
-										textOverflow: "ellipsis",
-									}}>
-										{root.name}
-									</span>
-								</button>
-							))}
+							{filteredGroups
+								.filter((g) => g.worktrees.length === 0)
+								.map(({ root }) => (
+									<button
+										key={root.rootPath}
+										onClick={() => onSwitchProject(root.rootPath)}
+										style={{
+											display: "flex",
+											alignItems: "center",
+											width: "100%",
+											padding: "10px 14px 10px 28px",
+											textAlign: "left",
+											cursor: "pointer",
+											borderRadius: 0,
+											borderLeft: isActive(root.rootPath)
+												? "3px solid var(--accent)"
+												: "3px solid transparent",
+											background: isActive(root.rootPath)
+												? "var(--selected-bg)"
+												: "transparent",
+											gap: 8,
+										}}
+									>
+										<span
+											style={{
+												fontSize: 13,
+												fontWeight: 700,
+												color: "var(--text)",
+												whiteSpace: "nowrap",
+												overflow: "hidden",
+												textOverflow: "ellipsis",
+											}}
+										>
+											{root.name}
+										</span>
+									</button>
+								))}
 						</div>
 					)}
 				</>
@@ -663,10 +745,7 @@ export function ProjectList({
 						const isExpanded = !collapsed.has(root.rootPath)
 
 						return (
-							<div
-								key={root.rootPath}
-								style={{ marginBottom: 4 }}
-							>
+							<div key={root.rootPath} style={{ marginBottom: 4 }}>
 								{/* Root project (repo) */}
 								<div
 									style={{ display: "flex", alignItems: "center" }}
@@ -701,14 +780,17 @@ export function ProjectList({
 									>
 										{hasWorktrees && (
 											<span
+												aria-hidden="true"
+												className="icon-chevron-toggle"
 												style={{
 													width: 14,
-													fontSize: 9,
 													color: "var(--muted)",
-													flexShrink: 0,
+													transform: isExpanded
+														? "rotate(90deg)"
+														: "rotate(0deg)",
 												}}
 											>
-												{isExpanded ? "\u25BC" : "\u25B6"}
+												<ChevronRightIcon width="12" height="12" />
 											</span>
 										)}
 										<div
@@ -731,11 +813,13 @@ export function ProjectList({
 											</div>
 										</div>
 										{hasWorktrees && (
-											<span style={{
-												fontSize: 10,
-												color: "var(--dim)",
-												flexShrink: 0,
-											}}>
+											<span
+												style={{
+													fontSize: 10,
+													color: "var(--dim)",
+													flexShrink: 0,
+												}}
+											>
 												{worktrees.length}
 											</span>
 										)}
@@ -757,8 +841,14 @@ export function ProjectList({
 												lineHeight: 1,
 												opacity: 0.6,
 											}}
-											onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = "1"; (e.target as HTMLElement).style.color = "var(--error)" }}
-											onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = "0.6"; (e.target as HTMLElement).style.color = "var(--muted)" }}
+											onMouseEnter={(e) => {
+												;(e.target as HTMLElement).style.opacity = "1"
+												;(e.target as HTMLElement).style.color = "var(--error)"
+											}}
+											onMouseLeave={(e) => {
+												;(e.target as HTMLElement).style.opacity = "0.6"
+												;(e.target as HTMLElement).style.color = "var(--muted)"
+											}}
 										>
 											&#x2715;
 										</button>
@@ -771,7 +861,9 @@ export function ProjectList({
 									worktrees.map((wt) => {
 										const wtColor = hashColor(wt.gitBranch || wt.rootPath)
 										const wtIsActive = isActive(wt.rootPath)
-										const wtIsSpinning = activeWorktrees.has(wt.rootPath) || (wtIsActive && isAgentActive)
+										const wtIsSpinning =
+											activeWorktrees.has(wt.rootPath) ||
+											(wtIsActive && isAgentActive)
 										const wtIsGlowing = unreadWorktrees.has(wt.rootPath)
 										const wtStatus = worktreeStatuses.get(wt.rootPath)
 
@@ -783,9 +875,7 @@ export function ProjectList({
 												onMouseLeave={() => setHoveredWorktree(null)}
 											>
 												<button
-													onClick={() =>
-														onSwitchProject(wt.rootPath)
-													}
+													onClick={() => onSwitchProject(wt.rootPath)}
 													style={{
 														display: "flex",
 														alignItems: "center",
@@ -824,29 +914,32 @@ export function ProjectList({
 														{wt.gitBranch || wt.name}
 													</span>
 													{linkedIssues?.[wt.rootPath] && (
-													<span
-														style={{
-															fontSize: 9,
-															color: "#5E6AD2",
-															background: "#5E6AD218",
-															padding: "1px 6px",
-															borderRadius: 3,
-															border: "1px solid #5E6AD233",
-															fontFamily: "monospace",
-															fontWeight: 500,
-															flexShrink: 0,
-														}}
-													>
-														{linkedIssues[wt.rootPath].issueIdentifier}
-													</span>
-												)}
-												{wtStatus && <StatusBadge status={wtStatus} />}
+														<span
+															style={{
+																fontSize: 9,
+																color: "var(--brand-linear)",
+																background: "var(--brand-linear-bg)",
+																padding: "1px 6px",
+																borderRadius: 3,
+																border: "1px solid var(--brand-linear-border)",
+																fontFamily: "monospace",
+																fontWeight: 500,
+																flexShrink: 0,
+															}}
+														>
+															{linkedIssues[wt.rootPath].issueIdentifier}
+														</span>
+													)}
+													{wtStatus && <StatusBadge status={wtStatus} />}
 												</button>
 												{hoveredWorktree === wt.rootPath && (
 													<button
 														onClick={(e) => {
 															e.stopPropagation()
-															setConfirmDeleteWorktree({ path: wt.rootPath, branch: wt.gitBranch || wt.name })
+															setConfirmDeleteWorktree({
+																path: wt.rootPath,
+																branch: wt.gitBranch || wt.name,
+															})
 														}}
 														title="Delete worktree"
 														style={{
@@ -859,8 +952,16 @@ export function ProjectList({
 															lineHeight: 1,
 															opacity: 0.6,
 														}}
-														onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = "1"; (e.target as HTMLElement).style.color = "var(--error)" }}
-														onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = "0.6"; (e.target as HTMLElement).style.color = "var(--muted)" }}
+														onMouseEnter={(e) => {
+															;(e.target as HTMLElement).style.opacity = "1"
+															;(e.target as HTMLElement).style.color =
+																"var(--error)"
+														}}
+														onMouseLeave={(e) => {
+															;(e.target as HTMLElement).style.opacity = "0.6"
+															;(e.target as HTMLElement).style.color =
+																"var(--muted)"
+														}}
 													>
 														&#x2715;
 													</button>
@@ -887,14 +988,16 @@ export function ProjectList({
 											color: "var(--muted)",
 											fontSize: 12,
 										}}
-										onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text)" }}
-										onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--muted)" }}
+										onMouseEnter={(e) => {
+											;(e.currentTarget as HTMLElement).style.color =
+												"var(--text)"
+										}}
+										onMouseLeave={(e) => {
+											;(e.currentTarget as HTMLElement).style.color =
+												"var(--muted)"
+										}}
 									>
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-											<circle cx="12" cy="12" r="10" />
-											<line x1="12" y1="8" x2="12" y2="16" />
-											<line x1="8" y1="12" x2="16" y2="12" />
-										</svg>
+										<CirclePlusIcon />
 										<span>New worktree</span>
 									</button>
 								)}

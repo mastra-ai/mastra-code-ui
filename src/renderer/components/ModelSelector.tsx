@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
+import { formatModelName } from "../utils/modelDisplay"
+import { TinyChevronDownIcon } from "./Icons"
+import { ShimmerText } from "./Shimmer"
 
 export interface ModelInfo {
 	id: string
@@ -24,8 +27,9 @@ export function ModelList({
 	filter,
 	onSelect,
 }: ModelListProps) {
+	const filterText = filter.toLowerCase()
 	const filtered = models.filter((m) =>
-		m.id.toLowerCase().includes(filter.toLowerCase()),
+		`${m.id} ${m.name ?? ""}`.toLowerCase().includes(filterText),
 	)
 
 	// Group by provider
@@ -48,7 +52,9 @@ export function ModelList({
 	if (loading) {
 		return (
 			<div style={{ padding: 20, textAlign: "center", color: "var(--muted)" }}>
-				Loading models...
+				<ShimmerText style={{ color: "var(--muted)" }}>
+					Loading models...
+				</ShimmerText>
 			</div>
 		)
 	}
@@ -88,14 +94,14 @@ export function ModelList({
 							{providerAuth[provider] ? (
 								<span
 									style={{
-										background: "#05966922",
-										color: "#059669",
+										background: "var(--color-success-bg)",
+										color: "var(--color-green)",
 										padding: "0px 6px",
 										borderRadius: 3,
 										fontWeight: 500,
 										fontSize: 9,
 										textTransform: "none",
-										border: "1px solid #05966944",
+										border: "1px solid var(--color-success-border)",
 									}}
 								>
 									Connected
@@ -103,14 +109,14 @@ export function ModelList({
 							) : (
 								<span
 									style={{
-										background: "#ef444422",
-										color: "#ef4444",
+										background: "var(--color-red-bg)",
+										color: "var(--color-red)",
 										padding: "0px 6px",
 										borderRadius: 3,
 										fontWeight: 500,
 										fontSize: 9,
 										textTransform: "none",
-										border: "1px solid #ef444444",
+										border: "1px solid var(--color-red-border)",
 									}}
 								>
 									Not connected
@@ -120,41 +126,52 @@ export function ModelList({
 						{providerModels.map((m) => (
 							<button
 								key={m.id}
+								className="ui-hover-item"
+								data-selected={m.id === currentModelId ? "true" : undefined}
 								onClick={() => onSelect(m.id)}
 								style={{
-									display: "block",
+									display: "flex",
+									alignItems: "center",
+									justifyContent: "space-between",
+									gap: 8,
 									width: "100%",
 									padding: "6px 8px",
 									textAlign: "left",
 									cursor: m.hasAuth ? "pointer" : "default",
 									borderRadius: 4,
 									background:
-										m.id === currentModelId
-											? "var(--accent)" + "22"
-											: "transparent",
+										m.id === currentModelId ? "var(--bg-hover)" : "transparent",
 									fontSize: 12,
-									color:
-										m.id === currentModelId
-											? "var(--accent)"
-											: m.hasAuth
-												? "var(--text)"
-												: "var(--muted)",
+									color: m.hasAuth ? "var(--text)" : "var(--muted)",
 									opacity: m.hasAuth ? 1 : 0.5,
 									border: "none",
 									fontFamily: "inherit",
 								}}
 							>
-								{m.name || m.id.split("/").pop()}
-								{!m.hasAuth && (
+								<span>
+									{formatModelName(m)}
+									{!m.hasAuth && (
+										<span
+											style={{
+												marginLeft: 6,
+												fontSize: 10,
+												color: "var(--muted)",
+											}}
+										>
+											(no auth)
+										</span>
+									)}
+								</span>
+								{m.id === currentModelId && (
 									<span
 										style={{
-											marginLeft: 6,
-											fontSize: 10,
-											color: "var(--muted)",
+											width: 5,
+											height: 5,
+											borderRadius: "50%",
+											background: "var(--accent)",
+											flexShrink: 0,
 										}}
-									>
-										(no auth)
-									</span>
+									/>
 								)}
 							</button>
 						))}
@@ -221,7 +238,7 @@ export function ModelSelector({
 			style={{
 				position: "fixed",
 				inset: 0,
-				background: "rgba(0, 0, 0, 0.6)",
+				background: "var(--modal-backdrop)",
 				display: "flex",
 				alignItems: "center",
 				justifyContent: "center",
@@ -245,7 +262,9 @@ export function ModelSelector({
 				}}
 			>
 				{/* Search */}
-				<div style={{ padding: 12, borderBottom: "1px solid var(--border-muted)" }}>
+				<div
+					style={{ padding: 12, borderBottom: "1px solid var(--border-muted)" }}
+				>
 					<input
 						ref={inputRef}
 						value={filter}
@@ -307,7 +326,10 @@ export function ModelPickerInline({
 	useEffect(() => {
 		if (!open) return
 		const handler = (e: MouseEvent) => {
-			if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+			if (
+				containerRef.current &&
+				!containerRef.current.contains(e.target as Node)
+			) {
 				setOpen(false)
 				setFilter("")
 			}
@@ -331,18 +353,24 @@ export function ModelPickerInline({
 	)
 
 	// Display label
-	const shortName = currentModelId.includes("/")
-		? currentModelId.split("/").pop()
-		: currentModelId || "select model"
+	const shortName = currentModel
+		? formatModelName(currentModel)
+		: currentModelId
+			? formatModelName(currentModelId)
+			: "Select Model"
 
 	return (
 		<div ref={containerRef} style={{ position: "relative" }}>
 			<button
 				onClick={() => setOpen(!open)}
 				style={{
-					background: isUnauth ? "#f59e0b12" : "var(--bg-elevated)",
-					color: isUnauth ? "#f59e0b" : "var(--text)",
-					border: isUnauth ? "1px solid #f59e0b44" : "1px solid var(--border)",
+					background: isUnauth
+						? "var(--color-warning-bg)"
+						: "var(--bg-elevated)",
+					color: isUnauth ? "var(--warning)" : "var(--text)",
+					border: isUnauth
+						? "1px solid var(--color-warning-border)"
+						: "1px solid var(--border)",
 					borderRadius: 4,
 					padding: "4px 8px",
 					fontSize: 12,
@@ -356,18 +384,40 @@ export function ModelPickerInline({
 					gap: 6,
 				}}
 			>
-				<span style={{ display: "flex", alignItems: "center", gap: 4, overflow: "hidden" }}>
-					{isUnauth && <span style={{ fontSize: 11, flexShrink: 0 }}>&#x26A0;</span>}
-					<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+				<span
+					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: 4,
+						overflow: "hidden",
+					}}
+				>
+					{isUnauth && (
+						<span style={{ fontSize: 11, flexShrink: 0 }}>&#x26A0;</span>
+					)}
+					<span
+						style={{
+							overflow: "hidden",
+							textOverflow: "ellipsis",
+							whiteSpace: "nowrap",
+						}}
+					>
 						{shortName}
 					</span>
 				</span>
-				<span style={{ color: "var(--muted)", fontSize: 10, flexShrink: 0 }}>
-					{open ? "▲" : "▼"}
+				<span
+					aria-hidden="true"
+					className="icon-chevron-toggle"
+					style={{
+						color: "var(--muted)",
+						transform: open ? "rotate(180deg)" : "rotate(0deg)",
+					}}
+				>
+					<TinyChevronDownIcon />
 				</span>
 			</button>
 			{isUnauth && !open && (
-				<div style={{ fontSize: 10, color: "#f59e0b", marginTop: 2 }}>
+				<div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>
 					Not connected — OM memory is paused
 				</div>
 			)}
@@ -388,11 +438,16 @@ export function ModelPickerInline({
 						flexDirection: "column",
 						overflow: "hidden",
 						zIndex: 50,
-						boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+						boxShadow: "var(--shadow-elevated)",
 					}}
 				>
 					{/* Search */}
-					<div style={{ padding: 8, borderBottom: "1px solid var(--border-muted)" }}>
+					<div
+						style={{
+							padding: 8,
+							borderBottom: "1px solid var(--border-muted)",
+						}}
+					>
 						<input
 							ref={inputRef}
 							value={filter}

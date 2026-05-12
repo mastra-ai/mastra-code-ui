@@ -1,6 +1,6 @@
 # Mastra Code — Electron App
 
-The Electron app is a native macOS desktop frontend for Mastra Code. It wraps the shared [Harness](../harness/) layer in a multi-panel IDE-style interface built with React.
+The Electron app is the native macOS desktop frontend for Mastra Code. It wraps the shared [Harness](../harness/) layer in a multi-panel IDE-style interface built with React.
 
 ## Architecture
 

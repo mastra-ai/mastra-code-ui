@@ -79,7 +79,7 @@ export function ToolApprovalDialog({
 						color: "var(--warning)",
 					}}
 				>
-					Tool Approval Required
+					Tool approval required
 				</div>
 
 				<div style={{ marginBottom: 12 }}>

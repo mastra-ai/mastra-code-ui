@@ -1,9 +1,11 @@
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { FileTree } from "./FileTree"
 import { GitPanel } from "./GitPanel"
 import { ContextPanel } from "./ContextPanel"
 import { TerminalPanel } from "./TerminalPanel"
 import { ResizeHandle } from "./ResizeHandle"
+import { SidebarRightOpenIcon } from "./Icons"
+import { useHorizontalScrollFade } from "../hooks/useHorizontalScrollFade"
 
 export type RightSidebarTab = "files" | "git" | "context"
 
@@ -12,6 +14,9 @@ const tabs: Array<{ id: RightSidebarTab; label: string }> = [
 	{ id: "git", label: "Git" },
 	{ id: "context", label: "Context" },
 ]
+
+const PANE_HEADER_HEIGHT = 38
+const PANE_HEADER_FONT_SIZE = 12
 
 interface RightSidebarProps {
 	visible: boolean
@@ -25,6 +30,7 @@ interface RightSidebarProps {
 	activeDiffPath?: string | null
 	loading?: boolean
 	onOpenBrowser?: (url: string) => void
+	onToggleVisible?: () => void
 }
 
 export function RightSidebar({
@@ -39,10 +45,12 @@ export function RightSidebar({
 	activeDiffPath,
 	loading,
 	onOpenBrowser,
+	onToggleVisible,
 }: RightSidebarProps) {
 	const [terminalHeight, setTerminalHeight] = useState(350)
 	const [width, setWidth] = useState(380)
 	const dragStartX = useRef(0)
+	const tabScrollRef = useHorizontalScrollFade<HTMLDivElement>()
 
 	const handleTerminalResize = useCallback((deltaY: number) => {
 		setTerminalHeight((h) => Math.max(100, Math.min(600, h + deltaY)))
@@ -70,6 +78,13 @@ export function RightSidebar({
 		document.body.style.cursor = "col-resize"
 		document.body.style.userSelect = "none"
 	}, [])
+
+	useEffect(() => {
+		const viewport = tabScrollRef.current
+		const activeTabElement =
+			viewport?.querySelector<HTMLElement>("[data-tab-active]")
+		activeTabElement?.scrollIntoView({ block: "nearest", inline: "nearest" })
+	}, [activeTab, tabScrollRef])
 
 	if (!visible) return null
 
@@ -117,36 +132,84 @@ export function RightSidebar({
 						display: "flex",
 						borderBottom: "1px solid var(--border-muted)",
 						flexShrink: 0,
+						height: PANE_HEADER_HEIGHT,
+						paddingRight: 8,
 					}}
 				>
-					{tabs.map((tab) => (
+					<div ref={tabScrollRef} className="session-tabs-scroll">
+						<div className="session-tabs-track">
+							{tabs.map((tab) => {
+								const isActive = activeTab === tab.id
+								return (
+									<button
+										key={tab.id}
+										data-tab-active={isActive ? "" : undefined}
+										onClick={() => onTabChange(tab.id)}
+										style={{
+											minWidth: 92,
+											padding: "0 14px",
+											fontSize: PANE_HEADER_FONT_SIZE,
+											fontWeight: 500,
+											color: isActive ? "var(--text)" : "var(--muted)",
+											borderBottom: isActive
+												? "2px solid var(--accent)"
+												: "2px solid transparent",
+											cursor: "pointer",
+											transition: "color 0.15s",
+											whiteSpace: "nowrap",
+										}}
+									>
+										{tab.label}
+									</button>
+								)
+							})}
+						</div>
+					</div>
+					{onToggleVisible && (
 						<button
-							key={tab.id}
-							onClick={() => onTabChange(tab.id)}
+							onClick={onToggleVisible}
 							style={{
-								flex: 1,
-								padding: "6px 0",
-								fontSize: 11,
-								fontWeight: 500,
-								color:
-									activeTab === tab.id
-										? "var(--text)"
-										: "var(--muted)",
-								borderBottom:
-									activeTab === tab.id
-										? "2px solid var(--accent)"
-										: "2px solid transparent",
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								width: 24,
+								height: 24,
+								padding: 0,
+								flexShrink: 0,
+								color: "var(--muted)",
+								alignSelf: "center",
+								border: "1px solid transparent",
+								borderRadius: 5,
 								cursor: "pointer",
-								transition: "color 0.15s",
+								transition: "color 0.12s, background 0.12s, border-color 0.12s",
 							}}
+							onMouseEnter={(e) => {
+								e.currentTarget.style.color = "var(--text)"
+								e.currentTarget.style.background = "var(--bg-elevated)"
+								e.currentTarget.style.borderColor = "var(--border-muted)"
+							}}
+							onMouseLeave={(e) => {
+								e.currentTarget.style.color = "var(--muted)"
+								e.currentTarget.style.background = "transparent"
+								e.currentTarget.style.borderColor = "transparent"
+							}}
+							title="Hide right panel"
 						>
-							{tab.label}
+							<SidebarRightOpenIcon width={16} height={16} />
 						</button>
-					))}
+					)}
 				</div>
 
 				{/* Tab content + Terminal with loading overlay */}
-				<div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+				<div
+					style={{
+						flex: 1,
+						display: "flex",
+						flexDirection: "column",
+						overflow: "hidden",
+						position: "relative",
+					}}
+				>
 					{/* Loading overlay */}
 					{loading && (
 						<div
@@ -184,17 +247,41 @@ export function RightSidebar({
 					)}
 
 					{/* Tab content */}
-					<div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" as const, minHeight: 0 }}>
+					<div
+						style={{
+							flex: 1,
+							overflow: "hidden",
+							display: "flex",
+							flexDirection: "column" as const,
+							minHeight: 0,
+						}}
+					>
 						{activeTab === "files" && (
-							<FileTree projectName={projectName} projectPath={projectPath} onFileClick={onFileClick} activeFilePath={activeFilePath} />
+							<FileTree
+								projectName={projectName}
+								projectPath={projectPath}
+								onFileClick={onFileClick}
+								activeFilePath={activeFilePath}
+							/>
 						)}
-						{activeTab === "git" && <GitPanel onFileClick={onDiffClick} activeFilePath={activeDiffPath} />}
-						{activeTab === "context" && <ContextPanel onFileClick={onFileClick} />}
+						{activeTab === "git" && (
+							<GitPanel
+								onFileClick={onDiffClick}
+								activeFilePath={activeDiffPath}
+							/>
+						)}
+						{activeTab === "context" && (
+							<ContextPanel onFileClick={onFileClick} />
+						)}
 					</div>
 
 					{/* Terminal pinned to bottom */}
 					<ResizeHandle onResize={handleTerminalResize} />
-					<TerminalPanel height={terminalHeight} projectPath={projectPath} onOpenBrowser={onOpenBrowser} />
+					<TerminalPanel
+						height={terminalHeight}
+						projectPath={projectPath}
+						onOpenBrowser={onOpenBrowser}
+					/>
 				</div>
 			</div>
 		</div>

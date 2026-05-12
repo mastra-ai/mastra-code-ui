@@ -59,9 +59,7 @@ export function useSlashAutocomplete(
 		grouped["commands"] = builtins
 	}
 	for (const cmd of custom) {
-		const namespace = cmd.name.includes(":")
-			? cmd.name.split(":")[0]
-			: "custom"
+		const namespace = cmd.name.includes(":") ? cmd.name.split(":")[0] : "custom"
 		if (!grouped[namespace]) grouped[namespace] = []
 		grouped[namespace].push(cmd)
 	}
@@ -90,9 +88,7 @@ export function useSlashAutocomplete(
 			}
 			if (e.key === "ArrowUp") {
 				e.preventDefault()
-				setSelectedIndex((i) =>
-					(i - 1 + flatList.length) % flatList.length,
-				)
+				setSelectedIndex((i) => (i - 1 + flatList.length) % flatList.length)
 				return true
 			}
 			if (e.key === "Enter" || e.key === "Tab") {
@@ -162,7 +158,9 @@ export function useSlashAutocomplete(
 							return (
 								<button
 									key={cmd.name}
+									className="ui-hover-item"
 									data-cmd-index={idx}
+									data-selected={isSelected ? "true" : undefined}
 									onClick={() => onSelect(cmd)}
 									onMouseEnter={() => setSelectedIndex(idx)}
 									style={{
@@ -176,9 +174,7 @@ export function useSlashAutocomplete(
 											? "var(--accent)" + "22"
 											: "transparent",
 										fontSize: 12,
-										color: isSelected
-											? "var(--accent)"
-											: "var(--text)",
+										color: isSelected ? "var(--accent)" : "var(--text)",
 										gap: 8,
 										alignItems: "center",
 										border: "none",

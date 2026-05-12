@@ -1,4 +1,5 @@
 import type { IpcCommandHandler } from "./types.js"
+import type { HarnessQuestionAnswer } from "@mastra/core/harness"
 import {
 	TOOL_CATEGORIES,
 	DEFAULT_POLICIES,
@@ -6,6 +7,11 @@ import {
 	type ToolCategory,
 	type PermissionPolicy,
 } from "../../permissions.js"
+
+type PlanApprovalResponse = {
+	action: "approved" | "rejected"
+	feedback?: string
+}
 
 export function getPermissionHandlers(): Record<string, IpcCommandHandler> {
 	return {
@@ -44,20 +50,21 @@ export function getPermissionHandlers(): Record<string, IpcCommandHandler> {
 		},
 		respondToQuestion: async (command, ctx) => {
 			ctx.getActiveSession().harness.respondToQuestion({
-				questionId: command.questionId,
-				answer: command.answer,
+				questionId: command.questionId as string,
+				answer: command.answer as HarnessQuestionAnswer,
 			})
 		},
 		respondToPlanApproval: async (command, ctx) => {
 			await ctx.getActiveSession().harness.respondToPlanApproval({
-				planId: command.planId,
-				response: command.response,
+				planId: command.planId as string,
+				response: command.response as PlanApprovalResponse,
 			})
 		},
 		setYoloMode: async (command, ctx) => {
 			const h = ctx.getActiveSession().harness
-			await h.setState({ yolo: command.enabled })
-			const policies = command.enabled ? YOLO_POLICIES : DEFAULT_POLICIES
+			const enabled = command.enabled as boolean
+			await h.setState({ yolo: enabled })
+			const policies = enabled ? YOLO_POLICIES : DEFAULT_POLICIES
 			for (const [cat, policy] of Object.entries(policies)) {
 				h.setPermissionForCategory({
 					category: cat as ToolCategory,

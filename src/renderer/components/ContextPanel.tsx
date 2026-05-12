@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
+import { ShimmerText } from "./Shimmer"
 
 interface ContextFile {
 	path: string
@@ -18,7 +19,9 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 	const [creating, setCreating] = useState(false)
 	const [editingPath, setEditingPath] = useState<string | null>(null)
 	const [editContent, setEditContent] = useState("")
-	const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+	const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
+		"idle",
+	)
 
 	const loadFiles = useCallback(async () => {
 		setLoading(true)
@@ -197,7 +200,9 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 							fontSize: 11,
 						}}
 					>
-						Loading...
+						<ShimmerText style={{ color: "var(--muted)" }}>
+							Loading...
+						</ShimmerText>
 					</div>
 				) : files.length === 0 ? (
 					<div
@@ -209,9 +214,7 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 							lineHeight: 1.6,
 						}}
 					>
-						<div style={{ marginBottom: 8 }}>
-							No context files found.
-						</div>
+						<div style={{ marginBottom: 8 }}>No context files found.</div>
 						<div>
 							Create an <code style={{ color: "var(--muted)" }}>AGENT.md</code>{" "}
 							file to give the agent project-specific instructions.
@@ -233,9 +236,7 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 										cursor: "pointer",
 										borderBottom: "1px solid var(--border-muted)",
 									}}
-									onClick={() =>
-										setExpanded(isExpanded ? null : file.path)
-									}
+									onClick={() => setExpanded(isExpanded ? null : file.path)}
 								>
 									<span
 										style={{
@@ -243,9 +244,7 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 											color: "var(--dim)",
 											display: "inline-block",
 											transition: "transform 0.15s ease",
-											transform: isExpanded
-												? "rotate(90deg)"
-												: "rotate(0deg)",
+											transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
 										}}
 									>
 										&#9654;
@@ -302,9 +301,7 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 											<>
 												<textarea
 													value={editContent}
-													onChange={(e) =>
-														setEditContent(e.target.value)
-													}
+													onChange={(e) => setEditContent(e.target.value)}
 													style={{
 														width: "100%",
 														minHeight: 200,
@@ -314,8 +311,7 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 														borderRadius: 4,
 														padding: "8px 10px",
 														fontSize: 12,
-														fontFamily:
-															"'SF Mono', 'Fira Code', monospace",
+														fontFamily: "'SF Mono', 'Fira Code', monospace",
 														lineHeight: 1.5,
 														resize: "vertical",
 													}}
@@ -329,9 +325,7 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 													}}
 												>
 													<button
-														onClick={() =>
-															handleSave(file.path)
-														}
+														onClick={() => handleSave(file.path)}
 														style={{
 															padding: "4px 12px",
 															fontSize: 11,
@@ -342,19 +336,14 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 															fontWeight: 500,
 														}}
 													>
-														{saveStatus === "saving"
-															? "Saving..."
-															: "Save"}
+														{saveStatus === "saving" ? "Saving..." : "Save"}
 													</button>
 													<button
-														onClick={() =>
-															setEditingPath(null)
-														}
+														onClick={() => setEditingPath(null)}
 														style={{
 															padding: "4px 12px",
 															fontSize: 11,
-															background:
-																"var(--bg-surface)",
+															background: "var(--bg-surface)",
 															color: "var(--muted)",
 															borderRadius: 4,
 															border: "1px solid var(--border)",
@@ -380,12 +369,10 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 														lineHeight: 1.5,
 														whiteSpace: "pre-wrap",
 														wordBreak: "break-word",
-														fontFamily:
-															"'SF Mono', 'Fira Code', monospace",
+														fontFamily: "'SF Mono', 'Fira Code', monospace",
 													}}
 												>
-													{file.content ||
-														"(empty file)"}
+													{file.content || "(empty file)"}
 												</pre>
 												<div
 													style={{
@@ -395,14 +382,11 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 													}}
 												>
 													<button
-														onClick={() =>
-															handleStartEdit(file)
-														}
+														onClick={() => handleStartEdit(file)}
 														style={{
 															padding: "4px 12px",
 															fontSize: 11,
-															background:
-																"var(--bg-surface)",
+															background: "var(--bg-surface)",
 															color: "var(--accent)",
 															borderRadius: 4,
 															border: "1px solid var(--accent)",
@@ -413,16 +397,11 @@ export function ContextPanel({ onFileClick }: ContextPanelProps) {
 													</button>
 													{onFileClick && (
 														<button
-															onClick={() =>
-																onFileClick(
-																	file.path,
-																)
-															}
+															onClick={() => onFileClick(file.path)}
 															style={{
 																padding: "4px 12px",
 																fontSize: 11,
-																background:
-																	"var(--bg-surface)",
+																background: "var(--bg-surface)",
 																color: "var(--muted)",
 																borderRadius: 4,
 																border: "1px solid var(--border)",

@@ -13,7 +13,7 @@ Run multiple coding agents simultaneously, each in an isolated Git worktree.
 
 - [-] **Git worktree isolation** — Create a new worktree + branch per agent task so parallel agents never conflict with each other or the main working tree _(worktrees created with issue-based branch names from Linear; linked issues auto-transition to "In Progress" on start and "Done" on agent completion; linked worktree badges in TaskBoard and ProjectList)_
 - [x] **Agent dashboard** — Bird's-eye view of all running agents: status, current task, branch, token usage _(AgentDashboard component with summary bar, per-agent cards showing status/branch/task/tokens/cost/duration/model, 3s polling, click-to-switch; "Agents" nav button in sidebar with active count badge; `getAgentDashboardData` IPC handler aggregating all sessions)_
-- [ ] **Wire subagents through Harness config** — Use `HarnessConfig.subagents` and the built-in subagent tool instead of manual tool creation
+- [x] **Wire subagents through Harness config** — Use `HarnessConfig.subagents` and the built-in subagent tool instead of manual tool creation _(local manual `createSubagentTool` removed; Electron now passes upstream-style `explore`, `plan`, and `execute` subagents into `createMastraCode`)_
 - [x] **Agent notifications** — Desktop notifications when an agent finishes, errors, or needs approval _(desktop `Notification` API, dock badge, in-app bell, and sound all implemented; configurable via Settings)_
 - [x] **Agent cost tracking** — Per-agent token usage and cost breakdown across parallel sessions _(cost estimation with static model pricing table, per-agent and global totals displayed in Agent Dashboard; token values now correct after `getTokenUsage()` fix in `@mastra/core@1.9.0`)_
 
@@ -44,12 +44,12 @@ Use more of the published `@mastra/core/harness` capabilities.
 
 Tracked in [UPSTREAM_HARNESS_GAPS.md](./UPSTREAM_HARNESS_GAPS.md). Key items:
 
-- [ ] `Harness.deleteThread()` — Actually delete threads from storage
+- [x] `Harness.deleteThread()` — Actually delete threads from storage _(wired through `harness.memory.deleteThread()` in @mastra/core@1.32.1)_
 - [x] Extensible `emitEvent` — Custom event types without `as any` casts _(resolved in @mastra/core@1.8.0)_
 - [x] Typed event payloads — `thread_changed`, `thread_created`, `error` fields _(resolved in @mastra/core@1.8.0)_
 - [x] `HarnessRequestContext.registerQuestion` / `registerPlanApproval` in published types _(resolved in @mastra/core@1.8.0)_
-- [ ] `HarnessConfig.hookManager` — Pass hook manager through config instead of external wiring
-- [ ] `HarnessConfig.mcpManager` — Pass MCP manager through config instead of ad-hoc tool injection
+- [x] `HarnessConfig.hookManager` — Pass hook manager through config instead of external wiring _(resolved upstream in local `mastra` checkout; pending package bump in this app)_
+- [x] `HarnessConfig.mcpManager` — Pass MCP manager through config instead of ad-hoc tool injection _(resolved upstream in local `mastra` checkout; pending package bump in this app)_
 - [x] ~~`HarnessConfig.getToolsets`~~ — Provider-native web search now passed directly via `tools` function (Anthropic, OpenAI, Google fallback cascade); no `getToolsets` config needed
 - [x] ~~`getTokenUsage()` returns zeros~~ — AI SDK v6 field name mismatch fixed in `@mastra/core@1.9.0`
 - [x] ~~`createMastraCode` does not export `resolveModel`~~ — fixed in `mastracode@0.5.0`; local workaround removed
@@ -75,7 +75,7 @@ Structured task tracking and context sharing across agents.
 ## MCP & Tool Extensibility
 
 - [x] **MCP server management UI** — Configure, toggle, and monitor MCP servers from the app (user, project, and local scopes) _(MCP tab in Settings shows server statuses with connection indicator, tool count, and tool names; add/remove servers with project or global scope; reload all servers)_
-- [ ] **Wire MCP through Harness** — Pass `mcpManager` through `HarnessConfig` instead of external management
+- [x] **Wire MCP through Harness** — Pass `mcpManager` through `HarnessConfig` instead of external management _(resolved upstream in local `mastra` checkout; pending package bump in this app)_
 - [x] **Native web search** — Provider-native web search (Anthropic, OpenAI, Google) passed directly via `tools` function with Tavily fallback _(provider-defined tools handled by `CoreToolBuilder.buildProviderTool()`; cascade in `main.ts` ~line 481)_
 - [x] **Tool confirmation with `always_allow_category`** — Surface the harness's category-level auto-approve in the UI (not just per-call approve/decline) _(ToolApprovalDialog now includes "Always allow [category]" button that grants session-wide auto-approve for the category)_
 

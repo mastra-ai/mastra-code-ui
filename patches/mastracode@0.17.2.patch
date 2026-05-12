@@ -1,0 +1,62 @@
+diff --git a/dist/chunk-BHK3OFI3.cjs b/dist/chunk-BHK3OFI3.cjs
+index 10820e649443e86a1d053fccde6af0e271b98689..8b8df12289bc0ac564d9f38073aa757a9efefd0f 100644
+--- a/dist/chunk-BHK3OFI3.cjs
++++ b/dist/chunk-BHK3OFI3.cjs
+@@ -1119,10 +1119,10 @@ function buildAnthropicOAuthFetch(opts = {}) {
+       });
+     }
+     headers.set("Authorization", `Bearer ${accessToken}`);
+-    headers.set(
+-      "anthropic-beta",
+-      "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
+-    );
++    const sdkBeta = headers.get("anthropic-beta") ?? "";
++    const oauthBeta = "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14";
++    const mergedBeta = sdkBeta ? `${oauthBeta},${sdkBeta}` : oauthBeta;
++    headers.set("anthropic-beta", mergedBeta);
+     headers.set("anthropic-version", "2023-06-01");
+     try {
+       return await fetch(url, { ...init, headers });
+@@ -1201,7 +1201,10 @@ function createCodexMiddleware(reasoningEffort) {
+           // Enable reasoning for Codex models — without this, the model
+           // skips the reasoning/action phase and goes straight to final_answer,
+           // resulting in narration instead of tool calls.
+-          ...reasoningEffort ? { reasoningEffort } : {}
++          ...reasoningEffort ? {
++            reasoningEffort,
++            reasoningSummary: "auto"
++          } : {}
+         }
+       };
+       return params;
+diff --git a/dist/chunk-ZYG7WE7V.js b/dist/chunk-ZYG7WE7V.js
+index 15359e02ce04318e0fb406992cd2f6a59f697a5b..b27a25349f5db96bf57f7a75082f92770a1cbc13 100644
+--- a/dist/chunk-ZYG7WE7V.js
++++ b/dist/chunk-ZYG7WE7V.js
+@@ -1094,10 +1094,10 @@ function buildAnthropicOAuthFetch(opts = {}) {
+       });
+     }
+     headers.set("Authorization", `Bearer ${accessToken}`);
+-    headers.set(
+-      "anthropic-beta",
+-      "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
+-    );
++    const sdkBeta = headers.get("anthropic-beta") ?? "";
++    const oauthBeta = "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14";
++    const mergedBeta = sdkBeta ? `${oauthBeta},${sdkBeta}` : oauthBeta;
++    headers.set("anthropic-beta", mergedBeta);
+     headers.set("anthropic-version", "2023-06-01");
+     try {
+       return await fetch(url, { ...init, headers });
+@@ -1176,7 +1176,10 @@ function createCodexMiddleware(reasoningEffort) {
+           // Enable reasoning for Codex models — without this, the model
+           // skips the reasoning/action phase and goes straight to final_answer,
+           // resulting in narration instead of tool calls.
+-          ...reasoningEffort ? { reasoningEffort } : {}
++          ...reasoningEffort ? {
++            reasoningEffort,
++            reasoningSummary: "auto"
++          } : {}
+         }
+       };
+       return params;

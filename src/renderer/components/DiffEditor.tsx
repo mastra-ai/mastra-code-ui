@@ -28,7 +28,7 @@ export function DiffEditor({ filePath, onClose, onOpenFile }: DiffEditorProps) {
 				setDiff(result.diff || "")
 			} catch (err: unknown) {
 				setError(
-					err instanceof Error ? err.message : "Failed to load diff",
+					err instanceof Error ? err.message : "We couldn't load the diff. Retry, or check the file.",
 				)
 			} finally {
 				setLoading(false)
@@ -93,7 +93,7 @@ export function DiffEditor({ filePath, onClose, onOpenFile }: DiffEditorProps) {
 							: "Switch to inline"
 					}
 				>
-					{viewMode === "inline" ? "Side-by-Side" : "Inline"}
+					{viewMode === "inline" ? "Side-by-side" : "Inline"}
 				</button>
 				<button
 					onClick={() => onOpenFile(filePath)}

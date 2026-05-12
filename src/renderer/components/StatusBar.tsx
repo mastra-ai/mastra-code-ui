@@ -1,11 +1,11 @@
+import { useEffect, useRef, useState } from "react"
 import type { TokenUsage, OMProgressState } from "../types/ipc"
+import { formatModelName } from "../utils/modelDisplay"
+import { ChevronRightIcon, TinyChevronDownIcon } from "./Icons"
 import { OMTokenTracker } from "./OMTokenTracker"
 
-const OBSERVER_COLOR = "#fdac53"
-const REFLECTOR_COLOR = "#ff69cc"
-const WARNING_COLOR = "#f59e0b"
-const THINKING_COLOR = "#f59e0b"
-const PLAN_COLOR = "#2563eb"
+const OBSERVER_COLOR = "var(--om-observer)"
+const REFLECTOR_COLOR = "var(--om-reflector)"
 
 interface StatusBarProps {
 	modeId: string
@@ -14,15 +14,14 @@ interface StatusBarProps {
 	isAgentActive: boolean
 	projectName?: string
 	gitBranch?: string
+	thinkingLevel: string
+	onSetThinkingLevel: (level: string) => void
+	onSelectModel: (modelId: string) => void
 	onOpenModelSelector: () => void
 	omProgress?: OMProgressState | null
 	omModelIds?: { observer: string; reflector: string }
 	loggedInProviders?: Set<string>
 	onOpenOMSettings?: () => void
-	thinkingEnabled: boolean
-	onToggleThinking: () => void
-	planningEnabled: boolean
-	onTogglePlanning: () => void
 }
 
 const modeColors: Record<string, string> = {
@@ -30,6 +29,19 @@ const modeColors: Record<string, string> = {
 	plan: "var(--mode-plan)",
 	fast: "var(--mode-fast)",
 }
+
+const thinkingOptions = [
+	{ value: "off", label: "Off" },
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+	{ value: "xhigh", label: "Extra High" },
+]
+
+const quickModels = [
+	{ id: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex" },
+	{ id: "openai/gpt-5.2-codex", label: "GPT-5.2 Codex" },
+]
 
 function formatTokens(n: number): string {
 	if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M"
@@ -50,16 +62,38 @@ export function StatusBar({
 	tokenUsage,
 	isAgentActive,
 	gitBranch,
+	thinkingLevel,
+	onSetThinkingLevel,
+	onSelectModel,
 	onOpenModelSelector,
 	omProgress,
 	omModelIds,
 	loggedInProviders,
 	onOpenOMSettings,
-	thinkingEnabled,
-	onToggleThinking,
-	planningEnabled,
-	onTogglePlanning,
 }: StatusBarProps) {
+	const intelligenceMenuRef = useRef<HTMLDivElement>(null)
+	const [showIntelligenceMenu, setShowIntelligenceMenu] = useState(false)
+
+	useEffect(() => {
+		if (!showIntelligenceMenu) return
+
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target as Node
+			if (intelligenceMenuRef.current?.contains(target)) return
+			setShowIntelligenceMenu(false)
+		}
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setShowIntelligenceMenu(false)
+		}
+
+		document.addEventListener("pointerdown", handlePointerDown)
+		document.addEventListener("keydown", handleKeyDown)
+		return () => {
+			document.removeEventListener("pointerdown", handlePointerDown)
+			document.removeEventListener("keydown", handleKeyDown)
+		}
+	}, [showIntelligenceMenu])
+
 	// OM status overrides badge when observing/reflecting
 	const omStatus = omProgress?.status
 	const isObserving = omStatus === "observing"
@@ -70,12 +104,16 @@ export function StatusBar({
 		? isObserving
 			? OBSERVER_COLOR
 			: REFLECTOR_COLOR
-		: modeColors[modeId] ?? "var(--accent)"
+		: (modeColors[modeId] ?? "var(--accent)")
 
-	// Extract short model name
-	const modelShort = modelId.includes("/")
-		? modelId.split("/").pop()
-		: modelId || "no model"
+	const modelLabel = formatModelName(modelId)
+	const modelOptions = [
+		...(modelId ? [{ id: modelId, label: modelLabel }] : []),
+		...quickModels.filter((model) => model.id !== modelId),
+	]
+	const thinkingLabel =
+		thinkingOptions.find((option) => option.value === thinkingLevel)?.label ??
+		"Off"
 
 	// Check if OM models are authenticated
 	const omHasUnauthModel =
@@ -99,6 +137,10 @@ export function StatusBar({
 				fontSize: 11,
 				color: "var(--muted)",
 				flexShrink: 0,
+				minWidth: 0,
+				overflow: "visible",
+				whiteSpace: "nowrap",
+				position: "relative",
 			}}
 		>
 			{/* Git branch (leftmost) */}
@@ -108,31 +150,240 @@ export function StatusBar({
 						display: "flex",
 						alignItems: "center",
 						gap: 3,
+						minWidth: 0,
+						maxWidth: "42%",
+						overflow: "hidden",
+						textOverflow: "ellipsis",
+						whiteSpace: "nowrap",
 					}}
+					title={gitBranch}
 				>
-					<span style={{ color: "var(--accent)", fontSize: 12 }}>
+					<span style={{ color: "var(--accent)", fontSize: 12, flexShrink: 0 }}>
 						&#x2387;
 					</span>
-					{gitBranch}
+					<span
+						style={{
+							minWidth: 0,
+							overflow: "hidden",
+							textOverflow: "ellipsis",
+							whiteSpace: "nowrap",
+						}}
+					>
+						{gitBranch}
+					</span>
 				</span>
 			)}
 
-			{/* Model name (clickable) */}
-			<button
-				onClick={onOpenModelSelector}
-				style={{
-					background: "transparent",
-					border: "none",
-					color: "var(--muted)",
-					cursor: "pointer",
-					fontSize: 11,
-					padding: "1px 4px",
-					borderRadius: 3,
-				}}
-				title="Change model"
+			{/* Model + thinking selector */}
+			<div
+				ref={intelligenceMenuRef}
+				style={{ position: "relative", flexShrink: 0 }}
 			>
-				{modelShort}
-			</button>
+				<button
+					onClick={() => setShowIntelligenceMenu((open) => !open)}
+					style={{
+						display: "inline-flex",
+						alignItems: "center",
+						gap: 6,
+						background: showIntelligenceMenu
+							? "var(--bg-elevated)"
+							: "transparent",
+						color: "var(--text)",
+						border: showIntelligenceMenu
+							? "1px solid var(--border)"
+							: "1px solid transparent",
+						height: 28,
+						padding: "0 8px",
+						borderRadius: 6,
+						fontSize: 11,
+						fontWeight: 500,
+						cursor: "pointer",
+						fontFamily: "inherit",
+						lineHeight: 1,
+						maxWidth: 220,
+						transition:
+							"color 0.15s ease, background 0.15s ease, border-color 0.15s ease",
+					}}
+					onMouseEnter={(e) => {
+						e.currentTarget.style.background = "var(--bg-elevated)"
+						e.currentTarget.style.borderColor = "var(--border)"
+					}}
+					onMouseLeave={(e) => {
+						e.currentTarget.style.background = showIntelligenceMenu
+							? "var(--bg-elevated)"
+							: "transparent"
+						e.currentTarget.style.borderColor = showIntelligenceMenu
+							? "var(--border)"
+							: "transparent"
+					}}
+					title={`${modelLabel} · ${thinkingLabel}`}
+				>
+					<span
+						style={{
+							overflow: "hidden",
+							textOverflow: "ellipsis",
+							whiteSpace: "nowrap",
+							minWidth: 0,
+						}}
+					>
+						{modelLabel}
+					</span>
+					<span style={{ color: "var(--muted)", flexShrink: 0 }}>
+						{thinkingLabel}
+					</span>
+					<TinyChevronDownIcon
+						style={{
+							color: "var(--muted)",
+							flexShrink: 0,
+						}}
+					/>
+				</button>
+				{showIntelligenceMenu && (
+					<div
+						style={{
+							position: "absolute",
+							left: 0,
+							bottom: "calc(100% + 8px)",
+							width: 220,
+							padding: 4,
+							borderRadius: 8,
+							background: "var(--bg-elevated)",
+							border: "1px solid var(--border)",
+							boxShadow: "var(--shadow-elevated)",
+							zIndex: 80,
+						}}
+					>
+						<div
+							style={{
+								padding: "5px 8px",
+								fontSize: 10,
+								color: "var(--dim)",
+								fontWeight: 500,
+								textTransform: "uppercase",
+								letterSpacing: "0.5px",
+							}}
+						>
+							Intelligence
+						</div>
+						{thinkingOptions.map((option) => {
+							const selected = option.value === thinkingLevel
+							return (
+								<button
+									key={option.value}
+									className="ui-hover-item"
+									data-selected={selected ? "true" : undefined}
+									onClick={() => {
+										onSetThinkingLevel(option.value)
+										setShowIntelligenceMenu(false)
+									}}
+									style={{
+										width: "100%",
+										display: "flex",
+										alignItems: "center",
+										gap: 8,
+										justifyContent: "space-between",
+										padding: "7px 8px",
+										borderRadius: 4,
+										background: selected ? "var(--bg-hover)" : "transparent",
+										color: "var(--text)",
+										fontSize: 12,
+										fontWeight: 500,
+										textAlign: "left",
+										cursor: "pointer",
+										fontFamily: "inherit",
+									}}
+								>
+									{option.label}
+									{selected && (
+										<span
+											style={{
+												width: 5,
+												height: 5,
+												borderRadius: "50%",
+												background: "var(--accent)",
+											}}
+										/>
+									)}
+								</button>
+							)
+						})}
+						<div
+							style={{
+								height: 1,
+								margin: "4px 8px",
+								background: "var(--border-muted)",
+							}}
+						/>
+						{modelOptions.map((model) => {
+							const selected = model.id === modelId
+							return (
+								<button
+									key={model.id}
+									className="ui-hover-item"
+									data-selected={selected ? "true" : undefined}
+									onClick={() => {
+										onSelectModel(model.id)
+										setShowIntelligenceMenu(false)
+									}}
+									style={{
+										width: "100%",
+										display: "flex",
+										alignItems: "center",
+										gap: 8,
+										justifyContent: "space-between",
+										padding: "7px 8px",
+										borderRadius: 4,
+										background: selected ? "var(--bg-hover)" : "transparent",
+										color: "var(--text)",
+										fontSize: 12,
+										fontWeight: 500,
+										textAlign: "left",
+										cursor: "pointer",
+										fontFamily: "inherit",
+									}}
+								>
+									{model.label}
+									{selected && (
+										<span
+											style={{
+												width: 5,
+												height: 5,
+												borderRadius: "50%",
+												background: "var(--accent)",
+											}}
+										/>
+									)}
+								</button>
+							)
+						})}
+						<button
+							className="ui-hover-item"
+							onClick={() => {
+								setShowIntelligenceMenu(false)
+								onOpenModelSelector()
+							}}
+							style={{
+								width: "100%",
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "space-between",
+								padding: "7px 8px",
+								borderRadius: 4,
+								background: "transparent",
+								color: "var(--text)",
+								fontSize: 12,
+								fontWeight: 500,
+								textAlign: "left",
+								cursor: "pointer",
+								fontFamily: "inherit",
+							}}
+						>
+							<span>More Models</span>
+							<ChevronRightIcon style={{ color: "var(--muted)" }} />
+						</button>
+					</div>
+				)}
+			</div>
 
 			{/* Running indicator */}
 			{isAgentActive && (
@@ -141,7 +392,11 @@ export function StatusBar({
 						display: "flex",
 						alignItems: "center",
 						gap: 4,
-						color: showOMMode ? badgeColor : (modeColors[modeId] ?? "var(--accent)"),
+						color: showOMMode
+							? badgeColor
+							: (modeColors[modeId] ?? "var(--accent)"),
+						flexShrink: 0,
+						whiteSpace: "nowrap",
 					}}
 				>
 					<span
@@ -149,55 +404,15 @@ export function StatusBar({
 							width: 5,
 							height: 5,
 							borderRadius: "50%",
-							background: showOMMode ? badgeColor : (modeColors[modeId] ?? "var(--accent)"),
+							background: showOMMode
+								? badgeColor
+								: (modeColors[modeId] ?? "var(--accent)"),
 							animation: "pulse 1.5s ease-in-out infinite",
 						}}
 					/>
 					{showOMMode ? (isObserving ? "observing" : "reflecting") : "running"}
 				</span>
 			)}
-
-			{/* Thinking toggle */}
-			<button
-				onClick={onToggleThinking}
-				style={{
-					background: thinkingEnabled ? THINKING_COLOR + "22" : "transparent",
-					color: thinkingEnabled ? THINKING_COLOR : "var(--muted)",
-					border: thinkingEnabled ? `1px solid ${THINKING_COLOR}44` : "1px solid transparent",
-					padding: "1px 8px",
-					borderRadius: 3,
-					fontSize: 11,
-					fontWeight: 500,
-					cursor: "pointer",
-					fontFamily: "inherit",
-					transition: "all 0.15s ease",
-					opacity: thinkingEnabled ? 1 : 0.6,
-				}}
-				title={thinkingEnabled ? "Thinking enabled (click to disable)" : "Thinking disabled (click to enable)"}
-			>
-				thinking
-			</button>
-
-			{/* Planning toggle */}
-			<button
-				onClick={onTogglePlanning}
-				style={{
-					background: planningEnabled ? PLAN_COLOR + "22" : "transparent",
-					color: planningEnabled ? PLAN_COLOR : "var(--muted)",
-					border: planningEnabled ? `1px solid ${PLAN_COLOR}44` : "1px solid transparent",
-					padding: "1px 8px",
-					borderRadius: 3,
-					fontSize: 11,
-					fontWeight: 500,
-					cursor: "pointer",
-					fontFamily: "inherit",
-					transition: "all 0.15s ease",
-					opacity: planningEnabled ? 1 : 0.6,
-				}}
-				title={planningEnabled ? "Plan mode (click to switch to build)" : "Build mode (click to switch to plan)"}
-			>
-				plan
-			</button>
 
 			<div style={{ flex: 1 }} />
 
@@ -206,9 +421,9 @@ export function StatusBar({
 				<button
 					onClick={onOpenOMSettings}
 					style={{
-						background: WARNING_COLOR + "18",
-						color: WARNING_COLOR,
-						border: `1px solid ${WARNING_COLOR}44`,
+						background: "var(--color-warning-bg)",
+						color: "var(--warning)",
+						border: "1px solid var(--color-warning-border)",
 						borderRadius: 3,
 						padding: "1px 8px",
 						fontSize: 10,
@@ -218,8 +433,10 @@ export function StatusBar({
 						display: "flex",
 						alignItems: "center",
 						gap: 4,
+						flexShrink: 0,
+						whiteSpace: "nowrap",
 					}}
-					title="OM memory models need authentication — click to configure"
+					title="OM memory models need authentication. Click to configure."
 				>
 					<span style={{ fontSize: 11 }}>&#x26A0;</span>
 					OM model not connected
@@ -235,12 +452,15 @@ export function StatusBar({
 						width: 1,
 						height: 10,
 						background: "var(--border-muted)",
+						flexShrink: 0,
 					}}
 				/>
 			)}
 
 			{/* Token usage */}
-			<span>{formatTokens(tokenUsage.totalTokens)} tokens</span>
+			<span style={{ flexShrink: 0, whiteSpace: "nowrap" }}>
+				{formatTokens(tokenUsage.totalTokens)} tokens
+			</span>
 		</div>
 	)
 }

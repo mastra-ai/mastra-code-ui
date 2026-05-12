@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react"
+import { ExternalLinkSmallIcon } from "./Icons"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 
@@ -237,11 +238,7 @@ export const FileEditor = forwardRef<FileEditorHandle, FileEditorProps>(function
 						background: "transparent",
 					}}
 				>
-					<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-						<path d="M12 9v4H3V4h4" />
-						<path d="M9 2h5v5" />
-						<path d="M14 2L7 9" />
-					</svg>
+					<ExternalLinkSmallIcon width="14" height="14" />
 				</button>
 				{isDirty && !saving && (
 					<button

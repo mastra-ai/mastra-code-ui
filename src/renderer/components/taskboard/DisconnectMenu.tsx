@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { LinearIcon, GitHubIcon } from "./icons"
+import { GitHubMarkIcon, LinearIcon } from "../Icons"
 
 export function DisconnectMenu({
 	linearConnected,
@@ -86,7 +86,7 @@ export function DisconnectMenu({
 								border: "none",
 							}}
 						>
-							<GitHubIcon size={10} /> Disconnect GitHub
+							<GitHubMarkIcon size={10} /> Disconnect GitHub
 						</button>
 					)}
 				</div>

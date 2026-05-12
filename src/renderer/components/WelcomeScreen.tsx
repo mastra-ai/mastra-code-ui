@@ -122,7 +122,7 @@ function ProviderCard({
 								border: "none",
 							}}
 						>
-							Sign In
+							Sign in
 						</button>
 					)}
 					<button
@@ -138,7 +138,7 @@ function ProviderCard({
 							border: "1px solid var(--border)",
 						}}
 					>
-						API Key
+						API key
 					</button>
 				</div>
 			</div>
@@ -219,7 +219,7 @@ export function WelcomeScreen({ onLogin, onApiKey, onSkip }: WelcomeScreenProps)
 						marginBottom: 8,
 					}}
 				>
-					Mastra Code
+					MastraCode
 				</div>
 				<div
 					style={{
@@ -228,7 +228,7 @@ export function WelcomeScreen({ onLogin, onApiKey, onSkip }: WelcomeScreenProps)
 						lineHeight: 1.6,
 					}}
 				>
-					AI-powered coding assistant. Connect a provider to get started.
+					A coding agent for your repo. Connect a provider to begin.
 				</div>
 			</div>
 
@@ -269,7 +269,7 @@ export function WelcomeScreen({ onLogin, onApiKey, onSkip }: WelcomeScreenProps)
 					e.currentTarget.style.color = "var(--dim)"
 				}}
 			>
-				Skip — use shared models without login
+				Skip. Use shared models without sign-in.
 			</button>
 		</div>
 	)

@@ -1,7 +1,16 @@
 import { useState } from "react"
 import Ansi from "ansi-to-react"
+import { FileMentionChip, isFileToken } from "./FileMentionChip"
+import { QuestionIcon } from "./Icons"
+import type { ToolQuestionState } from "../types/chat"
+import {
+	formatQuestionAnswer,
+	isRecord,
+	normalizeAskUserQuestion,
+	normalizeAskUserResult,
+} from "../utils/askUser"
 
-interface ToolExecutionProps {
+export interface ToolExecutionProps {
 	tool: {
 		id: string
 		name: string
@@ -10,7 +19,9 @@ interface ToolExecutionProps {
 		isError?: boolean
 		status: string
 		shellOutput?: string
+		question?: ToolQuestionState
 	}
+	onFileClick?: (filePath: string) => void
 }
 
 function formatArgs(args: unknown): string {
@@ -31,6 +42,19 @@ function formatResult(result: unknown): string {
 	} catch {
 		return String(result)
 	}
+}
+
+function getAskUserQuestion(
+	tool: ToolExecutionProps["tool"],
+): ReturnType<typeof normalizeAskUserQuestion> {
+	if (tool.question) {
+		return normalizeAskUserQuestion(tool.question)
+	}
+	if (!isRecord(tool.args)) {
+		return null
+	}
+
+	return normalizeAskUserQuestion(tool.args)
 }
 
 // Extract file path from various arg shapes
@@ -63,7 +87,9 @@ function countResultLines(result: unknown): number | null {
 }
 
 // Get diff counts for edit tools
-function getDiffCounts(args: unknown): { added: number; removed: number } | null {
+function getDiffCounts(
+	args: unknown,
+): { added: number; removed: number } | null {
 	if (!args || typeof args !== "object") return null
 	const a = args as Record<string, unknown>
 	const oldStr = a.old_str as string | undefined
@@ -269,8 +295,101 @@ function getToolDisplay(tool: ToolExecutionProps["tool"]): ToolDisplay {
 	}
 }
 
-export function ToolExecution({ tool }: ToolExecutionProps) {
+function AskUserToolExecution({ tool }: { tool: ToolExecutionProps["tool"] }) {
+	const question = getAskUserQuestion(tool)
+	const normalizedResult = normalizeAskUserResult(tool.result, tool.isError)
+	const submittedAnswer = formatQuestionAnswer(tool.question?.answer)
+	const answer = normalizedResult.answer ?? submittedAnswer
+	const headline = question?.question || "Asking question"
+	const isError = tool.status === "error" || normalizedResult.isError
+	const isPreparingQuestion =
+		tool.status === "running" && tool.question?.responseEnabled === false
+	const isAnswered =
+		tool.status === "complete" &&
+		!isError &&
+		!normalizedResult.skipped &&
+		answer
+	const isSubmitting =
+		tool.status === "running" &&
+		tool.question?.responseStatus === "submitted" &&
+		submittedAnswer
+	const isWaiting =
+		tool.status === "running" && !isSubmitting && !isPreparingQuestion
+	const isCompleteWithoutAnswer =
+		tool.status === "complete" &&
+		!isError &&
+		(!answer || normalizedResult.skipped)
+	const statusLabel = isAnswered
+		? "Answered"
+		: isPreparingQuestion
+			? "Preparing question"
+			: isSubmitting
+				? "Submitting"
+				: isError
+					? normalizedResult.content || "Interrupted"
+					: isCompleteWithoutAnswer
+						? normalizedResult.skipped
+							? "Skipped"
+							: normalizedResult.content || "Completed"
+						: isWaiting
+							? "Waiting for response"
+							: "Preparing question"
+	const stateName = isAnswered
+		? "answered"
+		: isPreparingQuestion
+			? "preparing"
+			: isSubmitting
+				? "submitting"
+				: isError
+					? "error"
+					: isCompleteWithoutAnswer
+						? "complete"
+						: "waiting"
+
+	if (isAnswered) {
+		return (
+			<div className="ask-user-tool-card" data-question-state={stateName}>
+				<div className="ask-user-tool-card-header">
+					<QuestionIcon className="ask-user-tool-icon" />
+					<span>
+						{question?.selectionMode === "multi_select" ? "Answers" : "Answer"}
+					</span>
+				</div>
+				<div className="ask-user-tool-card-body">
+					<div className="ask-user-tool-question">{headline}</div>
+					<div className="ask-user-tool-answer">{answer}</div>
+				</div>
+			</div>
+		)
+	}
+
+	return (
+		<div className="ask-user-tool-row" data-question-state={stateName}>
+			<QuestionIcon className="ask-user-tool-icon" />
+			<span className="ask-user-tool-label">{headline}</span>
+			<span className="ask-user-tool-separator">•</span>
+			<span
+				className={
+					isError ? "ask-user-tool-status error" : "ask-user-tool-status"
+				}
+			>
+				{statusLabel}
+			</span>
+		</div>
+	)
+}
+
+export function ToolExecution({ tool, onFileClick }: ToolExecutionProps) {
 	const [expanded, setExpanded] = useState(false)
+
+	if (tool.name === "ask_user") {
+		return (
+			<div style={{ margin: "2px 0" }}>
+				<AskUserToolExecution tool={tool} />
+			</div>
+		)
+	}
+
 	const display = getToolDisplay(tool)
 	const resultText = formatResult(tool.result)
 
@@ -294,7 +413,14 @@ export function ToolExecution({ tool }: ToolExecutionProps) {
 				}}
 			>
 				{/* Icon */}
-				<span style={{ fontSize: 14, flexShrink: 0, width: 20, textAlign: "center" }}>
+				<span
+					style={{
+						fontSize: 14,
+						flexShrink: 0,
+						width: 20,
+						textAlign: "center",
+					}}
+				>
 					{display.icon}
 				</span>
 
@@ -304,30 +430,44 @@ export function ToolExecution({ tool }: ToolExecutionProps) {
 				</span>
 
 				{/* Pill badge (file path, command, pattern) */}
-				{display.pill && (
-					<span
-						style={{
-							background: "var(--bg-surface)",
-							padding: "1px 8px",
-							borderRadius: 4,
-							fontFamily: "var(--font-mono, 'SF Mono', Monaco, 'Cascadia Code', monospace)",
-							fontSize: 12,
-							color: "var(--tool-output)",
-							overflow: "hidden",
-							textOverflow: "ellipsis",
-							whiteSpace: "nowrap",
-							maxWidth: 400,
-						}}
-					>
-						{display.pill}
-					</span>
-				)}
+				{display.pill &&
+					(isFileToken(display.pill) ? (
+						<FileMentionChip
+							path={display.pill}
+							variant="message"
+							onOpen={onFileClick}
+						/>
+					) : (
+						<span
+							style={{
+								background: "var(--bg-surface)",
+								padding: "1px 8px",
+								borderRadius: 4,
+								fontFamily:
+									"var(--font-mono, 'SF Mono', Monaco, 'Cascadia Code', monospace)",
+								fontSize: 12,
+								color: "var(--tool-output)",
+								overflow: "hidden",
+								textOverflow: "ellipsis",
+								whiteSpace: "nowrap",
+								maxWidth: 400,
+							}}
+						>
+							{display.pill}
+						</span>
+					))}
 
 				{/* Diff counts */}
 				{display.diffCounts && (
-					<span style={{ display: "flex", gap: 4, fontSize: 12, flexShrink: 0 }}>
-						<span style={{ color: "#22c55e" }}>+{display.diffCounts.added}</span>
-						<span style={{ color: "#ef4444" }}>-{display.diffCounts.removed}</span>
+					<span
+						style={{ display: "flex", gap: 4, fontSize: 12, flexShrink: 0 }}
+					>
+						<span style={{ color: "var(--terminal-green)" }}>
+							+{display.diffCounts.added}
+						</span>
+						<span style={{ color: "var(--color-red)" }}>
+							-{display.diffCounts.removed}
+						</span>
 					</span>
 				)}
 
@@ -350,7 +490,14 @@ export function ToolExecution({ tool }: ToolExecutionProps) {
 					)}
 
 				{/* Status indicator */}
-				<span style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center" }}>
+				<span
+					style={{
+						marginLeft: "auto",
+						flexShrink: 0,
+						display: "flex",
+						alignItems: "center",
+					}}
+				>
 					{tool.status === "running" && (
 						<span
 							style={{
@@ -363,10 +510,14 @@ export function ToolExecution({ tool }: ToolExecutionProps) {
 						/>
 					)}
 					{tool.status === "complete" && !tool.isError && (
-						<span style={{ color: "var(--success)", fontSize: 11 }}>&#10003;</span>
+						<span style={{ color: "var(--success)", fontSize: 11 }}>
+							&#10003;
+						</span>
 					)}
 					{tool.status === "error" && (
-						<span style={{ color: "var(--error)", fontSize: 11 }}>&#10007;</span>
+						<span style={{ color: "var(--error)", fontSize: 11 }}>
+							&#10007;
+						</span>
 					)}
 				</span>
 			</button>
@@ -424,10 +575,10 @@ export function ToolExecution({ tool }: ToolExecutionProps) {
 							</div>
 							<pre
 								style={{
-									background: "#000",
+									background: "var(--color-black)",
 									padding: 8,
 									borderRadius: 4,
-									color: "#e5e5e5",
+									color: "var(--color-text-soft)",
 									fontSize: 11,
 									overflow: "auto",
 									maxHeight: 300,
@@ -484,9 +635,7 @@ export function ToolExecution({ tool }: ToolExecutionProps) {
 									background: "var(--bg)",
 									padding: 8,
 									borderRadius: 4,
-									color: tool.isError
-										? "var(--error)"
-										: "var(--tool-output)",
+									color: tool.isError ? "var(--error)" : "var(--tool-output)",
 									fontSize: 11,
 									overflow: "auto",
 									maxHeight: 300,
